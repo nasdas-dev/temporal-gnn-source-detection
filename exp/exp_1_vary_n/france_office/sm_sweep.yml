@@ -1,0 +1,26 @@
+program: "main_sm.py"
+method: grid
+parameters:
+  eval_name:
+    value: "exp/exp_1_vary_n/france_office/eval.yml"
+  data_name:
+    value: "exp_1_vary_n.france_office:latest"
+  a:
+    value: [0.007, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.1, 0.15, 0.2, 0.4]
+  n_reps:
+    values:
+#      - {n: 2, n_truth: 1000, reps: 50}
+#      - {n: 5, n_truth: 1000, reps: 50}
+#      - {n: 10, n_truth: 1000, reps: 50}
+#      - {n: 20, n_truth: 1000, reps: 50}
+#      - {n: 50, n_truth: 1000, reps: 50}
+#      - {n: 100, n_truth: 1000, reps: 20}
+#      - {n: 200, n_truth: 1000, reps: 20}
+#      - {n: 500, n_truth: 1000, reps: 10}
+#      - {n: 1000, n_truth: 1000, reps: 10}
+#      - {n: 2000, n_truth: 500, reps: 10}
+#      - {n: 5000, n_truth: 200, reps: 10}
+#      - {n: 10000, n_truth: 100, reps: 10}
+#      - {n: 20000, n_truth: 50, reps: 20}
+#      - {n: 50000, n_truth: 20, reps: 50}
+      - {n: 100000, n_truth: 10, reps: 100}

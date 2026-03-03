@@ -1,0 +1,5 @@
+eval:
+  min_outbreak: 0 # minimum outbreak size to consider in evaluation
+  top_k: [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 40, 50]
+  inverse_rank_offset: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+

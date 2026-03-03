@@ -1,0 +1,11 @@
+nwk:
+  type: empirical
+  name: karate_static
+  t_max: 25
+sir:
+  beta: 0.03
+  mu: 0.0
+  start_t: 0
+  end_t: 25
+  n_runs: 100
+  mc_runs: 10000000

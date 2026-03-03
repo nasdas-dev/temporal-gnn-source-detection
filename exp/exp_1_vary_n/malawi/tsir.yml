@@ -1,0 +1,12 @@
+nwk:
+  type: empirical
+  name: malawi
+  t_max: 300
+sir:
+  beta: 0.25
+  mu: 0.0
+  start_t: 0
+  end_t: 300
+  n_runs: 1000
+  mc_runs: 500000
+  

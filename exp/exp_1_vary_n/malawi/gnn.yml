@@ -1,0 +1,17 @@
+gnn:
+  num_preprocess_layers: 0
+  embed_dim_preprocess: 16
+  num_postprocess_layers: 0
+  num_conv_layers: 5
+  hidden_channels: 64
+  dropout_rate: 0.1
+  batch_norm: yes
+  batch_size: 128
+  skip: yes
+  lr: 0.001
+  weight_decay: 0.0005
+  test_size: 0.3
+  n_epochs: 100
+  patience: 5
+# TODO: aggregation function
+# TODO: graph layer type

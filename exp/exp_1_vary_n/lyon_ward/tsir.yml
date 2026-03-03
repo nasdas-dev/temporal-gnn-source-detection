@@ -1,0 +1,11 @@
+nwk:
+  type: empirical
+  name: lyon_ward
+  t_max: 96
+sir:
+  beta: 0.06
+  mu: 0.0
+  start_t: 0
+  end_t: 90
+  n_runs: 1000
+  mc_runs: 500000

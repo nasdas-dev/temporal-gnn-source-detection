@@ -1,0 +1,22 @@
+nwk:
+  name: pig_data
+  t_max: 50
+
+sir:
+  beta: 0.8
+  mu: 0.01
+  start_t: 0
+  end_t: 100
+  n_runs: 5
+  seed: 3427425634
+
+mc:
+  n_runs: 10
+  a: .1
+  seed: 56787658
+
+eval:
+  min_outbreak: 5 # minimum outbreak size to consider in evaluation
+  top_k: 3
+  credible: 0.1 # not used at the moment
+  seed: 23452345

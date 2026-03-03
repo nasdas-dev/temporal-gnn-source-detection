@@ -1,0 +1,18 @@
+nwk:
+  name: test
+  t_max: 10
+sir:
+  beta: 0.8
+  mu: 0.01
+  start_t: 0
+  end_t: 10
+  n_runs: 5
+  mc_runs: [10]
+mthd:
+  mc: { weight: [ 1.0 ] } # monte carlo + factorized likelihood
+  sm: { a: [ 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.1, 0.15, 0.2 ] } # monte carlo + soft margin (Jaccard similarity)
+  iba: { weight: [ 1.0 ] } # individual based approximation
+eval:
+  min_outbreak: 0 # minimum outbreak size to consider in evaluation
+  top_k: [ 1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 40, 50 ]
+  inverse_rank_offset: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ]

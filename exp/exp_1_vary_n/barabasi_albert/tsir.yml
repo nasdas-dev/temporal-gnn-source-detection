@@ -1,0 +1,16 @@
+nwk:
+  type: synthetic
+  name: barabasi_albert
+  t_max: 50
+  n: 15
+  m: 2
+  seed: 1
+  directed: no
+sir:
+  beta: 0.147
+  mu: 0.3
+  start_t: 0
+  end_t: 20
+  n_runs: 1000
+  mc_runs: 2000000
+

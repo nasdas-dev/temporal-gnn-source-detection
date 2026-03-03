@@ -1,0 +1,1 @@
+from .static_gnn import StaticGNN

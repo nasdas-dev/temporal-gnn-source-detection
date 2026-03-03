@@ -1,0 +1,13 @@
+program: "main_gnn.py"
+method: grid
+parameters:
+  config_folder:
+    value: "exp/lorenz_true_distr"
+  data_name:
+    value: "lorenz_true_distr.karate_static:latest"
+  n_reps:
+    values:
+      - { n: 10, n_truth: 100, reps: 1 }
+      - { n: 100, n_truth: 100, reps: 1 }
+      - { n: 1000, n_truth: 100, reps: 1 }
+      - { n: 10000, n_truth: 100, reps: 1 }

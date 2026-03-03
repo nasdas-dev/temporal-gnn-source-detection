@@ -1,0 +1,28 @@
+program: "main_mc.py"
+method: grid
+parameters:
+  eval_name:
+    value: "exp/exp_1_vary_n/france_office/eval.yml"
+  data_name:
+    value: "exp_1_vary_n.france_office:latest"
+  weights:
+    value: 1.0
+  exclude:
+    value: [0, 1, 2, 3, 4, 5, 10]
+  n_reps:
+    values:
+#      - {n: 2, reps: 50}
+#      - {n: 5, reps: 50}
+#      - {n: 10, reps: 50}
+#      - {n: 20, reps: 20}
+#      - {n: 50, reps: 10}
+#      - {n: 100, reps: 5}
+#      - {n: 200, reps: 5}
+#      - {n: 500, reps: 5}
+#      - {n: 1000, reps: 5}
+#      - {n: 2000, reps: 5}
+#      - {n: 5000, reps: 1}
+#      - {n: 10000, reps: 1}
+#      - {n: 20000, reps: 1}
+#      - {n: 50000, reps: 1}
+      - {n: 100000, reps: 1}

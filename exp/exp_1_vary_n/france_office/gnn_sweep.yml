@@ -1,0 +1,23 @@
+program: "main_gnn.py"
+method: grid
+parameters:
+  config_folder:
+    value: "exp/exp_1_vary_n/france_office"
+  data_name:
+    value: "exp_1_vary_n.france_office:latest"
+  n_reps:
+    values:
+#      - { n: 5, n_truth: 200, reps: 5 }
+#      - { n: 10, n_truth: 200, reps: 5 }
+#      - { n: 20, n_truth: 200, reps: 5 }
+#      - { n: 50, n_truth: 200, reps: 5 }
+#      - { n: 100, n_truth: 200, reps: 5 }
+#      - { n: 200, n_truth: 200, reps: 5 }
+#      - { n: 500, n_truth: 500, reps: 2 }
+#      - { n: 1000, n_truth: 1000, reps: 1 }
+#      - { n: 2000, n_truth: 1000, reps: 1 }
+#      - { n: 5000, n_truth: 1000, reps: 1 }
+#      - { n: 10000, n_truth: 1000, reps: 1 }
+#      - { n: 20000, n_truth: 1000, reps: 1 }
+#      - { n: 50000, n_truth: 1000, reps: 1 }
+      - { n: 100000, n_truth: 1000, reps: 1 }
