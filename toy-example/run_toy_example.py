@@ -31,7 +31,10 @@ from eval.factorized_likelihood import log_likelihood, source_probabilities
 from eval.ranks import compute_expected_ranks
 from eval.scores import top_k_score, rank_score
 
-# ─── Parameters ───────────────────────────────────────────────────────────────
+########################################
+############### PARAMS #################
+########################################
+
 N        = 10      # number of nodes
 T_MAX    = 20      # network time horizon
 BETA     = 0.30    # per-contact infection probability
@@ -43,7 +46,10 @@ OUT_DIR  = "toy-example/data"
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# ─── 1. Build a small Barabasi–Albert temporal network ────────────────────────
+#######################################
+#### 1. Build Barabasi–Albert graph with N nodes and m=2 edges added per new node
+######################################
+
 print("=" * 60)
 print("1. Network")
 print("=" * 60)
@@ -59,7 +65,9 @@ print(f"   SIR parameters: beta={BETA}, mu={MU}")
 
 H_cread = make_c_readable_from_networkx(G, t_max=T_MAX, directed=False)
 
-# ─── 2. Ground-truth SIR simulations ──────────────────────────────────────────
+########################################
+### 2. Ground-truth SIR simulations (via C tsir code) — used for method evaluation
+######################################
 print("\n" + "=" * 60)
 print("2. Ground-truth SIR simulations")
 print("=" * 60)
@@ -82,8 +90,9 @@ truth_S, truth_I, truth_R = (
     np.fromfile(f"{OUT_DIR}/ground_truth_{s}.bin", dtype=np.int8).reshape(N, N_RUNS, N)
     for s in "SIR"
 )
-
-# ─── 3. Maximal outbreak (beta=1, mu=0) — used for add-one smoothing ──────────
+######################################
+### 3. Maximal outbreak (beta=1, mu=0) — used for add-one smoothing
+######################################
 print("\n   Computing maximal reachable sets (beta=1, mu=0) …")
 tsir_run(
     H_cread,
@@ -96,7 +105,9 @@ tsir_run(
 # maximal_outbreak[s, v] = 1 if node v can ever be infected when s is the source
 maximal_outbreak = np.fromfile(f"{OUT_DIR}/maximal_outbreak_I.bin", dtype=np.int8).reshape(N, N)
 
-# ─── 4. Monte Carlo simulations ───────────────────────────────────────────────
+######################################
+### 4. Monte Carlo simulations
+#######################################
 print("\n" + "=" * 60)
 print("3. Monte Carlo simulations")
 print("=" * 60)
@@ -125,7 +136,7 @@ truth_R_flat = truth_R.reshape(-1, N)
 # sel: only evaluate on outbreaks that infected at least 2 nodes
 sel = (1 - truth_S_flat).sum(axis=1) >= 2
 
-# ─── 5. Monte Carlo Mean Field ────────────────────────────────────────────────
+# 5. Monte Carlo Mean Field
 print("\n" + "=" * 60)
 print("4. Monte Carlo Mean Field")
 print("=" * 60)
@@ -149,7 +160,7 @@ print(f"   Top-1     : {100 * mc_top1:.1f}%")
 print(f"   Top-3     : {100 * mc_top3:.1f}%")
 print(f"   Inv. rank : {mc_ir:.3f}  (random = {1 / N:.3f})")
 
-# ─── 6. Soft Margin (Jaccard) ─────────────────────────────────────────────────
+# 6. Soft Margin (Jaccard)
 print("\n" + "=" * 60)
 print("5. Soft Margin (Jaccard)")
 print("=" * 60)
@@ -168,7 +179,8 @@ print(f"   Top-1     : {100 * sm_top1:.1f}%")
 print(f"   Top-3     : {100 * sm_top3:.1f}%")
 print(f"   Inv. rank : {sm_ir:.3f}  (random = {1 / N:.3f})")
 
-# ─── Summary ──────────────────────────────────────────────────────────────────
+########## Summary ##################
+
 print("\n" + "=" * 60)
 print("Summary")
 print("=" * 60)

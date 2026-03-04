@@ -7,8 +7,8 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
 
 
-# TODO: try attention-based convs like GATConv
-# TODO: try more constrained layer like GCNConv (Kipf and Welling, fixed normalization, fewer parameters)
+# TODO: (maybe) try attention-based convs like GATConv
+# TODO: (maybe) try more constrained layer like GCNConv (Kipf and Welling, fixed normalization, fewer parameters)
 
 class TemporalGNN(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, num_snapshots):
@@ -60,7 +60,7 @@ def temporal_gnn(cfg, H_array, n_nodes, folder, mc_S, mc_I, mc_R, truth_S, truth
     # setup
     X = torch.tensor(np.stack([mc_S, mc_I, mc_R], axis=-1), dtype=torch.float).to(device)
     y = torch.tensor(np.repeat(np.arange(n_nodes), cfg.sir.mc_runs)).to(device)
-    # TODO: group_by_time is a very clumsy way to do it, refine that
+    # TODO: group_by_time is a very clumsy way to do it, tbd
     edge_indeces = temporal_edge_indeces(H_array, start_t=cfg.sir.start_t, end_t=cfg.sir.end_t,
                                          group_by_time=cfg.mthd.tgnn.group_by_time, directed=cfg.nwk.directed)
     edge_indeces = {t: edge_indeces[t].to(device) for t in edge_indeces.keys()}
