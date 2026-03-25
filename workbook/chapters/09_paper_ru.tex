@@ -1,0 +1,498 @@
+\chapter{The Backtracking Network: Temporal Information on Edges}
+
+% =============================================================================
+\section{The Core Idea: Two Philosophies of Temporal Encoding}
+% =============================================================================
+
+We have spent the previous chapter studying the Saram{\"a}ki framework, which solves the temporal-ordering problem by \textbf{rebuilding the graph from scratch}. Events become nodes in a Directed Acyclic Graph (DAG), and every node in that new graph now represents one single contact at one single moment in time. Causality is baked into the topology itself.
+
+This is a powerful strategy. But it comes with a steep cost. Every temporal event $(u, v, t)$ in the original network becomes a node. Every causal adjacency between two events becomes an edge. In the worst case---a densely connected network where everyone meets everyone during a single infectious peak---the number of edges in the DAG can balloon to $O(E^2)$, where $E$ is the number of original contact events. This is the \textbf{Graph Bloat} problem.
+
+The paper \textit{``Inferring Patient Zero on Temporal Networks via Graph Neural Networks''} by Ru, Lu, Wang, and Zeng (AAAI 2023) takes a fundamentally different path. Instead of rebuilding the graph structure, Ru et al.\ keep the original static graph---where nodes are people and edges are social ties---but equip every edge with a \textbf{memory of when it was active}. Temporal information is not encoded in topology; it is encoded in feature vectors that live on the edges.
+
+\begin{conceptbox}{Two Philosophies Side by Side}
+\begin{center}
+\begin{tabular}{p{0.42\textwidth} p{0.42\textwidth}}
+\toprule
+\textbf{Saram{\"a}ki (DAG-GNN)} & \textbf{Ru et al.\ (Backtracking Network)} \\
+\midrule
+\textbf{Strategy:} Change the graph structure. Turn events into nodes. &
+\textbf{Strategy:} Keep the original graph. Put temporal features on edges. \\[4pt]
+
+\textbf{Graph size:} Grows with the number of events $E$. In the worst case, $O(E^2)$ edges in the DAG. &
+\textbf{Graph size:} Identical to the original static graph. $|E|$ edges, each with a $T$-dimensional feature vector. Memory scales as $O(|E| \cdot T)$. \\[4pt]
+
+\textbf{Temporal resolution:} Exact. Every event is a distinct entity. &
+\textbf{Temporal resolution:} Binned. The continuous timeline is divided into $T$ discrete time slices. \\[4pt]
+
+\textbf{Message passing:} Standard GNN on a new graph (events as nodes). &
+\textbf{Message passing:} Novel edge-conditioned scheme: edges update first, then nodes. \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{conceptbox}
+
+\begin{analogybox}{Two Maps of the Same City}
+Imagine you are a detective trying to figure out where a rumour started in a city. You have records of every conversation that happened, with timestamps.
+
+\textbf{The Saram{\"a}ki detective} builds an entirely new map. Instead of streets on the map, they plot each individual conversation as a location. They draw lines between conversations that could have passed the rumour. The result is a new, detailed map of causal flow---but it can be much larger than the original city map.
+
+\textbf{The Ru et al.\ detective} keeps the original city map. But they attach a daily log to every street, recording which hours that street had traffic. The street between Alice's house and Bob's house now has a diary: ``Active on Monday at 9am, Wednesday at 3pm, Friday at noon.'' The detective can still reason about causality by reading these diaries---but without ever changing the map itself.
+
+Both detectives can find the rumour's origin. They just carry different kinds of evidence.
+\end{analogybox}
+
+% =============================================================================
+\section{Step 1: Representing the World in Numbers}
+% =============================================================================
+
+Before any neural network can run, every piece of information must be converted into a numerical tensor. The Backtracking Network requires two types of inputs: one for \textbf{nodes} (representing people and their health states) and one for \textbf{edges} (representing social contacts and when they occurred).
+
+\subsection{Node Features: One-Hot SIR States}
+
+At the end of an epidemic, we observe the health state of every person in the network. Each person is in exactly one of three states: Susceptible (S), Infectious (I), or Recovered (R).
+
+We represent this as a \textbf{one-hot vector} of dimension 3:
+\[
+\text{Susceptible} \to \begin{bmatrix}1\\0\\0\end{bmatrix}, \quad
+\text{Infectious} \to \begin{bmatrix}0\\1\\0\end{bmatrix}, \quad
+\text{Recovered} \to \begin{bmatrix}0\\0\\1\end{bmatrix}
+\]
+
+\begin{keyinsight}{Why One-Hot and Not a Number 1, 2, 3?}
+A natural question: why not encode S as 1, I as 2, R as 3? Numeric encoding implies an ordering and distance. It would tell the neural network that ``I is twice as much as S.'' But there is no such mathematical relationship among health states. One-hot encoding treats each state as a distinct, unordered category. The network learns relationships purely from data, not from an artificial numeric ordering.
+\end{keyinsight}
+
+Stacking the one-hot vectors for all $N$ people gives the \textbf{node feature matrix} $X \in \{0,1\}^{N \times 3}$.
+
+\begin{examplebox}{Node Feature Matrix for 4 People}
+Suppose at observation time:
+\begin{itemize}[noitemsep]
+    \item Person 0 (Alice): Susceptible
+    \item Person 1 (Bob): Recovered
+    \item Person 2 (Charlie): Recovered (the actual source)
+    \item Person 3 (Diana): Infectious
+\end{itemize}
+
+\[
+X = \begin{bmatrix}
+1 & 0 & 0 \\
+0 & 0 & 1 \\
+0 & 0 & 1 \\
+0 & 1 & 0
+\end{bmatrix}
+\quad
+\begin{array}{l}
+\leftarrow \text{Alice (S)} \\
+\leftarrow \text{Bob (R)} \\
+\leftarrow \text{Charlie (R) [true source]} \\
+\leftarrow \text{Diana (I)}
+\end{array}
+\]
+
+Notice that Alice (S) and Charlie (R, the source) have \textit{different} feature vectors. The source must be I or R---they had to be infected at some point. We will exploit this constraint later to eliminate impossible candidates.
+\end{examplebox}
+
+\subsection{Edge Features: Binary Activation Histories}
+
+This is the key innovation of Ru et al. Every edge $(u, v)$ in the static graph gets a \textbf{binary vector of length $T$}, where $T$ is the number of time slices the observation window is divided into.
+
+\begin{mathbox}{Edge Activation Vector Definition}
+Let the observation window $[0, T_{\max}]$ be divided into $T$ equal time slices. For each edge $(u, v)$:
+\[
+a_{(u,v)} \in \{0, 1\}^T, \qquad a_{(u,v)}[t] = \begin{cases} 1 & \text{if $u$ and $v$ had contact in time slice $t$} \\ 0 & \text{otherwise} \end{cases}
+\]
+Collecting all edge activation vectors gives $A \in \{0,1\}^{|E| \times T}$.
+\end{mathbox}
+
+\begin{examplebox}{Edge Activation Vector: Alice and Bob ($T=10$)}
+Alice (node 0) and Bob (node 1) had contact in hours 2, 5, and 8:
+
+\begin{center}
+\begin{tabular}{lccccccccccc}
+\toprule
+Time step $t$ & 0 & 1 & \textbf{2} & 3 & 4 & \textbf{5} & 6 & 7 & \textbf{8} & 9 \\
+\midrule
+Did they meet? & No & No & \textbf{Yes} & No & No & \textbf{Yes} & No & No & \textbf{Yes} & No \\
+$a_{(0,1)}[t]$ & 0 & 0 & \textbf{1} & 0 & 0 & \textbf{1} & 0 & 0 & \textbf{1} & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\[
+a_{(0,1)} = [\,0,\; 0,\; \mathbf{1},\; 0,\; 0,\; \mathbf{1},\; 0,\; 0,\; \mathbf{1},\; 0\,]
+\]
+
+If a virus entered Alice at time $t=1$, she \textit{could} have passed it to Bob at $t=2$ (the first $1$). If Alice was only infected at $t=6$, the earliest transmission to Bob would be at $t=8$. The timing of the $1$s determines which transmissions are causally possible.
+\end{examplebox}
+
+\begin{examplebox}{Full Edge Feature Matrix ($T=10$, 4 nodes, 5 edges)}
+\[
+A = \begin{blockarray}{cccccccccccl}
+ & t_0 & t_1 & t_2 & t_3 & t_4 & t_5 & t_6 & t_7 & t_8 & t_9 & \\
+\begin{block}{c[cccccccccc]l}
+(0,1) & 0 & 0 & 1 & 0 & 0 & 1 & 0 & 0 & 1 & 0 & \leftarrow\text{Alice--Bob} \\
+(0,2) & 0 & 1 & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & \leftarrow\text{Alice--Charlie} \\
+(1,2) & 1 & 0 & 0 & 0 & 1 & 0 & 0 & 1 & 0 & 0 & \leftarrow\text{Bob--Charlie} \\
+(1,3) & 0 & 0 & 0 & 0 & 0 & 0 & 1 & 0 & 0 & 1 & \leftarrow\text{Bob--Diana} \\
+(2,3) & 0 & 0 & 0 & 1 & 0 & 0 & 0 & 1 & 0 & 0 & \leftarrow\text{Charlie--Diana} \\
+\end{block}
+\end{blockarray}
+\]
+
+The Bob--Charlie edge (row 3) has a $1$ at $t_0$: if Charlie (the true source) was infectious from the start, Bob could be the very first person infected. This early-contact pattern is a strong source fingerprint.
+\end{examplebox}
+
+% =============================================================================
+\section{Step 2: Initial Projections}
+% =============================================================================
+
+Before the first BN layer, node features (3-dimensional) and edge features ($T$-dimensional) must be mapped into the same $D$-dimensional hidden space. This uses two learned linear projections followed by ReLU:
+
+\begin{equation}
+h_i^{(0)} = \text{ReLU}\!\left(\mathbf{W}_{p^v} \cdot X_i + b_{p^v}\right), \qquad g_{(i,j)}^{(0)} = \text{ReLU}\!\left(\mathbf{W}_{p^e} \cdot a_{(i,j)} + b_{p^e}\right)
+\label{eq:projections}
+\end{equation}
+
+Here $\mathbf{W}_{p^v} \in \mathbb{R}^{D \times 3}$ and $\mathbf{W}_{p^e} \in \mathbb{R}^{D \times T}$ are learnable weight matrices. After projection, both nodes and edges live in $\mathbb{R}^D$.
+
+\begin{examplebox}{Computing an Initial Edge State ($T=4$, $D=2$)}
+Activation vector: $a_{(0,1)} = [0, 1, 0, 1]$.
+\[
+\mathbf{W}_{p^e} = \begin{bmatrix} 0.5 & -0.3 & 0.8 & 0.1 \\ -0.2 & 0.7 & 0.3 & -0.5 \end{bmatrix}, \quad b_{p^e} = \begin{bmatrix} 0.1 \\ -0.1 \end{bmatrix}
+\]
+\textbf{Computation:}
+\[
+\mathbf{W}_{p^e} \cdot [0,1,0,1]^\top = \begin{bmatrix} -0.3+0.1 \\ 0.7-0.5 \end{bmatrix} = \begin{bmatrix} -0.2 \\ 0.2 \end{bmatrix}
+\]
+Add bias: $[-0.2+0.1,\; 0.2-0.1] = [-0.1,\; 0.1]$. Apply ReLU (zero negatives):
+\[
+g_{(0,1)}^{(0)} = \text{ReLU}\!\left(\begin{bmatrix}-0.1\\0.1\end{bmatrix}\right) = \begin{bmatrix}0.0\\0.1\end{bmatrix}
+\]
+The temporal contact pattern $[0,1,0,1]$ has been compressed into a learned 2D representation.
+\end{examplebox}
+
+% =============================================================================
+\section{Step 3: The BN Convolution Layer}
+% =============================================================================
+
+The BN layer performs two updates in strict order: \textbf{edges first, then nodes}.
+
+\subsection{Edge Update (Equation 3)}
+
+Each directed edge $(i \to j)$ updates its state by combining its own current state with the \textbf{sender node's} state:
+
+\begin{equation}
+\boxed{g_{(i,j)}^{(l+1)} = \text{ReLU}\!\left(\mathbf{W}_e \cdot \left[g_{(i,j)}^{(l)} \,\big\|\, h_i^{(l)}\right] + b_e\right)}
+\label{eq:edge_update}
+\end{equation}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{p{0.18\textwidth} p{0.75\textwidth}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+$g_{(i,j)}^{(l)}$ & Hidden state of edge $(i \to j)$ at layer $l$. A $D$-dimensional vector encoding the learned temporal contact pattern between $i$ and $j$. \\
+$h_i^{(l)}$ & Hidden state of the \textbf{sender} node $i$ at layer $l$. Also $D$-dimensional. \\
+$[\cdot \| \cdot]$ & \textbf{Concatenation}: places two vectors end-to-end. $[g \| h_i]$ is $2D$-dimensional. \\
+$\mathbf{W}_e \in \mathbb{R}^{D \times 2D}$ & Learnable weight matrix; maps $2D \to D$. \\
+$b_e \in \mathbb{R}^D$ & Learnable bias. \\
+$\text{ReLU}(x) = \max(0,x)$ & Non-linear activation, applied element-wise. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{examplebox}{Edge Update: Full Numerical Walkthrough ($D=2$)}
+Given: $g_{(0,1)}^{(0)} = [0.0,\, 0.1]^\top$, \; $h_0^{(0)} = [0.8,\, 0.2]^\top$.
+
+\textbf{Step 1 — Concatenate:}
+\[
+[g_{(0,1)}^{(0)} \| h_0^{(0)}] = [0.0,\; 0.1,\; 0.8,\; 0.2]^\top \in \mathbb{R}^4
+\]
+
+\textbf{Step 2 — Multiply by $\mathbf{W}_e \in \mathbb{R}^{2\times 4}$, add bias $b_e = \mathbf{0}$:}
+\[
+\mathbf{W}_e = \begin{bmatrix}0.3 & 0.5 & 0.6 & -0.4 \\ -0.1 & 0.8 & 0.2 & 0.7\end{bmatrix}
+\]
+\[
+\mathbf{W}_e \cdot [0.0, 0.1, 0.8, 0.2]^\top = \begin{bmatrix}0(0.3)+0.1(0.5)+0.8(0.6)+0.2(-0.4)\\0(-0.1)+0.1(0.8)+0.8(0.2)+0.2(0.7)\end{bmatrix} = \begin{bmatrix}0.45\\0.38\end{bmatrix}
+\]
+
+\textbf{Step 3 — Apply ReLU:} Both values positive, so $g_{(0,1)}^{(1)} = [0.45,\; 0.38]^\top$.
+
+The edge has absorbed information about the sender node's ``recovered-looking'' state $[0.8, 0.2]$. If node 0 looks like a plausible early source (Recovered, with high hidden-state values), this signal is now embedded in the edge.
+\end{examplebox}
+
+\subsection{Node Update (Equation 4)}
+
+After all edges have updated, each node $j$ collects all incoming edge messages and updates its state:
+
+\begin{equation}
+\boxed{h_j^{(l+1)} = \text{ReLU}\!\left(\mathbf{W}_v \cdot h_j^{(l)} + \sum_{i \in \mathcal{N}(j)} g_{(i,j)}^{(l+1)} + b_v\right)}
+\label{eq:node_update}
+\end{equation}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{p{0.30\textwidth} p{0.63\textwidth}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+$\mathbf{W}_v \in \mathbb{R}^{D \times D}$ & Learnable matrix; self-transforms node $j$'s own state. \\
+$\mathcal{N}(j)$ & All neighbours of $j$ with directed edges pointing into $j$. \\
+$\sum_{i \in \mathcal{N}(j)} g_{(i,j)}^{(l+1)}$ & Aggregation: sum all \emph{already-updated} incoming edge states. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{examplebox}{Node Update: 3 Incoming Edges ($D=2$)}
+Node $j=1$ (Bob) has three incoming edges from nodes 0, 2, 3. After the edge update:
+\[
+g_{(0,1)}^{(1)} = [0.45, 0.38]^\top, \quad g_{(2,1)}^{(1)} = [0.60, 0.10]^\top, \quad g_{(3,1)}^{(1)} = [0.05, 0.20]^\top
+\]
+Bob's own state: $h_1^{(0)} = [0.3,\; 0.7]^\top$.
+
+\textbf{Step 1 — Self-transform:}
+$\mathbf{W}_v = \begin{bmatrix}0.4&0.6\\0.2&0.8\end{bmatrix}$, \; $\mathbf{W}_v h_1^{(0)} = [0.54,\; 0.62]^\top$.
+
+\textbf{Step 2 — Sum incoming edge messages:}
+$[0.45+0.60+0.05,\; 0.38+0.10+0.20]^\top = [1.10,\; 0.68]^\top$.
+
+\textbf{Step 3 — Add and apply ReLU:}
+$h_1^{(1)} = \text{ReLU}([0.54+1.10,\; 0.62+0.68]^\top) = [1.64,\; 1.30]^\top$.
+
+Bob's new state now incorporates evidence from all three of his contacts---each filtered through their learned temporal history.
+\end{examplebox}
+
+\begin{keyinsight}{Why Edges Update First: Directed Information Flow}
+The strict ordering (edge update, then node update) implements a specific philosophy:
+
+\begin{enumerate}[noitemsep]
+    \item \textbf{Edge update:} Edge $(i \to j)$ asks: ``Given that \emph{sender} $i$ looks like \emph{this}, and given my temporal contact history, how strong a signal should I send to $j$?''
+    \item \textbf{Node update:} Node $j$ asks: ``Given what all my contacts are saying, and my own current state, what do I now believe?''
+\end{enumerate}
+
+The edge acts as an \textbf{intelligent filter}. In a standard GCN, an edge weight is a fixed scalar. In the BN, the edge has its own memory $g_{(i,j)}$ encoding the full temporal interaction history. This lets the model say: ``Even though node $i$ looks suspicious, this edge was only active \emph{after} the epidemic peak, so transmission here is unlikely, and I suppress the signal.'' A static GNN has no mechanism to do this.
+\end{keyinsight}
+
+\begin{center}
+\begin{tikzpicture}[
+    person/.style={circle, draw=blue!70!black, fill=blue!10, thick,
+                   minimum size=1.2cm, font=\small\sffamily\bfseries, align=center},
+    edgenode/.style={rectangle, draw=orange!70!black, fill=orange!8, thick,
+                     rounded corners=3pt, minimum width=3.0cm, minimum height=0.9cm,
+                     font=\scriptsize\sffamily, align=center},
+    arr/.style={-{Stealth[length=2.8mm]}, thick},
+]
+
+% Standard GCN (top)
+\node[font=\small\sffamily\bfseries, text=gray!60!black] at (4.0, 5.0) {Standard GCN: direct node-to-node message};
+\node[person, fill=red!15] (gcni) at (1.0, 3.5) {$i$\\\tiny(R)};
+\node[person, fill=blue!15] (gcnj) at (7.0, 3.5) {$j$\\\tiny(I)};
+\draw[-{Stealth[length=3mm]}, red!60!black, line width=1.5pt] (gcni) -- node[above, font=\scriptsize\sffamily] {$\theta \cdot h_i$ \quad (fixed scalar weight, no temporal memory)} (gcnj);
+
+\draw[gray!40, dashed] (-0.2, 2.2) -- (8.2, 2.2);
+
+% BN (bottom)
+\node[font=\small\sffamily\bfseries, text=blue!60!black] at (4.0, 1.9) {Backtracking Network: edge-mediated message};
+\node[person, fill=red!15] (bni) at (1.0, 0.5) {$i$\\\tiny(R)};
+\node[edgenode] (bne) at (4.0, 0.5) {$g_{(i,j)}^{(l)}$\\$a_{(i,j)}=[0,1,0,0,1,\ldots]$};
+\node[person, fill=blue!15] (bnj) at (7.0, 0.5) {$j$\\\tiny(I)};
+\draw[-{Stealth[length=2.8mm]}, red!50!black, line width=1.2pt] (bni) -- node[above, font=\scriptsize\sffamily, text=red!60!black] {Step 1: $h_i^{(l)}$ updates edge} (bne);
+\draw[-{Stealth[length=2.8mm]}, orange!70!black, line width=1.2pt] (bne) -- node[above, font=\scriptsize\sffamily, text=orange!60!black] {Step 2: $g_{(i,j)}^{(l+1)}$ enters $j$} (bnj);
+\end{tikzpicture}
+\end{center}
+
+% =============================================================================
+\section{Step 4: Readout and Expert Knowledge Masking}
+% =============================================================================
+
+After $L$ BN layers, convert each node's $D$-dimensional hidden state to a scalar score:
+\[
+s_j = \mathbf{w}_{\text{out}}^\top \cdot h_j^{(L)} + b_{\text{out}}
+\]
+
+\begin{conceptbox}{The Susceptible Exclusion Rule (Equation 6)}
+The epidemic source must be Infectious (I) or Recovered (R) at observation time---it \emph{cannot} be Susceptible because a susceptible node was never infected. We enforce this as a \textbf{hard architectural constraint}:
+\[
+s_j \leftarrow -\infty \quad \text{for all } j \text{ with } X_j = [1,0,0] \text{ (Susceptible)}
+\]
+After softmax, $\exp(-\infty) = 0$. Susceptible nodes receive exactly zero probability mass. This eliminates impossible candidates with mathematical certainty---no gradient wasted.
+\end{conceptbox}
+
+Finally, log-softmax gives log-probabilities: the node with the highest probability is the Patient Zero prediction.
+\[
+\hat{y}_j = \log\!\left(\frac{\exp(s_j)}{\sum_{k=1}^{N} \exp(s_k)}\right)
+\]
+
+% =============================================================================
+\section{Training with Cross-Entropy Loss}
+% =============================================================================
+
+\begin{mathbox}{Cross-Entropy Loss}
+Let $s^*$ be the true source. The model is trained to maximise the log-probability assigned to $s^*$:
+\[
+\mathcal{L} = -\hat{y}_{s^*}
+\]
+Minimising this pushes more probability mass toward the correct node. Over a batch of $B$ simulations:
+\[
+\mathcal{L}_{\text{batch}} = -\frac{1}{B} \sum_{b=1}^{B} \hat{y}_{s^*_b}^{(b)}
+\]
+\end{mathbox}
+
+\begin{examplebox}{Cross-Entropy in Action}
+Log-probabilities over 4 nodes (node 0 masked): $\hat{y} = [-\infty,\; -2.3,\; -0.5,\; -1.8]$. True source is node 2. Loss $= -(-0.5) = 0.5$. Equivalent probability assigned to correct node: $e^{-0.5} \approx 0.61$. A perfect model gives loss $= 0$; a uniform predictor over 3 candidates gives loss $\approx 1.1$.
+\end{examplebox}
+
+% =============================================================================
+\section{A Complete Worked Example: 5 Nodes, 5 Time Steps}
+% =============================================================================
+
+\begin{conceptbox}{Setup}
+\begin{itemize}[noitemsep]
+    \item \textbf{5 people}, labelled 0--4. \textbf{True source: node 2} (Recovered).
+    \item \textbf{Directed edges:} $(0 \to 2)$, $(1 \to 2)$, $(2 \to 3)$, $(2 \to 4)$, $(3 \to 4)$.
+    \item \textbf{$T = 5$ time slices, $D = 2$ hidden dimensions, $L = 1$ layer}.
+    \item \textbf{States:} Node 0: S, Nodes 1--3: R, Node 4: I.
+\end{itemize}
+\end{conceptbox}
+
+\begin{examplebox}{Edge Activation Histories}
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+Edge & $t_0$ & $t_1$ & $t_2$ & $t_3$ & $t_4$ \\
+\midrule
+$(0 \to 2)$ & 0 & 1 & 0 & 0 & 0 \\
+$(1 \to 2)$ & 1 & 0 & 0 & 1 & 0 \\
+$(2 \to 3)$ & 1 & 0 & 1 & 0 & 0 \\
+$(2 \to 4)$ & 0 & 0 & 1 & 0 & 1 \\
+$(3 \to 4)$ & 0 & 0 & 0 & 1 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+Edge $(2 \to 3)$ is active at $t_0$: node 2 (the true source) could have infected node 3 from the very first time step. This early-contact fingerprint is what the BN learns to detect.
+\end{examplebox}
+
+\begin{examplebox}{Phase 1: Initial States (declared for tractability)}
+\begin{align*}
+h_0^{(0)}&=[0.1,\,0.0]^\top & h_2^{(0)}&=[0.6,\,0.4]^\top \text{ (source)} \\
+g_{(2,3)}^{(0)}&=[0.5,\,0.3]^\top \text{ (high: early contact)} & g_{(0,2)}^{(0)}&=[0.2,\,0.1]^\top \text{ (low: late contact)}
+\end{align*}
+\end{examplebox}
+
+\begin{examplebox}{Phase 2: Edge Update for Key Edges}
+Using $\mathbf{W}_e = \begin{bmatrix}0.5&0.5&0.3&0.7\\0.4&0.6&0.8&0.2\end{bmatrix}$, $b_e=\mathbf{0}$.
+
+\textbf{Edge $(2 \to 3)$, sender = true source (node 2):}
+$[g_{(2,3)}^{(0)} \| h_2^{(0)}] = [0.5, 0.3, 0.6, 0.4]^\top$
+$\to g_{(2,3)}^{(1)} = \text{ReLU}([0.86,\; 0.94]^\top) = [0.86,\; 0.94]^\top$
+
+\textbf{Edge $(0 \to 2)$, sender = Susceptible node 0 (small state):}
+$[g_{(0,2)}^{(0)} \| h_0^{(0)}] = [0.2, 0.1, 0.1, 0.0]^\top$
+$\to g_{(0,2)}^{(1)} = [0.18,\; 0.22]^\top$
+
+\textbf{Observation:} The source-adjacent edge (node 2 as sender) produces signal $[0.86, 0.94]$---far stronger than the susceptible-sender edge $[0.18, 0.22]$. The BN correctly modulates signal strength based on the sender's epidemiological plausibility.
+\end{examplebox}
+
+\begin{examplebox}{Phase 3: Node Update and Final Scores}
+After computing all edge updates and aggregating, node 2 (true source) receives the highest final score, and node 0 (Susceptible) is masked to $-\infty$. Even with toy weights and a single layer, the model correctly ranks the true source first, due to the strong early-contact edge signal from $(2 \to 3)$.
+\end{examplebox}
+
+% =============================================================================
+\section{Code Walkthrough}
+% =============================================================================
+
+\begin{codewalk}{BN Convolution Layer (Edge-First Update)}
+\begin{lstlisting}[language=Python]
+class BNConvLayer(torch.nn.Module):
+    def __init__(self, hidden_dim):
+        super().__init__()
+        # Edge update: cat(edge_hidden, sender_hidden) has dim 2*D -> D
+        self.f_e = Sequential(Linear(2 * hidden_dim, hidden_dim), ReLU())
+        # Node self-transform: D -> D
+        self.f_v = Sequential(Linear(hidden_dim, hidden_dim), ReLU())
+
+    def forward(self, h, g, edge_index):
+        # h: [B, N, D]  node hidden states
+        # g: [B, E, D]  edge hidden states
+        src, dst = edge_index[0], edge_index[1]
+        B, N, D = h.shape
+
+        # --- EDGE UPDATE (Eq. 3) -----------------------------------------
+        h_src = h[:, src, :]                              # [B, E, D] sender states
+        g_new = self.f_e(torch.cat([g, h_src], dim=-1))  # [B, E, D]
+
+        # --- NODE UPDATE (Eq. 4) -----------------------------------------
+        agg = h.new_zeros(B, N, D)                        # [B, N, D] accumulator
+        dst_idx = dst.view(1, -1, 1).expand(B, -1, D)    # broadcast dst indices
+        # scatter_add_: adds each edge's updated state into destination node slot
+        # This computes sum_{i in N(j)} g_{(i,j)}^{l+1} for ALL j simultaneously
+        agg.scatter_add_(1, dst_idx, g_new)
+
+        h_new = F.relu(self.f_v(h) + agg)                # [B, N, D]
+        return h_new, g_new
+\end{lstlisting}
+\texttt{scatter\_add\_} is the computational core: it routes all $E$ edge messages to their destination nodes in one fused GPU operation, without Python loops.
+\end{codewalk}
+
+\begin{codewalk}{Full Forward Pass with Masking}
+\begin{lstlisting}[language=Python]
+def forward(self, x, edge_index, edge_attr):
+    # x:          [B, N, 3]  one-hot SIR states
+    # edge_index: [2, E]     static graph topology
+    # edge_attr:  [E, T]     binary activation histories
+
+    B, N, _ = x.shape if x.dim() == 3 else (1, *x.shape)
+
+    # 1. Project node features (3 -> D) and edge features (T -> D)
+    h = self.p_v(x)                                      # [B, N, D]
+    g = self.p_e(edge_attr)                              # [E, D]
+    g = g.unsqueeze(0).expand(B, -1, -1).contiguous()   # [B, E, D]
+
+    # 2. L BN convolution layers
+    for conv in self.convs:
+        h, g = conv(h, g, edge_index)
+
+    # 3. Score each node: D -> 1 scalar
+    scores = self.final(h).squeeze(-1)                   # [B, N]
+
+    # 4. Mask Susceptible nodes: x[...,0]==1 means Susceptible
+    susceptible_mask = x[..., 0].bool()                  # [B, N]
+    scores = scores.masked_fill(susceptible_mask, float('-inf'))
+
+    # 5. Log-softmax over nodes -> detection log-probabilities
+    return F.log_softmax(scores, dim=-1)                 # [B, N]
+\end{lstlisting}
+\end{codewalk}
+
+% =============================================================================
+\section{Limitations and Path Forward}
+% =============================================================================
+
+\begin{conceptbox}{Trade-offs of the Backtracking Network}
+\begin{enumerate}[noitemsep]
+    \item \textbf{Binning artefact:} Events within one time slice are indistinguishable. The parameter $T$ must be tuned---too small loses temporal resolution; too large makes edge features sparse and hard to learn from.
+    \item \textbf{No structural causal enforcement:} Unlike the Saramäki DAG, the BN does not structurally prevent time-violating information paths. It relies on the network to \emph{learn} to respect temporal ordering from edge features.
+    \item \textbf{Summation aggregation:} High-degree nodes accumulate large activations. Degree-normalisation (as in GraphSAGE) is not applied in the original paper.
+    \item \textbf{Efficiency advantage:} For large dense networks, the BN's $O(|E| \cdot T)$ memory cost is dramatically lower than the DAG-GNN's $O(E^2)$ worst case.
+\end{enumerate}
+\end{conceptbox}
+
+The next chapter introduces the De Bruijn GNN by Qarkaxhija et al., which attempts to combine the structural causal precision of Saramäki with the compact representation of Ru et al., by lifting the graph into a higher-order topological space.
+
+% =============================================================================
+\section{Chapter Summary}
+% =============================================================================
+
+\begin{conceptbox}{What We Learned}
+\begin{enumerate}[noitemsep]
+    \item \textbf{Edge feature encoding:} Binary vectors $a_{(u,v)} \in \{0,1\}^T$ encode the complete temporal contact history of every edge. Position $t$ is 1 if contact occurred in time slice $t$.
+    \item \textbf{One-hot node features:} SIR states are encoded as $[1,0,0]$, $[0,1,0]$, $[0,0,1]$ to avoid imposing false ordinal relationships.
+    \item \textbf{Initial projections:} Both 3-dim node features and $T$-dim edge features are projected to a common $D$-dim hidden space before mixing.
+    \item \textbf{Edge-first BN layer:} Edge update (Eq.~3) uses sender node state; node update (Eq.~4) aggregates updated edge states. Ordering creates directed sender~$\to$~edge~$\to$~receiver information flow.
+    \item \textbf{Susceptible masking:} Hard constraint eliminates impossible source candidates---zero probability, zero gradient wasted.
+    \item \textbf{Cross-entropy training:} Maximise log-probability of the true source node.
+\end{enumerate}
+\end{conceptbox}

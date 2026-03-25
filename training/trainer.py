@@ -85,12 +85,17 @@ def temporal_gnn_forward(
     graph_data: dict,
     device: torch.device,
 ) -> torch.Tensor:           # [B, N]
-    x = x_batch.to(device)
+    # SAGEConv (PyG) requires strictly 2D input [N, F].
+    # We loop over the batch dimension so each call receives [N, F].
+    # This is correct with gradients and works for any batch size.
     edge_indeces = {
         t: ei.to(device) for t, ei in graph_data["edge_indeces"].items()
     }
-    out = model(x, edge_indeces)     # [B, N, 1]  (TemporalGNN has out_channels=1)
-    return out.squeeze(-1)           # [B, N]
+    outputs = [
+        model(x_batch[b].to(device), edge_indeces)   # [N]
+        for b in range(x_batch.size(0))
+    ]
+    return torch.stack(outputs, dim=0)               # [B, N]
 
 
 def dbgnn_forward(

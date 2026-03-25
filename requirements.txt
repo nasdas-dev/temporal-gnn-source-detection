@@ -1,0 +1,13 @@
+# Core
+torch>=2.0
+torch_geometric
+numpy
+networkx
+scikit-learn
+pyyaml
+wandb
+matplotlib
+scipy
+
+# Optional (for faster baselines — not required)
+# julia  # only needed for node_selection_fast.py in static_source_detection_gnn

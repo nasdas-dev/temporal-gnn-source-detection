@@ -1,0 +1,125 @@
+\relax 
+\providecommand\zref@newlabel[2]{}
+\providecommand\hyper@newdestlabel[2]{}
+\citation{rey2025dagcn}
+\@writefile{toc}{\contentsline {chapter}{\numberline {11}Directed Acyclic Graph Convolutional Networks: Learning Causal Signals}{182}{chapter.11}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{chap:rey_dagcn}{{11}{182}{Directed Acyclic Graph Convolutional Networks: Learning Causal Signals}{chapter.11}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11.1}Why Standard GNNs Cannot Learn on DAGs}{182}{section.11.1}\protected@file@percent }
+\newlabel{sec:dagcn_motivation}{{11.1}{182}{Why Standard GNNs Cannot Learn on DAGs}{section.11.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.1.1}The Standard Filterbank GNN}{182}{subsection.11.1.1}\protected@file@percent }
+\newlabel{eq:fb_gcnn}{{11.1}{182}{The Standard Filterbank GNN}{equation.11.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.1.2}Failure Mode 1: The Nilpotent Spectrum}{183}{subsection.11.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.1.3}Failure Mode 2: Ignoring the Partial Order}{183}{subsection.11.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Worked example: phantom backward flow.}{184}{subsection.11.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11.2}DAGs, Partial Orders, and What ``Comes Before'' Means}{184}{section.11.2}\protected@file@percent }
+\newlabel{sec:dagcn_partial_order}{{11.2}{184}{DAGs, Partial Orders, and What ``Comes Before'' Means}{section.11.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.2.1}From Directed Edges to a Partial Order}{184}{subsection.11.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.2.2}Topological Ordering}{185}{subsection.11.2.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {11.1}{\ignorespaces The four-node \textbf  {gene regulatory DAG} used as a running example throughout this chapter. Nodes A and B are root genes (no regulators). Gene C is regulated by both A and B. Gene D is regulated by C alone. Arrows point from regulator to target: $A_{ij} \neq  0$ means $j$ regulates $i$.}}{186}{figure.caption.21}\protected@file@percent }
+\newlabel{fig:gene_dag}{{11.1}{186}{The four-node \textbf {gene regulatory DAG} used as a running example throughout this chapter. Nodes A and B are root genes (no regulators). Gene C is regulated by both A and B. Gene D is regulated by C alone. Arrows point from regulator to target: $A_{ij} \neq 0$ means $j$ regulates $i$}{figure.caption.21}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11.3}The Transitive Closure --- The DAG's Memory}{186}{section.11.3}\protected@file@percent }
+\newlabel{sec:dagcn_transitive_closure}{{11.3}{186}{The Transitive Closure --- The DAG's Memory}{section.11.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.3.1}Motivation: Why Direct Edges Are Not Enough}{186}{subsection.11.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.3.2}Definition and Computation}{186}{subsection.11.3.2}\protected@file@percent }
+\newlabel{eq:transitive_closure}{{11.2}{186}{Definition and Computation}{equation.11.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.3.3}Step-by-Step Computation for the Gene Network}{187}{subsection.11.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.3.4}The Linear Structural Equation Model}{188}{subsection.11.3.4}\protected@file@percent }
+\newlabel{eq:sem}{{11.3}{188}{The Linear Structural Equation Model}{equation.11.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11.4}Causal Graph Shift Operators --- Projecting onto Causal Channels}{189}{section.11.4}\protected@file@percent }
+\newlabel{sec:dagcn_gso}{{11.4}{189}{Causal Graph Shift Operators --- Projecting onto Causal Channels}{section.11.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.4.1}Intuition: Causal Channels}{189}{subsection.11.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.4.2}Formal Definition}{189}{subsection.11.4.2}\protected@file@percent }
+\newlabel{eq:causal_gso}{{11.4}{189}{Formal Definition}{equation.11.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Idempotence.}{190}{equation.11.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Uniqueness.}{190}{equation.11.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.4.3}Step-by-Step Computation of All Four GSOs}{190}{subsection.11.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Recall.}{190}{subsection.11.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Summary of all four GSOs.}{192}{subsection.11.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.4.4}Worked Numerical Example: Applying the GSOs to a Signal}{192}{subsection.11.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11.5}Causal Graph Filters --- Linear Combinations of GSOs}{193}{section.11.5}\protected@file@percent }
+\newlabel{sec:dagcn_filters}{{11.5}{193}{Causal Graph Filters --- Linear Combinations of GSOs}{section.11.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.5.1}Filter Definition}{193}{subsection.11.5.1}\protected@file@percent }
+\newlabel{eq:causal_filter}{{11.5}{193}{Filter Definition}{equation.11.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Comparison to standard graph convolution.}{193}{equation.11.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.5.2}Worked Numerical Example}{193}{subsection.11.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11.6}The DCN Architecture}{194}{section.11.6}\protected@file@percent }
+\newlabel{sec:dagcn_dcn}{{11.6}{194}{The DCN Architecture}{section.11.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.6.1}Multi-Feature Extension}{194}{subsection.11.6.1}\protected@file@percent }
+\newlabel{eq:dcn_layer}{{11.6}{194}{Multi-Feature Extension}{equation.11.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.6.2}Architecture Diagram}{195}{subsection.11.6.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {11.2}{\ignorespaces The \textbf  {Directed Convolutional Network (DCN)} architecture. At each layer, all $N$ causal GSOs are applied in parallel to the current feature matrix, each with its own weight matrix. The results are summed and passed through a pointwise nonlinearity. The total parameter count at layer $\ell $ is $N \times F_\ell \times F_{\ell +1}$ --- it \emph  {scales with the graph size} $N$.}}{195}{figure.caption.22}\protected@file@percent }
+\newlabel{fig:dcn_architecture}{{11.2}{195}{The \textbf {Directed Convolutional Network (DCN)} architecture. At each layer, all $N$ causal GSOs are applied in parallel to the current feature matrix, each with its own weight matrix. The results are summed and passed through a pointwise nonlinearity. The total parameter count at layer $\ell $ is $N \times F_\ell \times F_{\ell +1}$ --- it \emph {scales with the graph size} $N$}{figure.caption.22}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.6.3}Forward Pass: Dimensions and Computation}{195}{subsection.11.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.6.4}Permutation Equivariance}{195}{subsection.11.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.6.5}DCN-T: The Transposed Variant for Source Detection}{196}{subsection.11.6.5}\protected@file@percent }
+\newlabel{eq:dcnt_layer}{{11.7}{196}{DCN-T: The Transposed Variant for Source Detection}{equation.11.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.6.6}Computational Complexity}{196}{subsection.11.6.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11.7}Parallel DCN (PDCN) --- Trading Depth for Width}{196}{section.11.7}\protected@file@percent }
+\newlabel{sec:dagcn_pdcn}{{11.7}{196}{Parallel DCN (PDCN) --- Trading Depth for Width}{section.11.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.7.1}The Composition Lemma: Depth Does Not Help}{196}{subsection.11.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.7.2}The PDCN Architecture}{197}{subsection.11.7.2}\protected@file@percent }
+\newlabel{eq:pdcn_branch}{{11.8}{197}{The PDCN Architecture}{equation.11.8}{}}
+\newlabel{eq:pdcn_sum}{{11.9}{197}{The PDCN Architecture}{equation.11.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.7.3}Architecture Diagram: DCN vs. PDCN}{197}{subsection.11.7.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {11.3}{\ignorespaces The \textbf  {Parallel DCN (PDCN)} architecture for the gene network ($N = 4$). The input $\mathbf  {X}^{(\ell )}$ is first transformed by each of the $N = 4$ causal GSOs in parallel. All $N$ resulting matrices are processed by the \emph  {same} shared MLP (weight-tied across branches), then summed to produce $\mathbf  {X}^{(\ell +1)}$. Parameter count: $O(F^2 L)$ independently of $N$.}}{197}{figure.caption.23}\protected@file@percent }
+\newlabel{fig:pdcn_architecture}{{11.3}{197}{The \textbf {Parallel DCN (PDCN)} architecture for the gene network ($N = 4$). The input $\mathbf {X}^{(\ell )}$ is first transformed by each of the $N = 4$ causal GSOs in parallel. All $N$ resulting matrices are processed by the \emph {same} shared MLP (weight-tied across branches), then summed to produce $\mathbf {X}^{(\ell +1)}$. Parameter count: $O(F^2 L)$ independently of $N$}{figure.caption.23}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.7.4}Parameter Count: Independent of Graph Size}{198}{subsection.11.7.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.7.5}When to Use DCN vs. PDCN}{198}{subsection.11.7.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11.8}Source Detection with DCN-T}{198}{section.11.8}\protected@file@percent }
+\newlabel{sec:dagcn_source}{{11.8}{198}{Source Detection with DCN-T}{section.11.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.8.1}The Source Identification Task}{198}{subsection.11.8.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.8.2}Why Transposed GSOs Are Needed}{199}{subsection.11.8.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.8.3}Connection to Reversed DAG Approaches}{199}{subsection.11.8.3}\protected@file@percent }
+\citation{rey2025dagcn}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.8.4}Experimental Results}{200}{subsection.11.8.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11.9}Summary}{200}{section.11.9}\protected@file@percent }
+\newlabel{sec:dagcn_summary}{{11.9}{200}{Summary}{section.11.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.9.1}Comparison Table}{200}{subsection.11.9.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.9.2}The Three Key Contributions}{201}{subsection.11.9.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.9.3}Position in the Broader Landscape}{201}{subsection.11.9.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Versus Saram\"{a}ki's TEG (Chapter~\ref {chap:saramaki}).}{201}{subsection.11.9.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Versus standard temporal GNNs.}{201}{subsection.11.9.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Versus backtracking-based methods.}{201}{subsection.11.9.3}\protected@file@percent }
+\@setckpt{chapters/12_paper_rey_dagcn}{
+\setcounter{page}{203}
+\setcounter{equation}{9}
+\setcounter{enumi}{3}
+\setcounter{enumii}{0}
+\setcounter{enumiii}{0}
+\setcounter{enumiv}{0}
+\setcounter{footnote}{0}
+\setcounter{mpfootnote}{0}
+\setcounter{part}{4}
+\setcounter{chapter}{11}
+\setcounter{section}{9}
+\setcounter{subsection}{3}
+\setcounter{subsubsection}{0}
+\setcounter{paragraph}{0}
+\setcounter{subparagraph}{0}
+\setcounter{figure}{3}
+\setcounter{table}{0}
+\setcounter{parentequation}{0}
+\setcounter{BAenumi}{0}
+\setcounter{nlinenum}{0}
+\setcounter{section@level}{0}
+\setcounter{Item}{151}
+\setcounter{Hfootnote}{0}
+\setcounter{Hy@AnnotLevel}{0}
+\setcounter{bookmark@seq@number}{369}
+\setcounter{float@type}{16}
+\setcounter{mdf@globalstyle@cnt}{0}
+\setcounter{mdfcountframes}{0}
+\setcounter{mdf@env@i}{0}
+\setcounter{mdf@env@ii}{0}
+\setcounter{mdf@zref@counter}{0}
+\setcounter{caption@flags}{2}
+\setcounter{continuedfloat}{0}
+\setcounter{lstnumber}{10}
+\setcounter{tcbbreakpart}{2}
+\setcounter{tcblayer}{0}
+\setcounter{tcolorbox@number}{432}
+\setcounter{tcblisting}{0}
+\setcounter{lstlisting}{0}
+}

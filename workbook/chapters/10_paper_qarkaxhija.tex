@@ -1,0 +1,1007 @@
+\chapter{Higher-Order De Bruijn GNNs for Temporal Networks}
+
+% =============================================================================
+\section{Where We Stand: Three Approaches to the Same Problem}
+% =============================================================================
+
+The previous two chapters introduced two fundamentally different strategies for making Graph
+Neural Networks (GNNs) respect the arrow of time in a temporal contact network.
+
+The Saram\"aki framework (Chapter~\ref{ch:saramaki}) takes the most radical approach: it
+discards the original graph entirely and rebuilds a new one, the Temporal Event Graph (TEG),
+in which every contact event $(u, v, t)$ becomes a \emph{node} and causal adjacencies between
+events become \emph{edges}. The result is a Directed Acyclic Graph (DAG) in which every edge is,
+by construction, a valid causal step. The price is graph bloat: in the worst case the TEG has
+$O(E^2)$ edges for $E$ original contact events.
+
+The Ru et al.\ framework (Chapter~\ref{ch:ru}) keeps the original static graph but attaches a
+binary \emph{temporal activation vector} of length $T$ to every edge, recording which time steps
+that edge was active. No graph topology is modified. The cost is a different kind of memory: every
+edge now carries a $T$-dimensional feature tensor, and the GNN must learn to read these vectors
+to reason about sequences.
+
+This chapter introduces the third and most theoretically rich approach, proposed by Qarkaxhija,
+Perri, and Scholtes in \textit{``De Bruijn goes Neural: Causality-Aware Graph Neural Networks
+for Time Series Data on Dynamic Graphs''} \cite{qarkaxhija2022}. Their key claim is that both
+previous approaches suffer from a single root cause: they treat the \emph{first-order}
+static graph---where nodes are people and edges are social ties---as the underlying message-passing
+substrate. A first-order graph is inherently \emph{Markovian}: when a message arrives at node
+$B$, the graph has no memory of where it came from. It will propagate to all of $B$'s neighbours
+equally, regardless of which path was physically plausible.
+
+The De Bruijn approach fixes this by operating on a completely different graph, one whose nodes
+are not people but \emph{sequences of contacts}. This chapter builds up that idea from scratch.
+
+% =============================================================================
+\section{The Markovian Problem: A Concrete Failure Mode}
+% =============================================================================
+
+\begin{conceptbox}{What Does ``Markovian'' Mean?}
+A process is \textbf{Markovian} (also called \emph{memoryless}) if the probability of the next
+state depends \emph{only} on the current state, not on how you arrived there. A standard static
+GNN is Markovian in exactly this sense. At layer $l$, node $B$ aggregates messages from all its
+neighbours. It does not know---and cannot know---which of those neighbours sent the message in
+layer $l-1$. Every aggregation step starts fresh with no memory of the previous step's origin.
+\end{conceptbox}
+
+Why does this matter for epidemic spreading? Consider the following example, which we will use
+throughout this chapter.
+
+\begin{examplebox}{The Causal Violation Example}
+A small temporal contact network involving four people: Alice (A), Bob (B), Charlie (C):
+\begin{itemize}[noitemsep]
+    \item Contact $e_1$: Alice meets Bob at $t = 1$.
+    \item Contact $e_2$: Bob meets Charlie at $t = 2$.
+    \item Contact $e_3$: Alice meets Charlie at $t = 3$.
+\end{itemize}
+
+\textbf{Reality (causal paths):}
+\begin{itemize}[noitemsep]
+    \item $A \to B \to C$ is valid: events are $e_1$ then $e_2$, with $t_2 > t_1$. The virus
+          can travel this route.
+    \item $A \to C$ directly via $e_3$ is valid: $t_3 = 3$ and Alice was infected by $t=1$.
+    \item $C \to B \to A$ is \textbf{impossible}: this would require Bob to infect Alice at
+          $t=1$ after catching it from Charlie at $t=2$, which is time travel.
+\end{itemize}
+
+\textbf{What a static GNN sees:}
+The static projection collapses the three events into a static triangle $A-B-C$. At message
+passing layer 1, the GNN sends a message from $C$ to $B$. At layer 2, it sends the message from
+$B$ to $A$. It has hallucinated the impossible path $C \to B \to A$. This is called
+\textbf{causal leakage}.
+\end{examplebox}
+
+\begin{analogybox}{The News Telegraph Analogy}
+Imagine information spreading in 1850 via telegraph, where messages can only travel forward in
+time along existing telegraph lines.
+
+A \emph{static map} of telegraph lines would suggest that any city can communicate with any
+other city, as long as a path of lines exists. But of course, a message sent from Paris on
+Monday cannot ``reply'' to a message that London sent on Tuesday---the Tuesday message does not
+exist yet when the Monday message travels.
+
+A Markovian GNN on the static map is like a cartographer who draws circles of ``reachability''
+ignoring when any message was sent. The De Bruijn GNN is like a telegraph historian who carefully
+records every sequence of transmissions and only connects cities that actually had a valid
+chronological relay.
+\end{analogybox}
+
+\begin{mathbox}{Why DAG-GNNs and Backtracking Networks Are Still Partly Markovian}
+The DAG-GNN correctly prohibits backward-in-time edges, so it eliminates the worst causal
+leakage. However, within a single GNN message-passing layer, aggregation over all incoming causal
+edges is still memoryless: node $B$ cannot distinguish ``I received this message because $A$
+was infected first and then met me'' from ``I received this message because $C$ met me before
+meeting $A$.''
+
+The Backtracking Network's edge activation vectors encode \emph{which time steps} an edge was
+active, but the node update rule still aggregates all neighbours' messages without regard for
+\emph{which activation pattern led to which other activation pattern}.
+
+The De Bruijn approach eliminates this residual Markovian assumption by making the entire
+\emph{sequence} of contacts---not just individual contacts---the primary unit of representation.
+\end{mathbox}
+
+% =============================================================================
+\section{What Is a De Bruijn Graph? From DNA to Sequences}
+% =============================================================================
+
+The mathematical structure underlying this paper has a long history in combinatorics and
+bioinformatics. To understand it intuitively, we begin with the original application: DNA
+sequence assembly.
+
+\subsection{De Bruijn Graphs for DNA Sequences}
+
+When biologists sequence a genome, they cannot read the entire DNA strand at once. Sequencing
+machines produce millions of short fragments, each of length $k$ nucleotides. These fragments
+are called \textbf{$k$-mers}. The problem of genome assembly is: given all the $k$-mers, in
+what order do they originally appear?
+
+The De Bruijn graph provides an elegant solution.
+
+\begin{conceptbox}{De Bruijn Graphs for $k$-mers}
+Let $\Sigma$ be an alphabet (for DNA: $\{A, T, G, C\}$). A \textbf{$k$-mer} is any sequence of
+$k$ characters from $\Sigma$.
+
+A \textbf{De Bruijn graph of order $k$} is constructed as follows:
+\begin{itemize}[noitemsep]
+    \item \textbf{Nodes:} Every distinct $(k-1)$-mer that appears in the data.
+    \item \textbf{Directed edges:} A directed edge exists from node $\alpha$ to node $\beta$ if
+          and only if the last $k-2$ characters of $\alpha$ match the first $k-2$ characters of
+          $\beta$, AND the combined sequence $\alpha[1]\cdots\alpha[k-1]\,\beta[k-1]$ is a valid
+          $k$-mer in the data.
+\end{itemize}
+In other words: an edge $\alpha \to \beta$ encodes the fact that the sequence $\alpha$ can be
+immediately followed by character $\beta[k-1]$. Each edge in the graph represents one $k$-mer;
+each node represents one $(k-1)$-mer.
+\end{conceptbox}
+
+\begin{examplebox}{De Bruijn Graph: A Small DNA Example ($k=3$)}
+Suppose we observe the following 3-mers from a DNA fragment: \texttt{ACG}, \texttt{CGT},
+\texttt{GTG}, \texttt{TGA}.
+
+The nodes (2-mers) are: \texttt{AC}, \texttt{CG}, \texttt{GT}, \texttt{TG}, \texttt{GA}.
+
+The edges (representing 3-mers):
+\begin{itemize}[noitemsep]
+    \item \texttt{ACG}: node \texttt{AC} $\to$ node \texttt{CG} \hfill (overlap: \texttt{C})
+    \item \texttt{CGT}: node \texttt{CG} $\to$ node \texttt{GT} \hfill (overlap: \texttt{G})
+    \item \texttt{GTG}: node \texttt{GT} $\to$ node \texttt{TG} \hfill (overlap: \texttt{T})
+    \item \texttt{TGA}: node \texttt{TG} $\to$ node \texttt{GA} \hfill (overlap: \texttt{G})
+\end{itemize}
+Following the path \texttt{AC} $\to$ \texttt{CG} $\to$ \texttt{GT} $\to$ \texttt{TG} $\to$
+\texttt{GA} in the De Bruijn graph spells out the original sequence \texttt{ACGTGA}.
+\end{examplebox}
+
+The key insight is the \textbf{overlap rule}: an edge $\alpha \to \beta$ exists only when the
+\emph{suffix} of $\alpha$ matches the \emph{prefix} of $\beta$. This overlap constraint ensures
+that consecutive edges form a valid, non-contradictory sequence. Genome assembly reduces to
+finding an Eulerian path through this graph.
+
+\subsection{Adapting the Concept to Temporal Networks}
+
+Now we replace the DNA alphabet with a contact network. Instead of characters $\{A, T, G, C\}$,
+our ``alphabet'' is the set of all possible contacts $(u, v, t)$ between people. Instead of
+$k$-mers (sequences of $k$ characters), we have \textbf{temporal walks of length $k$}: sequences
+of $k$ contacts that are temporally ordered and share intermediate nodes.
+
+\begin{conceptbox}{Temporal Walk of Length $k$}
+A \textbf{temporal walk of length $k$} in a dynamic graph $G^T = (V, E^T)$ is a sequence of
+$k$ contact events:
+\[ w = (e_{i_1},\, e_{i_2},\, \ldots,\, e_{i_k}) \]
+where each $e_{i_j} = (u_j, v_j, t_j) \in E^T$, subject to two conditions:
+\begin{enumerate}[noitemsep]
+    \item \textbf{Node continuity:} The destination of one event equals the source of the next.
+          Formally, $v_j = u_{j+1}$ for all $j \in \{1, \ldots, k-1\}$.
+    \item \textbf{Temporal ordering:} Events occur in strictly increasing time.
+          Formally, $t_1 < t_2 < \cdots < t_k$ (with optional maximum gap $\delta$:
+          $t_{j+1} - t_j \leq \delta$).
+\end{enumerate}
+Such a walk represents a \emph{physically possible} transmission path of length $k$.
+\end{conceptbox}
+
+The concept directly parallels the DNA case: the ``alphabet'' is the set of directed contact
+events; the ``$k$-mers'' are valid temporal walks of length $k$; and the ``overlap rule'' is
+the combined requirement of shared intermediate node and strictly increasing timestamps.
+
+% =============================================================================
+\section{Constructing De Bruijn Graphs for Temporal Networks}
+% =============================================================================
+
+We now define the central mathematical object of this chapter.
+
+\subsection{The $k$-th Order De Bruijn Graph}
+
+\begin{mathbox}{Definition: $k$-th Order De Bruijn Graph $G^{(k)}$}
+Let $G^T = (V, E^T)$ be a dynamic graph with node set $V$ and time-stamped directed edges
+$E^T \subseteq V \times V \times \mathbb{N}$.
+
+The \textbf{$k$-th order De Bruijn graph} of $G^T$ is a static directed graph
+$G^{(k)} = (V^{(k)}, E^{(k)})$ where:
+
+\medskip
+\textbf{Node set $V^{(k)}$:} Every valid temporal walk of length $k-1$ in $G^T$ is one node.
+Formally, $u \in V^{(k)}$ is a tuple $u = (u_0, u_1, \ldots, u_{k-1})$ of $k$ nodes from $V$
+such that there exists a causal walk visiting $u_0, u_1, \ldots, u_{k-1}$ in order.
+
+\medskip
+\textbf{Edge set $E^{(k)}$:} A directed edge $(u, v) \in E^{(k)}$ exists if and only if:
+\begin{enumerate}[noitemsep]
+    \item $u = (u_0, \ldots, u_{k-1})$ and $v = (v_0, \ldots, v_{k-1})$ overlap: $u_i = v_{i-1}$
+          for $i = 1, \ldots, k-1$.
+    \item The combined walk $(u_0, u_1, \ldots, u_{k-1}, v_{k-1})$ is a valid causal walk of
+          length $k$ in $G^T$.
+\end{enumerate}
+Each edge $(u, v)$ in $G^{(k)}$ thus represents a valid temporal walk of length $k$.
+\end{mathbox}
+
+\begin{keyinsight}{What the Order $k$ Controls}
+The order $k$ determines the \emph{memory depth} of the model:
+\begin{itemize}[noitemsep]
+    \item $k = 1$: Nodes represent individual contacts. Edges represent pairs of causally
+          adjacent contacts. This is approximately the same as the Temporal Event Graph (TEG)
+          from the Saram\"aki chapter, without the DAG structure.
+    \item $k = 2$: Nodes represent \emph{pairs} of consecutive contacts
+          (two-step transmission sequences). Edges connect sequences that share a one-step
+          overlap. The GNN now passes messages between two-step transmission sequences.
+    \item $k = 3$: Nodes represent three-step sequences. The model ``remembers'' three hops.
+\end{itemize}
+A first-order static graph is a zeroth-order approximation: it records that contacts exist, but
+has no memory of sequences at all.
+\end{keyinsight}
+
+\subsection{Our Implementation: First-Order De Bruijn Graph ($k=1$)}
+
+In the implementation used in this thesis (see \texttt{utils/make\_de\_bruijn\_graph.py} and
+\texttt{gnn/graph\_builder.py}), we use a first-order De Bruijn graph, which corresponds to the
+case $k=1$ in the paper's notation. This means:
+\begin{itemize}[noitemsep]
+    \item \textbf{Nodes:} Every directed contact event $(u, v, t)$ in the original network
+          becomes a node in the De Bruijn graph.
+    \item \textbf{Directed edges:} An edge $(u, v, t_1) \to (x, y, t_2)$ exists iff $v = x$
+          (shared bridge node) and $t_2 > t_1$ (time ordering).
+\end{itemize}
+This is the representation used in all code walkthroughs below. The higher-order variants ($k>1$)
+follow the same principle but with nodes representing multi-hop sequences.
+
+% =============================================================================
+\section{Worked Example: Building the De Bruijn Graph Step by Step}
+% =============================================================================
+
+We now trace through the complete construction of a first-order De Bruijn graph on a concrete
+small example, so that every step is visible.
+
+\subsection{The Input Temporal Network}
+
+Consider a temporal network with four people: Alice (A), Bob (B), Charlie (C), Dana (D). There
+are four contact events:
+\begin{align*}
+    e_1 &= (A, B, t=1) \\
+    e_2 &= (B, C, t=2) \\
+    e_3 &= (A, C, t=3) \\
+    e_4 &= (C, D, t=4)
+\end{align*}
+
+In the \emph{static projection} (ignoring timestamps), this looks like a graph with edges
+$A-B$, $B-C$, $A-C$, $C-D$.
+
+\subsection{Step 1: Enumerate De Bruijn Nodes}
+
+Each directed version of each contact event becomes one De Bruijn node. Because the original
+contacts are undirected (a meeting between $A$ and $B$ is the same whether we write it as
+$(A \to B)$ or $(B \to A)$), each contact event generates \emph{two} De Bruijn nodes:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Original event} & \textbf{De Bruijn nodes created} \\
+\midrule
+$e_1 = (A, B, t=1)$ & $(A, B, 1)$ and $(B, A, 1)$ \\
+$e_2 = (B, C, t=2)$ & $(B, C, 2)$ and $(C, B, 2)$ \\
+$e_3 = (A, C, t=3)$ & $(A, C, 3)$ and $(C, A, 3)$ \\
+$e_4 = (C, D, t=4)$ & $(C, D, 4)$ and $(D, C, 4)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In addition, the builder adds \textbf{sentinel nodes} $(n, n, t_{\min})$ and
+$(n, n, t_{\max})$ for each person $n$. We will explain sentinels in detail in
+Section~\ref{sec:sentinels}. For now, note that each node is a triple $(u, v, t)$ where $u$
+is the ``source'' person, $v$ is the ``destination'' person, and $t$ is the contact time.
+
+\subsection{Step 2: Draw De Bruijn Edges}
+
+For each pair of De Bruijn nodes $(u, v, t_1)$ and $(x, y, t_2)$, we draw a directed edge
+$(u, v, t_1) \to (x, y, t_2)$ if and only if $v = x$ (the destination of the first event
+equals the source of the second) \emph{and} $t_2 > t_1$.
+
+Let us check all valid pairs:
+
+\begin{examplebox}{Checking Every Candidate Edge}
+\begin{itemize}[noitemsep]
+    \item $(A,B,1) \to (B,C,2)$: bridge node $B=B$ \checkmark, time $2>1$ \checkmark.
+          \textbf{Edge exists.} This encodes the causal path $A \to B \to C$.
+    \item $(A,B,1) \to (B,A,1)$: bridge $B=B$ \checkmark, time $1>1$? \texttimes. No edge.
+          (Same timestamp, not strictly later.)
+    \item $(B,C,2) \to (C,D,4)$: bridge $C=C$ \checkmark, time $4>2$ \checkmark.
+          \textbf{Edge exists.} Encodes $B \to C \to D$.
+    \item $(B,C,2) \to (C,A,3)$: bridge $C=C$ \checkmark, time $3>2$ \checkmark.
+          \textbf{Edge exists.} Encodes $B \to C \to A$ (backwards reach, but causally valid).
+    \item $(A,C,3) \to (C,D,4)$: bridge $C=C$ \checkmark, time $4>3$ \checkmark.
+          \textbf{Edge exists.} Encodes $A \to C \to D$.
+    \item $(A,B,1) \to (A,C,3)$: bridge $B \neq A$. No edge. Alice did not pass through Bob
+          to reach Charlie directly.
+    \item $(C,B,2) \to (B,A,1)$: bridge $B=B$ \checkmark, but time $1 > 2$? \texttimes.
+          No edge. Time moves backwards here; causally impossible.
+\end{itemize}
+The complete set of forward causal edges is thus:
+$(A,B,1) \to (B,C,2)$, $(B,C,2) \to (C,D,4)$, $(B,C,2) \to (C,A,3)$, $(A,C,3) \to (C,D,4)$.
+\end{examplebox}
+
+\subsection{Step 3: Visualise the Result}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    evtnode/.style={
+        rectangle, rounded corners=4pt, draw=orange!80!black,
+        fill=orange!12, thick, minimum width=1.6cm, minimum height=0.7cm,
+        font=\footnotesize\bfseries, align=center
+    },
+    sentnode/.style={
+        circle, draw=blue!70!black, fill=blue!12, thick,
+        minimum size=0.8cm, font=\scriptsize\bfseries, align=center
+    },
+    fwd/.style={-{Stealth[length=2.5mm]}, thick, orange!80!black},
+    sent/.style={-{Stealth[length=2mm]}, thick, blue!60, dashed}
+]
+% Event nodes (top row, left to right in time)
+\node[evtnode] (AB) at (0,  0)   {$A{\to}B$\\$t=1$};
+\node[evtnode] (BA) at (0, -2.2) {$B{\to}A$\\$t=1$};
+
+\node[evtnode] (BC) at (3.5,  0)   {$B{\to}C$\\$t=2$};
+\node[evtnode] (CB) at (3.5, -2.2) {$C{\to}B$\\$t=2$};
+
+\node[evtnode] (AC) at (7,  0)   {$A{\to}C$\\$t=3$};
+\node[evtnode] (CA) at (7, -2.2) {$C{\to}A$\\$t=3$};
+
+\node[evtnode] (CD) at (10.5,  0)   {$C{\to}D$\\$t=4$};
+\node[evtnode] (DC) at (10.5, -2.2) {$D{\to}C$\\$t=4$};
+
+% Causal De Bruijn edges
+\draw[fwd] (AB) -- node[above, font=\scriptsize]{B=B} (BC);
+\draw[fwd] (BC) -- node[above, font=\scriptsize]{C=C} (CD);
+\draw[fwd] (BC) to[bend right=18] node[below, font=\scriptsize]{C=C} (CA);
+\draw[fwd] (AC) -- node[above, font=\scriptsize]{C=C} (CD);
+
+% Sentinel nodes along the bottom
+\node[sentnode] (sA) at (-1.8, -4.5) {\small$A{:}t_0$};
+\node[sentnode] (sB) at (1.8, -4.5)  {\small$B{:}t_0$};
+\node[sentnode] (sC) at (5.3, -4.5)  {\small$C{:}t_0$};
+\node[sentnode] (sD) at (8.8, -4.5)  {\small$D{:}t_0$};
+
+% Sentinel start-edges (from person's sentinel to their first event)
+\draw[sent] (sA) to[bend left=10] (AB);
+\draw[sent] (sA) to[bend right=10] (AC);
+\draw[sent] (sB) to[bend left=10] (BA);
+\draw[sent] (sB) to[bend right=10] (BC);
+\draw[sent] (sC) to[bend left=10] (CB);
+\draw[sent] (sC) to[bend right=10] (CA);
+\draw[sent] (sC) -- (CD);
+\draw[sent] (sD) -- (DC);
+\end{tikzpicture}
+\caption{First-order De Bruijn graph for the example temporal network with four contact events.
+Orange rectangles are \emph{event nodes}; blue circles are \emph{sentinel nodes} (one per person).
+Orange arrows are causal De Bruijn edges; blue dashed arrows connect each sentinel to the events
+it ``owns.'' Only forward-in-time causal edges are shown for clarity.}
+\label{fig:debruijn_example}
+\end{figure}
+
+Notice what the graph has achieved. The directed path
+$(A,B,1) \to (B,C,2) \to (C,D,4)$
+in the De Bruijn graph precisely encodes the causal chain
+$A$ infects $B$ at time 1, then $B$ infects $C$ at time 2, then $C$ infects $D$ at time 4.
+There is \emph{no edge} connecting $(C,B,2)$ to $(B,A,1)$, because that would require time
+to flow backward. The impossible path $C \to B \to A$ cannot be traversed.
+
+\begin{keyinsight}{Causal Leakage is Structurally Impossible}
+In the De Bruijn graph, every directed path is, by construction, a valid causal transmission
+chain. There is no need to check time orderings during message passing because all invalid paths
+have already been removed during graph construction. Causal correctness is encoded in the
+\emph{topology}, not the \emph{features}.
+
+This is the central advantage over both the DAG-GNN approach (which also removes impossible edges
+but at higher construction cost for large $k$) and the Backtracking Network (which encodes time
+in features, leaving the GNN to learn which sequences are valid).
+\end{keyinsight}
+
+% =============================================================================
+\section{Why Higher-Order Graphs Capture Non-Markovian Dynamics}
+% =============================================================================
+
+\subsection{First-Order versus Second-Order: An Epidemic Illustration}
+
+Consider a temporal network representing a hospital ward. Staff members can spread a pathogen
+by touching contaminated surfaces. Suppose we observe the following pattern in the contact data:
+\begin{itemize}[noitemsep]
+    \item Doctors often visit Room 101 immediately \emph{after} attending the morning handover
+          meeting in Room 100.
+    \item After visiting Room 101, they typically go to Room 102.
+\end{itemize}
+
+A \emph{first-order} De Bruijn graph records: ``Doctor D contacted Room 100. Doctor D contacted
+Room 101. Doctor D contacted Room 102.'' Each contact is a node; edges connect contacts that
+share a person.
+
+A \emph{second-order} De Bruijn graph records, as single nodes, the \emph{two-step sequences}:
+``D went from Room 100 to Room 101'' and ``D went from Room 101 to Room 102.'' The edge between
+these two-step nodes encodes the full three-step sequence ``Room 100 $\to$ Room 101 $\to$ Room
+102.'' This is the \emph{pathway}, the transmission chain that the pathogen actually travels.
+
+\begin{analogybox}{The Train Timetable Analogy}
+Think of a rail network. A first-order graph knows which cities are connected by rail. A
+second-order graph knows which \emph{connections} are available: ``Passengers who arrive at
+Munich from Frankfurt can then board the Munich-to-Vienna train.'' This is crucial information
+if you want to know whether a traveller can get from Frankfurt to Vienna in one day: not just
+whether the rail links exist, but whether the connection times work out.
+
+Epidemic spreading obeys the same logic. A pathogen is like a traveller. It cannot ``take a
+connection'' if the first train arrives after the second one has departed. Higher-order De Bruijn
+graphs are timetable-aware; first-order graphs are not.
+\end{analogybox}
+
+\subsection{Mathematical Statement: Non-Markovian Message Passing}
+
+In a standard GNN operating on $G^{(1)}$ (the first-order static graph), the update rule at
+layer $l$ is:
+\[
+    \mathbf{h}_v^{(l)} = \sigma\!\left(\mathbf{W}^{(l)} \cdot \textsc{Agg}\!\left(
+        \left\{\mathbf{h}_u^{(l-1)} : (u, v) \in E \right\}\right)\right)
+\]
+Node $v$ has no information about \emph{which} of its neighbours $u$ sent the message in the
+previous layer, so it cannot distinguish between a causal path $A \to v \to w$ and a
+non-causal one.
+
+When the GNN operates on $G^{(k)}$ (the $k$-th order De Bruijn graph), each node
+$\tilde{u} = (u_0, \ldots, u_{k-1}) \in V^{(k)}$ represents an entire $k$-step walk. The
+update rule becomes:
+
+\begin{equation}
+    \bar{h}_{v}^{k,l} = \sigma\!\left(\mathbf{W}^{k,l} \cdot
+    \sum_{\substack{u \in V^{(k)}: \\ (u,v) \in E^{(k)}}}
+    \frac{w(u,v) \cdot \bar{h}_u^{k,l-1}}{\sqrt{S(v) \cdot S(u)}}\right)
+    \label{eq:dbgnn_update}
+\end{equation}
+
+where $w(u,v)$ is the edge weight (encoding how frequently the two-step sequence was observed),
+$\mathbf{W}^{k,l}$ is a trainable weight matrix, $S(v) = \sum_{u} w(u,v)$ is the weighted
+degree, and $\sigma$ is a nonlinear activation. Because $v$ represents a $k$-step walk, the
+message $\bar{h}_u^{k,l-1}$ already encodes the full $(k-1)$-step history of the walk leading
+to $v$. The aggregation is therefore \emph{non-Markovian}: the ``history'' is built into the
+node identity itself.
+
+% =============================================================================
+\section{The Sentinel Node: Mapping Back to People}
+\label{sec:sentinels}
+% =============================================================================
+
+After building the De Bruijn graph and running GNN message passing on it, we face a structural
+mismatch:
+
+\begin{itemize}
+    \item Our \textbf{labels} are defined over \emph{people} (original nodes $v \in V$).
+    \item The \textbf{De Bruijn graph nodes} are contact events $(u, v, t)$, not people.
+\end{itemize}
+
+A person $A$ who participated in three contacts now ``lives'' across three distinct De Bruijn
+nodes: $(A, B, 1)$, $(B, A, 1)$, $(A, C, 3)$. How do we extract a single
+prediction score for person $A$?
+
+\begin{analogybox}{The Personal Logbook Analogy}
+Imagine every person in the network carries a personal logbook. Every time they have a contact,
+they write an entry in the logbook. At the end of the observation period, the logbook contains a
+chronological summary of all that person's interactions.
+
+The \textbf{sentinel node} $(v, v, t_{\text{end}})$ is exactly this logbook. It is a special
+De Bruijn node that represents ``person $v$'s record at the end of the observation window.''
+Every contact event involving $v$ sends information \emph{into} the sentinel (via the De Bruijn
+edges from event nodes to the sentinel). After message passing, the sentinel's embedding is a
+summary of all the causal information that flowed through person $v$ over time.
+
+When we want to score person $v$ as a potential epidemic source, we read the final entry in
+their logbook: we extract the embedding of their sentinel node $(v, v, t_{\text{end}})$.
+\end{analogybox}
+
+\subsection{Formal Definition of Sentinel Nodes}
+
+\begin{mathbox}{Sentinel Nodes}
+For each person $v \in V$ in the original network, we add two \textbf{sentinel nodes} to the De
+Bruijn graph:
+\begin{itemize}[noitemsep]
+    \item $(v, v, t_{\text{start}})$: the \textbf{start sentinel}. Connected forward to every
+          event node $(v, w, t)$ for $t > t_{\text{start}}$, encoding ``at the start of the
+          observation, person $v$ had not yet been involved in any contact.''
+    \item $(v, v, t_{\text{end}})$: the \textbf{end sentinel}. Every event node $(u, v, t)$
+          or $(v, u, t)$ connects forward to this sentinel. It is the \emph{readout anchor}:
+          after message passing, we extract the embedding of this node to obtain the
+          source-detection score for person $v$.
+\end{itemize}
+An edge $(v, v, t_{\text{start}}) \to (v, v, t_{\text{end}})$ is also added to ensure the
+sentinel is reachable even for people with no contacts.
+\end{mathbox}
+
+\begin{examplebox}{Sentinel Edges in Our Running Example}
+For person Alice (A), with $t_{\text{start}} = 1$ and $t_{\text{end}} = 4$:
+\begin{itemize}[noitemsep]
+    \item Start sentinel $(A,A,1)$ connects forward to event nodes $(A,B,1)$ and $(A,C,3)$
+          (contacts where Alice is the source).
+    \item Event nodes $(A,B,1)$ and $(A,C,3)$ connect to end sentinel $(A,A,4)$.
+    \item After GNN message passing, the embedding $\mathbf{h}_{(A,A,4)}$ contains aggregated
+          information from all paths flowing through Alice.
+    \item This embedding is used to score Alice as a potential source.
+\end{itemize}
+\end{examplebox}
+
+% =============================================================================
+\section{The DBGNN Architecture: Putting It All Together}
+% =============================================================================
+
+With the De Bruijn graph constructed and sentinel nodes defined, the DBGNN architecture
+proceeds in four clean stages.
+
+\begin{conceptbox}{DBGNN Pipeline Overview}
+\begin{enumerate}
+    \item \textbf{Feature initialisation:} Map original SIR node features to De Bruijn node
+          embeddings. Event nodes and sentinel nodes receive different projections because they
+          encode different information (one contact vs.\ one person's summary).
+    \item \textbf{De Bruijn message passing:} Run $L$ layers of GNN message passing on the De
+          Bruijn graph. Messages flow only along valid causal edges.
+    \item \textbf{Sentinel readout:} Extract the embedding of the end-time sentinel
+          $(v, v, t_{\text{end}})$ for each person $v$. This is the person-level representation.
+    \item \textbf{Score projection and masking:} Apply a linear layer to each sentinel embedding
+          to produce a scalar score. Mask out nodes known to be susceptible (they cannot be
+          the source). Apply log-softmax to obtain a probability distribution.
+\end{enumerate}
+\end{conceptbox}
+
+\subsection{Stage 1: Feature Initialisation}
+
+Every De Bruijn node $(u, v, t)$ corresponds to a pair of original nodes $(u, v)$. We can look
+up the SIR state vectors of both:
+\[
+    \mathbf{x}_u \in \{0,1\}^3, \quad \mathbf{x}_v \in \{0,1\}^3
+\]
+For \textbf{event nodes} ($u \neq v$), the initial embedding is a projection of the
+\emph{concatenation} of both endpoints' features, giving a 6-dimensional input:
+\[
+    \mathbf{h}_{\text{event}} = \text{ReLU}\!\left(\mathbf{W}_{\text{event}}\, [\mathbf{x}_u \| \mathbf{x}_v]\right)
+    \in \mathbb{R}^D
+\]
+For \textbf{sentinel nodes} ($u = v$), only one person is involved, so the input is 3-dimensional:
+\[
+    \mathbf{h}_{\text{sentinel}} = \text{ReLU}\!\left(\mathbf{W}_{\text{sentinel}}\, \mathbf{x}_u\right)
+    \in \mathbb{R}^D
+\]
+The correct projection is selected for each node based on the boolean mask \texttt{is\_sentinel}.
+
+\subsection{Stage 2: De Bruijn Message Passing}
+
+The layer update is a mean-aggregator SAGE-style step:
+\[
+    \mathbf{h}_{v}^{(l+1)} = \text{ReLU}\!\left(
+        \mathbf{W}_{\text{self}}\, \mathbf{h}_{v}^{(l)}
+        + \mathbf{W}_{\text{agg}}\, \frac{1}{\deg^{-}(v)} \sum_{u: (u,v) \in E_{\text{DB}}}
+          \mathbf{h}_{u}^{(l)}
+    \right)
+\]
+where $\deg^{-}(v)$ is the in-degree of node $v$ in the De Bruijn graph (the number of causal
+predecessors). The two linear transforms $\mathbf{W}_{\text{self}}$ and $\mathbf{W}_{\text{agg}}$
+are learnable parameters, each of size $D \times D$.
+
+\subsection{Stage 3: Sentinel Readout}
+
+After $L$ message-passing layers, information has propagated forward along all valid causal chains.
+For each original person $v$, we extract the embedding of the end-time sentinel:
+\[
+    \mathbf{e}_v = \mathbf{h}_{(v,v,t_{\text{end}})}^{(L)} \in \mathbb{R}^D
+\]
+This gives a matrix $\mathbf{E} \in \mathbb{R}^{N \times D}$ of person-level representations,
+where $N = |V|$ is the number of people.
+
+\subsection{Stage 4: Score Projection and Log-Softmax}
+
+A final linear layer maps each person's embedding to a scalar logit:
+\[
+    s_v = \mathbf{w}_{\text{out}}^T \mathbf{e}_v \in \mathbb{R}
+\]
+Nodes whose SIR state is Susceptible are set to $-\infty$ (they cannot be the source since they
+were never infected). A log-softmax is then applied over all non-masked nodes:
+\[
+    \hat{p}_v = \log\frac{\exp(s_v)}{\sum_{w: \text{non-susceptible}} \exp(s_w)}
+\]
+The output $\hat{\mathbf{p}} \in \mathbb{R}^N$ is a vector of log-probabilities, one per person.
+Training uses the negative log-likelihood of the true source.
+
+% =============================================================================
+\section{Code Walkthrough: \texttt{gnn/dbgnn.py} and \texttt{gnn/graph\_builder.py}}
+% =============================================================================
+
+We now trace through the actual implementation, connecting each architectural stage to the
+corresponding code in the codebase.
+
+\subsection{Graph Construction: \texttt{utils/make\_de\_bruijn\_graph.py}}
+
+The De Bruijn graph is constructed by the function \texttt{make\_de\_bruijn\_graph} in
+\texttt{utils/make\_de\_bruijn\_graph.py}. Its logic follows the three steps of the previous
+sections exactly.
+
+\begin{codewalk}{Building the De Bruijn Graph Node-by-Node}
+The function receives \texttt{H\_array}, a NumPy array of shape $[E, 3]$ where each row is a
+contact event $(u, v, t)$, sorted by time.
+
+\begin{lstlisting}[language=Python]
+def make_de_bruijn_graph(H_array, start_t, end_t,
+                          time_reverse=False, directed=False):
+    B = nx.DiGraph()
+    nodes = set(H_array[:, 0]).union(H_array[:, 1])
+
+    # --- Sentinel nodes for every person ---
+    for n in nodes:
+        B.add_node((n, n, end_t))    # end-time sentinel
+        B.add_node((n, n, start_t))  # start-time sentinel
+    for n in nodes:
+        # Direct edge from start to end sentinel (base case)
+        B.add_edge((n, n, start_t), (n, n, end_t), ...)
+\end{lstlisting}
+
+The loop then processes contacts chronologically. For each contact $(u, v, t)$:
+\begin{lstlisting}[language=Python]
+    for u, v, t in H_array:
+        # Connect previous events involving u to this new event
+        for x, y, t1 in previous_contacts[u]:
+            B.add_edge((x, y, t1), (u, v, t), ...)
+        # Connect start sentinel to this event
+        B.add_edge((u, u, start_t), (u, v, t), ...)
+        # Connect this event to end sentinel
+        B.add_edge((u, v, t), (v, v, end_t), ...)
+        # Record event for future use
+        previous_contacts[v].append((u, v, t))
+\end{lstlisting}
+The variable \texttt{previous\_contacts[v]} tracks all prior contacts whose endpoint was $v$,
+enabling efficient look-up of all valid predecessors when processing new contacts involving $v$.
+\end{codewalk}
+
+\begin{keyinsight}{Efficient Causal Edge Construction}
+The algorithm processes contacts in sorted temporal order. For each new contact $(u, v, t)$, it
+only needs to consult \texttt{previous\_contacts[u]}: the list of prior events that ended at
+node $u$ (making $u$ the bridge node). This avoids checking all $O(E^2)$ pairs, reducing
+construction to $O(E \cdot \bar{d})$ where $\bar{d}$ is the average number of prior contacts
+per node.
+\end{keyinsight}
+
+\subsection{Tensor Preparation: \texttt{gnn/graph\_builder.py}}
+
+The function \texttt{build\_de\_bruijn\_graph} in \texttt{gnn/graph\_builder.py} converts the
+NetworkX De Bruijn graph produced above into PyTorch tensors that can be passed directly to the
+DBGNN model.
+
+\begin{codewalk}{Converting the De Bruijn Graph to Tensors}
+\begin{lstlisting}[language=Python]
+def build_de_bruijn_graph(H: nx.Graph, directed: bool = False) -> dict:
+    # Build NetworkX De Bruijn graph from H_array
+    B = _make_db(H_array, start_t, end_t, ...)
+
+    # Assign integer index to every De Bruijn node
+    node_list   = list(B.nodes())
+    node_to_idx = {node: i for i, node in enumerate(node_list)}
+
+    # Edge index tensor [2, E_db]
+    edges = [(node_to_idx[u], node_to_idx[v]) for u, v in B.edges()]
+    edge_index = torch.tensor(edges, dtype=torch.long).T
+
+    # For each DB node (x, y, t): store (x, y) as original node pair
+    db_node_to_original = torch.zeros(db_n_nodes, 2, dtype=torch.long)
+    is_sentinel = torch.zeros(db_n_nodes, dtype=torch.bool)
+    for i, node in enumerate(node_list):
+        x, y, _ = node
+        db_node_to_original[i, 0] = int(x)  # source person
+        db_node_to_original[i, 1] = int(y)  # dest person
+        if int(x) == int(y):
+            is_sentinel[i] = True            # x==y means sentinel
+
+    # For readout: find DB index of end-sentinel for each orig node
+    sentinel_end_indices = torch.zeros(n_nodes, dtype=torch.long)
+    for n in range(n_nodes):
+        end_sentinel = (n, n, end_t)
+        if end_sentinel in node_to_idx:
+            sentinel_end_indices[n] = node_to_idx[end_sentinel]
+\end{lstlisting}
+
+This function returns a dictionary with five tensors:
+\begin{itemize}[noitemsep]
+    \item \texttt{edge\_index}: the De Bruijn graph's edge connectivity, shape $[2, E_{\text{DB}}]$.
+    \item \texttt{db\_node\_to\_original}: maps each DB node to its original $(u, v)$ pair,
+          shape $[N_{\text{DB}}, 2]$.
+    \item \texttt{sentinel\_end\_indices}: the DB node index of the end-sentinel for each
+          original person, shape $[N]$.
+    \item \texttt{is\_sentinel}: boolean mask indicating which DB nodes are sentinels,
+          shape $[N_{\text{DB}}]$.
+\end{itemize}
+\end{codewalk}
+
+\subsection{The DBGNN Model: \texttt{gnn/dbgnn.py}}
+
+The full model is implemented in \texttt{gnn/dbgnn.py}. We walk through its three main
+components.
+
+\begin{codewalk}{Stage 1: Feature Initialisation (Split by Node Type)}
+The constructor defines two separate linear projections, one for event nodes (6-dim input)
+and one for sentinel nodes (3-dim input):
+\begin{lstlisting}[language=Python]
+class DBGNN(torch.nn.Module):
+    def __init__(self, hidden_channels, num_conv_layers, ...):
+        self.proj_sentinel = Linear(3, hidden_channels)  # 3 = |SIR|
+        self.proj_event    = Linear(6, hidden_channels)  # 6 = |SIR|*2
+        self.convs = ModuleList(
+            [DBGNNLayer(hidden_channels) for _ in range(num_conv_layers)]
+        )
+        self.out = Linear(hidden_channels, 1)
+\end{lstlisting}
+
+In the forward pass, both projections are computed for \emph{all} DB nodes, then we select
+the right one using \texttt{torch.where} with the \texttt{is\_sentinel} mask:
+\begin{lstlisting}[language=Python]
+    # x: [B, N, 3]  original SIR states for all people
+    x_u = x[:, db_node_to_original[:, 0], :]   # [B, db_N, 3]
+    x_v = x[:, db_node_to_original[:, 1], :]   # [B, db_N, 3]
+
+    h_sent  = F.relu(self.proj_sentinel(x_u))
+    h_event = F.relu(self.proj_event(torch.cat([x_u, x_v], dim=-1)))
+
+    # Blend: pick projection based on node type
+    mask = is_sentinel.view(1, db_N, 1).expand(B, db_N, D)
+    h = torch.where(mask, h_sent, h_event)     # [B, db_N, D]
+\end{lstlisting}
+The indexing trick \texttt{x[:, db\_node\_to\_original[:, 0], :]} simultaneously gathers the
+SIR feature vectors of the source-person for \emph{all} DB nodes at once, without a Python loop.
+\end{codewalk}
+
+\begin{codewalk}{Stage 2: DBGNNLayer --- Manual Mean-Aggregation SAGE}
+The \texttt{DBGNNLayer} class implements the message-passing update manually, without PyTorch
+Geometric's sparse batching, to support the \texttt{[B, N, D]} batched tensor layout used
+throughout this codebase.
+\begin{lstlisting}[language=Python]
+class DBGNNLayer(torch.nn.Module):
+    def __init__(self, hidden_dim):
+        self.W_self = Linear(hidden_dim, hidden_dim, bias=False)
+        self.W_agg  = Linear(hidden_dim, hidden_dim, bias=True)
+
+    def forward(self, h, edge_index):
+        # h: [B, db_N, D]
+        src, dst = edge_index[0], edge_index[1]
+
+        # Step 1: gather source features
+        h_src = h[:, src, :]               # [B, E_db, D]
+
+        # Step 2: scatter-add into aggregation buffer
+        dst_idx = dst.view(1, -1, 1).expand(B, E, D)
+        agg_sum = h.new_zeros(B, db_N, D)
+        agg_sum.scatter_add_(1, dst_idx, h_src)
+
+        # Step 3: normalise by in-degree
+        deg = h.new_zeros(db_N)
+        deg.scatter_add_(0, dst, torch.ones(E, device=h.device))
+        deg = deg.clamp(min=1).view(1, db_N, 1)
+        agg_mean = agg_sum / deg
+
+        # Step 4: SAGE update (self + aggregated neighbour)
+        h_new = F.relu(self.W_self(h) + self.W_agg(agg_mean))
+        return h_new
+\end{lstlisting}
+The \texttt{scatter\_add\_} operation is the vectorised equivalent of the loop
+``for each edge $(u,v)$: \texttt{agg[v] += h[u]},'' computed simultaneously over all edges
+and all batch elements. The \texttt{clamp(min=1)} prevents division by zero for isolated nodes.
+\end{codewalk}
+
+\begin{codewalk}{Stages 3 and 4: Sentinel Readout, Masking, and Log-Softmax}
+After $L$ message-passing layers, we extract the end-sentinel embeddings and produce the final
+output:
+\begin{lstlisting}[language=Python]
+    # Stage 3: Readout via end-time sentinels
+    sent_idx = sentinel_end_indices.to(x.device)  # [N]
+    node_emb = h[:, sent_idx, :]                   # [B, N, D]
+
+    # Stage 4: Score -> mask susceptibles -> log-softmax
+    scores = self.out(node_emb).squeeze(-1)         # [B, N]
+    susceptible_mask = x[..., 0].bool()             # [B, N] True if S
+    scores = scores.masked_fill(susceptible_mask, float("-inf"))
+    return F.log_softmax(scores, dim=-1)            # [B, N]
+\end{lstlisting}
+The indexing \texttt{h[:, sent\_idx, :]} selects, for every person $v$ in the original network,
+the embedding of that person's end-sentinel from the full De Bruijn embedding matrix. The
+susceptible mask ensures that nodes in state S are assigned probability $-\infty$ before
+normalisation, because a node that was never infected cannot be the source.
+\end{codewalk}
+
+% =============================================================================
+\section{Model Selection: Choosing the Right Order $k$}
+% =============================================================================
+
+A practical challenge with De Bruijn graphs is that different orders $k$ represent the same
+data in different ways. A higher $k$ captures more complex temporal dependencies but also
+increases the graph size and the risk of overfitting to spurious patterns. How do we choose $k$?
+
+Qarkaxhija et al.\ address this with \textbf{statistical model selection}: they compute, for
+each candidate order $k$, the statistics of causal walks of length $k$ in the data and apply
+a likelihood-ratio test to determine whether a $k$-th order model explains significantly more
+of the data than a $(k-1)$-th order model. The optimal $k$ is the lowest order for which the
+test cannot be rejected.
+
+\begin{conceptbox}{Model Order Selection (Non-Technical Summary)}
+\begin{enumerate}[noitemsep]
+    \item Count how often each $k$-step sequence appears in the data (the empirical distribution
+          of causal walks of length $k$).
+    \item Compare this to what we would expect under a lower-order (more Markovian) model.
+    \item If the observed frequencies deviate significantly from the lower-order prediction,
+          increase $k$. If not, stop.
+\end{enumerate}
+The test is parameter-free: it requires no cross-validation, no learning. The optimal graph
+order is inferred directly from the temporal statistics of the data.
+\end{conceptbox}
+
+In the empirical datasets evaluated in the paper (high-school proximity networks, workplace
+contacts, hospital ward data), a second-order De Bruijn graph ($k=2$) consistently provided
+significantly better explanatory power than the first-order model, confirming that non-Markovian
+patterns are present and meaningful in real contact data.
+
+% =============================================================================
+\section{Comparison of the Three Temporal GNN Architectures}
+% =============================================================================
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{p{2.6cm} p{3.2cm} p{2.8cm} p{2.8cm} p{3.2cm}}
+\toprule
+\textbf{Property} &
+\textbf{Saram{\"a}ki DAG-GNN} &
+\textbf{Ru et al.\ Backtracking} &
+\textbf{Qarkaxhija De Bruijn} \\
+\midrule
+\textbf{How time is encoded} &
+Events become nodes in a DAG; edges are causal adjacencies. &
+Original graph kept; edges carry binary activation vectors of length $T$. &
+Contact sequences become nodes; edges connect overlapping sequences. \\
+\midrule
+\textbf{Graph size} &
+$N_{\text{nodes}} = E$ (events). $N_{\text{edges}} \leq O(E^2)$. Potentially very large. &
+Identical to static graph: $N_{\text{nodes}} = |V|$, $N_{\text{edges}} = |E|$. Memory $O(|E| \cdot T)$. &
+$N_{\text{nodes}} = 2E + 2|V|$ (events + sentinels). $N_{\text{edges}} \leq O(E \cdot \bar{d})$. \\
+\midrule
+\textbf{Temporal resolution} &
+Exact: every event is a distinct entity with its own timestamp. &
+Binned: the timeline is divided into $T$ discrete slices. &
+Exact: each De Bruijn node carries the exact timestamp of its contact(s). \\
+\midrule
+\textbf{Causal guarantee} &
+Full: only forward-in-time edges exist. &
+Partial: temporal encoding is in features; the GNN must learn causal rules. &
+Full: only causally valid sequences exist as nodes; backward paths are absent. \\
+\midrule
+\textbf{Memory depth} &
+1 hop (each event node has no memory of the path leading to it). &
+All time steps (the full $T$-dim vector captures all past activations). &
+$k-1$ hops explicitly encoded in the node identity. $k$ is a hyperparameter. \\
+\midrule
+\textbf{Key innovation} &
+Lossless causal structure. First GNN approach to make time a topological property. &
+Graph size unchanged. Temporal information as edge features; computationally efficient. &
+Non-Markovian message passing. Sequences as nodes; the GNN reasons about paths, not hops. \\
+\midrule
+\textbf{Code location} &
+\texttt{gnn/dag\_gnn.py},\newline \texttt{graph\_builder.py:\allowbreak build\_dag\_event\_graph} &
+\texttt{gnn/backtracking\_network.py},\newline \texttt{graph\_builder.py:\allowbreak build\_temporal\_activation} &
+\texttt{gnn/dbgnn.py},\newline \texttt{graph\_builder.py:\allowbreak build\_de\_bruijn\_graph} \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of the three temporal GNN architectures studied in this workbook. All three
+solve the fundamental causal leakage problem of static GNNs, but through different mechanisms
+with different trade-offs in graph size, memory depth, and computational cost.}
+\label{tab:temporal_arch_comparison}
+\end{table}
+
+% =============================================================================
+\section{Empirical Results from Qarkaxhija et al.}
+% =============================================================================
+
+The paper evaluates DBGNN on six time-series datasets: a synthetic ``temp-clusters'' benchmark
+(designed to have structure exclusively in the causal topology) and five empirical contact
+datasets (high-school proximity, hospital ward, student SMS messages, workplace contacts).
+
+On the synthetic benchmark, all three time-aware methods (EVO, HONEM, DBGNN) achieve 100\%
+balanced accuracy while static GCN achieves only 33.5\%. This confirms that the temporal
+structure is necessary and sufficient for the task.
+
+On empirical datasets, DBGNN achieves the best balanced accuracy on all five, with relative
+improvements over the second-best method ranging from 1.55\% (workplace) to 28.16\% (hospital).
+Table~\ref{tab:dbgnn_results} reproduces the key numbers.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Dataset} & \textbf{GCN} & \textbf{HONEM} & \textbf{DBGNN} & \textbf{Gain vs.\ 2nd best} \\
+\midrule
+temp-clusters   & 33.52 & 54.94 & \textbf{100.0} & 0.00\% \\
+high-school-2011 & 50.06 & 54.24 & \textbf{64.4}  & +12.57\% \\
+high-school-2012 & 58.03 & 53.16 & \textbf{65.8}  & +8.31\% \\
+hospital        & 49.48 & 46.17 & \textbf{59.04} & +16.68\% \\
+student-sms     & 57.33 & 50.43 & \textbf{60.6}  & +5.70\% \\
+workplace       & 81.86 & 73.26 & \textbf{83.13} & +1.55\% \\
+\bottomrule
+\end{tabular}
+\caption{Balanced accuracy (\%) for node classification on six dynamic graph datasets, comparing
+static GCN, HONEM (a higher-order embedding baseline), and DBGNN. Results reproduced from
+Qarkaxhija et al.\ (2022), Table~2. ``Gain'' is computed relative to the second-best method
+on each dataset.}
+\label{tab:dbgnn_results}
+\end{table}
+
+The hospital dataset shows the largest gain (+16.68\%). This is consistent with the domain:
+hospital contact patterns are highly structured around professional roles (doctors, nurses,
+patients, administrative staff), and the \emph{sequences} of contacts---who visits whom in
+what order---are far more informative about role than any individual contact in isolation.
+
+% =============================================================================
+\section{Limitations and Open Questions}
+% =============================================================================
+
+\begin{keyinsight}{What DBGNN Does Not Solve}
+Despite its theoretical appeal, the De Bruijn approach has several practical limitations that
+are worth understanding before applying it:
+
+\begin{enumerate}
+    \item \textbf{Graph construction cost.} The De Bruijn graph must be built anew for every
+          network and every time window. For a fixed network with static contact sequences, this
+          is a one-time preprocessing cost. But for streaming data or online inference, it
+          requires frequent recomputation.
+
+    \item \textbf{Memory for high $k$.} The number of De Bruijn nodes grows rapidly with $k$
+          (the number of valid $k$-step sequences can be exponential in $k$ for dense networks).
+          In practice, the paper uses $k=2$ for all real datasets and finds that this is
+          sufficient. Our implementation uses $k=1$ (first-order De Bruijn, equivalent to mapping
+          individual directed contacts to nodes).
+
+    \item \textbf{Source detection vs.\ node classification.} The paper was designed for a
+          \emph{node classification} task (e.g., classify each person by their department).
+          Adapting it to \emph{source detection} (identify the single epidemic seed node)
+          requires the sentinel readout and susceptibility masking described in Section~6.
+          These additions are specific to our epidemic application and are not in the original
+          paper.
+
+    \item \textbf{Order selection is unsupervised.} The statistical model selection for $k$
+          is unsupervised: it uses only the topology of the data, not the labels. This is a
+          strength (no label leakage) but also means the selected $k$ may not be optimal for
+          the downstream classification task specifically. In principle, $k$ could be tuned
+          jointly with other hyperparameters.
+\end{enumerate}
+\end{keyinsight}
+
+% =============================================================================
+\section{Chapter Summary}
+% =============================================================================
+
+This chapter introduced the De Bruijn Graph Neural Network (DBGNN), proposed by Qarkaxhija,
+Perri, and Scholtes (2022).
+
+The key ideas, in order:
+
+\begin{enumerate}
+    \item \textbf{The problem:} Standard GNNs on static graphs are Markovian. They allow
+          messages to flow backward in time, creating causal leakage. Even time-aware approaches
+          like the Backtracking Network remain partly Markovian because they aggregate
+          individual contacts, not sequences.
+
+    \item \textbf{The solution:} Replace the original graph with a \emph{De Bruijn graph} in
+          which nodes are contact \emph{sequences} (causal walks) and edges connect sequences
+          that share a valid overlap. On this graph, message passing is inherently
+          non-Markovian: every node already ``remembers'' its full $k$-step history.
+
+    \item \textbf{The sentinel trick:} Because De Bruijn nodes are events, not people, we add
+          sentinel nodes $(v, v, t_{\text{end}})$ as readout anchors. After message passing,
+          the sentinel's embedding summarises all causal evidence involving person $v$, and is
+          used to score $v$ as a potential epidemic source.
+
+    \item \textbf{Implementation:} The complete pipeline is implemented in
+          \texttt{utils/make\_de\_bruijn\_graph.py} (graph construction),
+          \texttt{gnn/graph\_builder.py} (tensor preparation), and
+          \texttt{gnn/dbgnn.py} (the DBGNN model). The DBGNN model is approximately 178 lines
+          of PyTorch, with the most critical logic in the \texttt{DBGNNLayer} scatter-add
+          aggregation and the dual-projection feature initialisation.
+
+    \item \textbf{Empirical evidence:} DBGNN outperforms static GNNs by large margins on
+          temporally structured datasets, and outperforms time-aware baselines on all five
+          empirical contact datasets evaluated in the paper.
+\end{enumerate}
+
+The next chapter examines the classical (non-learning) baselines for epidemic source detection,
+providing a benchmark against which the GNN-based methods are compared.

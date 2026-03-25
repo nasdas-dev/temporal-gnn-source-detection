@@ -1,0 +1,4283 @@
+This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2025.3.8)  19 MAR 2026 10:11
+entering extended mode
+ restricted \write18 enabled.
+ %&-line parsing enabled.
+**workbook.tex
+(./workbook.tex
+LaTeX2e <2024-11-01> patch level 2
+L3 programming layer <2025-01-18>
+(/usr/local/texlive/2025/texmf-dist/tex/latex/base/report.cls
+Document Class: report 2024/06/29 v1.4n Standard LaTeX document class
+(/usr/local/texlive/2025/texmf-dist/tex/latex/base/size11.clo
+File: size11.clo 2024/06/29 v1.4n Standard LaTeX file (size option)
+)
+\c@part=\count192
+\c@chapter=\count193
+\c@section=\count194
+\c@subsection=\count195
+\c@subsubsection=\count196
+\c@paragraph=\count197
+\c@subparagraph=\count198
+\c@figure=\count199
+\c@table=\count266
+\abovecaptionskip=\skip49
+\belowcaptionskip=\skip50
+\bibindent=\dimen141
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/fontspec/fontspec.sty
+(/usr/local/texlive/2025/texmf-dist/tex/latex/l3packages/xparse/xparse.sty
+(/usr/local/texlive/2025/texmf-dist/tex/latex/l3kernel/expl3.sty
+Package: expl3 2025-01-18 L3 programming layer (loader) 
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/l3backend/l3backend-xetex.def
+File: l3backend-xetex.def 2024-05-08 L3 backend support: XeTeX
+\g__graphics_track_int=\count267
+\l__pdf_internal_box=\box52
+\g__pdf_backend_annotation_int=\count268
+\g__pdf_backend_link_int=\count269
+))
+Package: xparse 2024-08-16 L3 Experimental document command parser
+)
+Package: fontspec 2024/05/11 v2.9e Font selection for XeLaTeX and LuaLaTeX
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/fontspec/fontspec-xetex.sty
+Package: fontspec-xetex 2024/05/11 v2.9e Font selection for XeLaTeX and LuaLaTe
+X
+\l__fontspec_script_int=\count270
+\l__fontspec_language_int=\count271
+\l__fontspec_strnum_int=\count272
+\l__fontspec_tmp_int=\count273
+\l__fontspec_tmpa_int=\count274
+\l__fontspec_tmpb_int=\count275
+\l__fontspec_tmpc_int=\count276
+\l__fontspec_em_int=\count277
+\l__fontspec_emdef_int=\count278
+\l__fontspec_strong_int=\count279
+\l__fontspec_strongdef_int=\count280
+\l__fontspec_tmpa_dim=\dimen142
+\l__fontspec_tmpb_dim=\dimen143
+\l__fontspec_tmpc_dim=\dimen144
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/base/fontenc.sty
+Package: fontenc 2021/04/29 v2.0v Standard LaTeX package
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/fontspec/fontspec.cfg)))
+
+Package fontspec Info: 
+(fontspec)             Helvetica Neue scale = 0.95.
+
+
+Package fontspec Info: 
+(fontspec)             Helvetica Neue scale = 0.95.
+
+
+Package fontspec Info: 
+(fontspec)             Helvetica Neue/B scale = 0.95.
+
+
+Package fontspec Info: 
+(fontspec)             Helvetica Neue/I scale = 0.95.
+
+
+Package fontspec Info: 
+(fontspec)             Helvetica Neue/BI scale = 0.95.
+
+
+Package fontspec Info: 
+(fontspec)             Font family 'HelveticaNeue(0)' created for font
+(fontspec)             'Helvetica Neue' with options
+(fontspec)             [Ligatures=TeX,Scale=0.95].
+(fontspec)              
+(fontspec)              This font family consists of the following NFSS
+(fontspec)             series/shapes:
+(fontspec)              
+(fontspec)             - 'normal' (m/n) with NFSS spec.: <->s*[0.95]"Helvetica
+(fontspec)             Neue/AAT:mapping=tex-text;"
+(fontspec)             - 'bold' (b/n) with NFSS spec.: <->s*[0.95]"Helvetica
+(fontspec)             Neue/B/AAT:mapping=tex-text;"
+(fontspec)             - 'italic' (m/it) with NFSS spec.:
+(fontspec)             <->s*[0.95]"Helvetica Neue/I/AAT:mapping=tex-text;"
+(fontspec)             - 'bold italic' (b/it) with NFSS spec.:
+(fontspec)             <->s*[0.95]"Helvetica Neue/BI/AAT:mapping=tex-text;"
+
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/n' will be
+(Font)              scaled to size 10.40245pt on input line 5.
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/geometry/geometry.sty
+Package: geometry 2020/01/02 v5.9 Page Geometry
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/keyval.sty
+Package: keyval 2022/05/29 v1.15 key=value parser (DPC)
+\KV@toks@=\toks17
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/iftex/ifvtex.sty
+Package: ifvtex 2019/10/25 v1.7 ifvtex legacy package. Use iftex instead.
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/iftex/iftex.sty
+Package: iftex 2024/12/12 v1.0g TeX engine tests
+))
+\Gm@cnth=\count281
+\Gm@cntv=\count282
+\c@Gm@tempcnt=\count283
+\Gm@bindingoffset=\dimen145
+\Gm@wd@mp=\dimen146
+\Gm@odd@mp=\dimen147
+\Gm@even@mp=\dimen148
+\Gm@layoutwidth=\dimen149
+\Gm@layoutheight=\dimen150
+\Gm@layouthoffset=\dimen151
+\Gm@layoutvoffset=\dimen152
+\Gm@dimlist=\toks18
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amsmath.sty
+Package: amsmath 2024/11/05 v2.17t AMS math features
+\@mathmargin=\skip51
+
+For additional information on amsmath, use the `?' option.
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amstext.sty
+Package: amstext 2021/08/26 v2.01 AMS text
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amsgen.sty
+File: amsgen.sty 1999/11/30 v2.0 generic functions
+\@emptytoks=\toks19
+\ex@=\dimen153
+))
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amsbsy.sty
+Package: amsbsy 1999/11/29 v1.2d Bold Symbols
+\pmbraise@=\dimen154
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amsopn.sty
+Package: amsopn 2022/04/08 v2.04 operator names
+)
+\inf@bad=\count284
+LaTeX Info: Redefining \frac on input line 233.
+\uproot@=\count285
+\leftroot@=\count286
+LaTeX Info: Redefining \overline on input line 398.
+LaTeX Info: Redefining \colon on input line 409.
+\classnum@=\count287
+\DOTSCASE@=\count288
+LaTeX Info: Redefining \ldots on input line 495.
+LaTeX Info: Redefining \dots on input line 498.
+LaTeX Info: Redefining \cdots on input line 619.
+\Mathstrutbox@=\box53
+\strutbox@=\box54
+LaTeX Info: Redefining \big on input line 721.
+LaTeX Info: Redefining \Big on input line 722.
+LaTeX Info: Redefining \bigg on input line 723.
+LaTeX Info: Redefining \Bigg on input line 724.
+\big@size=\dimen155
+LaTeX Font Info:    Redeclaring font encoding OML on input line 742.
+LaTeX Font Info:    Redeclaring font encoding OMS on input line 743.
+\macc@depth=\count289
+LaTeX Info: Redefining \bmod on input line 904.
+LaTeX Info: Redefining \pmod on input line 909.
+LaTeX Info: Redefining \smash on input line 939.
+LaTeX Info: Redefining \relbar on input line 969.
+LaTeX Info: Redefining \Relbar on input line 970.
+\c@MaxMatrixCols=\count290
+\dotsspace@=\muskip17
+\c@parentequation=\count291
+\dspbrk@lvl=\count292
+\tag@help=\toks20
+\row@=\count293
+\column@=\count294
+\maxfields@=\count295
+\andhelp@=\toks21
+\eqnshift@=\dimen156
+\alignsep@=\dimen157
+\tagshift@=\dimen158
+\tagwidth@=\dimen159
+\totwidth@=\dimen160
+\lineht@=\dimen161
+\@envbody=\toks22
+\multlinegap=\skip52
+\multlinetaggap=\skip53
+\mathdisplay@stack=\toks23
+LaTeX Info: Redefining \[ on input line 2953.
+LaTeX Info: Redefining \] on input line 2954.
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amsfonts/amssymb.sty
+Package: amssymb 2013/01/14 v3.01 AMS font symbols
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amsfonts/amsfonts.sty
+Package: amsfonts 2013/01/14 v3.01 Basic AMSFonts support
+\symAMSa=\mathgroup4
+\symAMSb=\mathgroup5
+LaTeX Font Info:    Redeclaring math symbol \hbar on input line 98.
+LaTeX Font Info:    Overwriting math alphabet `\mathfrak' in version `bold'
+(Font)                  U/euf/m/n --> U/euf/b/n on input line 106.
+))
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amscls/amsthm.sty
+Package: amsthm 2020/05/29 v2.20.6
+\thm@style=\toks24
+\thm@bodyfont=\toks25
+\thm@headfont=\toks26
+\thm@notefont=\toks27
+\thm@headpunct=\toks28
+\thm@preskip=\skip54
+\thm@postskip=\skip55
+\thm@headsep=\skip56
+\dth@everypar=\toks29
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/mathtools/mathtools.sty
+Package: mathtools 2024/10/04 v1.31 mathematical typesetting tools
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tools/calc.sty
+Package: calc 2023/07/08 v4.3 Infix arithmetic (KKT,FJ)
+\calc@Acount=\count296
+\calc@Bcount=\count297
+\calc@Adimen=\dimen162
+\calc@Bdimen=\dimen163
+\calc@Askip=\skip57
+\calc@Bskip=\skip58
+LaTeX Info: Redefining \setlength on input line 80.
+LaTeX Info: Redefining \addtolength on input line 81.
+\calc@Ccount=\count298
+\calc@Cskip=\skip59
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/mathtools/mhsetup.sty
+Package: mhsetup 2021/03/18 v1.4 programming setup (MH)
+)
+\g_MT_multlinerow_int=\count299
+\l_MT_multwidth_dim=\dimen164
+\origjot=\skip60
+\l_MT_shortvdotswithinadjustabove_dim=\dimen165
+\l_MT_shortvdotswithinadjustbelow_dim=\dimen166
+\l_MT_above_intertext_sep=\dimen167
+\l_MT_below_intertext_sep=\dimen168
+\l_MT_above_shortintertext_sep=\dimen169
+\l_MT_below_shortintertext_sep=\dimen170
+\xmathstrut@box=\box55
+\xmathstrut@dim=\dimen171
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/blkarray/blkarray.sty
+Package: blkarray 2015/02/27 v0.07 Block array (dpc)
+\c@BAenumi=\count300
+\BA@col=\count301
+\BA@block@cnt=\count302
+\BA@final@box=\box56
+\BA@first@box=\box57
+\BA@colsep=\dimen172
+\BA@ftn=\toks30
+\BAextrarowheight=\dimen173
+\BAextraheightafterhline=\dimen174
+\BAarrayrulewidth=\dimen175
+\BAdoublerulesep=\dimen176
+\BAfootskip=\dimen177
+\BA@dashbox=\box58
+\BA@ddashbox=\box59
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/makecell/makecell.sty
+Package: makecell 2009/08/03 V0.1e Managing of Tab Column Heads and Cells
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tools/array.sty
+Package: array 2024/10/17 v2.6g Tabular extension package (FMi)
+\col@sep=\dimen178
+\ar@mcellbox=\box60
+\extrarowheight=\dimen179
+\NC@list=\toks31
+\extratabsurround=\skip61
+\backup@length=\skip62
+\ar@cellbox=\box61
+)
+\rotheadsize=\dimen180
+\c@nlinenum=\count303
+\TeXr@lab=\toks32
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/hyperref/hyperref.sty
+Package: hyperref 2024-11-05 v7.01l Hypertext links for LaTeX
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/kvsetkeys/kvsetkeys.sty
+Package: kvsetkeys 2022-10-05 v1.19 Key value parser (HO)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/kvdefinekeys/kvdefinekeys.sty
+Package: kvdefinekeys 2019-12-19 v1.6 Define keys (HO)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pdfescape/pdfescape.sty
+Package: pdfescape 2019/12/09 v1.15 Implements pdfTeX's escape features (HO)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/ltxcmds/ltxcmds.sty
+Package: ltxcmds 2023-12-04 v1.26 LaTeX kernel commands for general use (HO)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pdftexcmds/pdftexcmds.sty
+Package: pdftexcmds 2020-06-27 v0.33 Utility functions of pdfTeX for LuaTeX (HO
+)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/infwarerr/infwarerr.sty
+Package: infwarerr 2019/12/03 v1.5 Providing info/warning/error messages (HO)
+)
+Package pdftexcmds Info: \pdf@primitive is available.
+Package pdftexcmds Info: \pdf@ifprimitive is available.
+Package pdftexcmds Info: \pdfdraftmode not found.
+))
+(/usr/local/texlive/2025/texmf-dist/tex/latex/hycolor/hycolor.sty
+Package: hycolor 2020-01-27 v1.10 Color options for hyperref/bookmark (HO)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/hyperref/nameref.sty
+Package: nameref 2023-11-26 v2.56 Cross-referencing by name of section
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/refcount/refcount.sty
+Package: refcount 2019/12/15 v3.6 Data extraction from label references (HO)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/gettitlestring/gettitlestring.s
+ty
+Package: gettitlestring 2019/12/15 v1.6 Cleanup title references (HO)
+ (/usr/local/texlive/2025/texmf-dist/tex/latex/kvoptions/kvoptions.sty
+Package: kvoptions 2022-06-15 v3.15 Key value format for package options (HO)
+))
+\c@section@level=\count304
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/etoolbox/etoolbox.sty
+Package: etoolbox 2025/02/11 v2.5l e-TeX tools for LaTeX (JAW)
+\etb@tempcnta=\count305
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/stringenc/stringenc.sty
+Package: stringenc 2019/11/29 v1.12 Convert strings between diff. encodings (HO
+)
+)
+\@linkdim=\dimen181
+\Hy@linkcounter=\count306
+\Hy@pagecounter=\count307
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/hyperref/pd1enc.def
+File: pd1enc.def 2024-11-05 v7.01l Hyperref: PDFDocEncoding definition (HO)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/intcalc/intcalc.sty
+Package: intcalc 2019/12/15 v1.3 Expandable calculations with integers (HO)
+)
+\Hy@SavedSpaceFactor=\count308
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/hyperref/puenc.def
+File: puenc.def 2024-11-05 v7.01l Hyperref: PDF Unicode definition (HO)
+)
+Package hyperref Info: Option `colorlinks' set `true' on input line 4040.
+Package hyperref Info: Hyper figures OFF on input line 4157.
+Package hyperref Info: Link nesting OFF on input line 4162.
+Package hyperref Info: Hyper index ON on input line 4165.
+Package hyperref Info: Plain pages OFF on input line 4172.
+Package hyperref Info: Backreferencing OFF on input line 4177.
+Package hyperref Info: Implicit mode ON; LaTeX internals redefined.
+Package hyperref Info: Bookmarks ON on input line 4424.
+\c@Hy@tempcnt=\count309
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/url/url.sty
+\Urlmuskip=\muskip18
+Package: url 2013/09/16  ver 3.4  Verb mode for urls, etc.
+)
+LaTeX Info: Redefining \url on input line 4763.
+\XeTeXLinkMargin=\dimen182
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/bitset/bitset.sty
+Package: bitset 2019/12/09 v1.3 Handle bit-vector datatype (HO)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty
+Package: bigintcalc 2019/12/15 v1.5 Expandable calculations on big integers (HO
+)
+))
+\Fld@menulength=\count310
+\Field@Width=\dimen183
+\Fld@charsize=\dimen184
+Package hyperref Info: Hyper figures OFF on input line 6042.
+Package hyperref Info: Link nesting OFF on input line 6047.
+Package hyperref Info: Hyper index ON on input line 6050.
+Package hyperref Info: backreferencing OFF on input line 6057.
+Package hyperref Info: Link coloring ON on input line 6060.
+Package hyperref Info: Link coloring with OCG OFF on input line 6067.
+Package hyperref Info: PDF/A mode OFF on input line 6072.
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/base/atbegshi-ltx.sty
+Package: atbegshi-ltx 2021/01/10 v1.0c Emulation of the original atbegshi
+package with kernel methods
+)
+\Hy@abspage=\count311
+\c@Item=\count312
+\c@Hfootnote=\count313
+)
+Package hyperref Info: Driver (autodetected): hxetex.
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/hyperref/hxetex.def
+File: hxetex.def 2024-11-05 v7.01l Hyperref driver for XeTeX
+\pdfm@box=\box62
+\c@Hy@AnnotLevel=\count314
+\HyField@AnnotCount=\count315
+\Fld@listcount=\count316
+\c@bookmark@seq@number=\count317
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
+Package: rerunfilecheck 2022-07-10 v1.10 Rerun checks for auxiliary files (HO)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/base/atveryend-ltx.sty
+Package: atveryend-ltx 2020/08/19 v1.0a Emulation of the original atveryend pac
+kage
+with kernel methods
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/uniquecounter/uniquecounter.sty
+Package: uniquecounter 2019/12/15 v1.4 Provide unlimited unique counter (HO)
+)
+Package uniquecounter Info: New unique counter `rerunfilecheck' on input line 2
+85.
+)
+\Hy@SectionHShift=\skip63
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/xcolor/xcolor.sty
+Package: xcolor 2024/09/29 v3.02 LaTeX color extensions (UK)
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/graphics-cfg/color.cfg
+File: color.cfg 2016/01/02 v1.6 sample color configuration
+)
+Package xcolor Info: Driver file: xetex.def on input line 274.
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/graphics-def/xetex.def
+File: xetex.def 2022/09/22 v5.0n Graphics/color driver for xetex
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/mathcolor.ltx)
+Package xcolor Info: Model `cmy' substituted by `cmy0' on input line 1349.
+Package xcolor Info: Model `RGB' extended on input line 1365.
+Package xcolor Info: Model `HTML' substituted by `rgb' on input line 1367.
+Package xcolor Info: Model `Hsb' substituted by `hsb' on input line 1368.
+Package xcolor Info: Model `tHsb' substituted by `hsb' on input line 1369.
+Package xcolor Info: Model `HSB' substituted by `hsb' on input line 1370.
+Package xcolor Info: Model `Gray' substituted by `gray' on input line 1371.
+Package xcolor Info: Model `wave' substituted by `hsb' on input line 1372.
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/graphicx.sty
+Package: graphicx 2021/09/16 v1.2d Enhanced LaTeX Graphics (DPC,SPQR)
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/graphics.sty
+Package: graphics 2024/08/06 v1.4g Standard LaTeX Graphics (DPC,SPQR)
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/trig.sty
+Package: trig 2023/12/02 v1.11 sin cos tan (DPC)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/graphics-cfg/graphics.cfg
+File: graphics.cfg 2016/06/04 v1.11 sample graphics configuration
+)
+Package graphics Info: Driver file: xetex.def on input line 106.
+)
+\Gin@req@height=\dimen185
+\Gin@req@width=\dimen186
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/float/float.sty
+Package: float 2001/11/08 v1.3d Float enhancements (AL)
+\c@float@type=\count318
+\float@exts=\toks33
+\float@box=\box63
+\@float@everytoks=\toks34
+\@floatcapt=\box64
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/booktabs/booktabs.sty
+Package: booktabs 2020/01/12 v1.61803398 Publication quality tables
+\heavyrulewidth=\dimen187
+\lightrulewidth=\dimen188
+\cmidrulewidth=\dimen189
+\belowrulesep=\dimen190
+\belowbottomsep=\dimen191
+\aboverulesep=\dimen192
+\abovetopsep=\dimen193
+\cmidrulesep=\dimen194
+\cmidrulekern=\dimen195
+\defaultaddspace=\dimen196
+\@cmidla=\count319
+\@cmidlb=\count320
+\@aboverulesep=\dimen197
+\@belowrulesep=\dimen198
+\@thisruleclass=\count321
+\@lastruleclass=\count322
+\@thisrulewidth=\dimen199
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/enumitem/enumitem.sty
+Package: enumitem 2025/02/06 v3.11 Customized lists
+\labelindent=\skip64
+\enit@outerparindent=\dimen256
+\enit@toks=\toks35
+\enit@inbox=\box65
+\enit@count@id=\count323
+\enitdp@description=\count324
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/microtype/microtype.sty
+Package: microtype 2025/02/11 v3.2a Micro-typographical refinements (RS)
+\MT@toks=\toks36
+\MT@tempbox=\box66
+\MT@count=\count325
+LaTeX Info: Redefining \noprotrusionifhmode on input line 1087.
+LaTeX Info: Redefining \leftprotrusion on input line 1088.
+\MT@prot@toks=\toks37
+LaTeX Info: Redefining \rightprotrusion on input line 1107.
+LaTeX Info: Redefining \textls on input line 1449.
+\MT@outer@kern=\dimen257
+LaTeX Info: Redefining \microtypecontext on input line 2053.
+LaTeX Info: Redefining \textmicrotypecontext on input line 2070.
+\MT@listname@count=\count326
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/microtype/microtype-xetex.def
+File: microtype-xetex.def 2025/02/11 v3.2a Definitions specific to xetex (RS)
+LaTeX Info: Redefining \lsstyle on input line 443.
+LaTeX Info: Redefining \lslig on input line 451.
+\MT@outer@space=\skip65
+)
+Package microtype Info: Loading configuration file microtype.cfg.
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/microtype/microtype.cfg
+File: microtype.cfg 2025/02/11 v3.2a microtype main configuration file (RS)
+)
+LaTeX Info: Redefining \microtypesetup on input line 3065.
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/parskip/parskip.sty
+Package: parskip 2021-03-14 v2.0h non-zero parskip adjustments
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/fancyhdr/fancyhdr.sty
+Package: fancyhdr 2025/02/07 v5.2 Extensive control of page headers and footers
+
+\f@nch@headwidth=\skip66
+\f@nch@offset@elh=\skip67
+\f@nch@offset@erh=\skip68
+\f@nch@offset@olh=\skip69
+\f@nch@offset@orh=\skip70
+\f@nch@offset@elf=\skip71
+\f@nch@offset@erf=\skip72
+\f@nch@offset@olf=\skip73
+\f@nch@offset@orf=\skip74
+\f@nch@height=\skip75
+\f@nch@footalignment=\skip76
+\f@nch@widthL=\skip77
+\f@nch@widthC=\skip78
+\f@nch@widthR=\skip79
+\@temptokenb=\toks38
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/titlesec/titlesec.sty
+Package: titlesec 2025/01/04 v2.17 Sectioning titles
+\ttl@box=\box67
+\beforetitleunit=\skip80
+\aftertitleunit=\skip81
+\ttl@plus=\dimen258
+\ttl@minus=\dimen259
+\ttl@toksa=\toks39
+\titlewidth=\dimen260
+\titlewidthlast=\dimen261
+\titlewidthfirst=\dimen262
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/mdframed/mdframed.sty
+Package: mdframed 2013/07/01 1.9b: mdframed
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/zref/zref-abspage.sty
+Package: zref-abspage 2023-09-14 v2.35 Module abspage for zref (HO)
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/zref/zref-base.sty
+Package: zref-base 2023-09-14 v2.35 Module base for zref (HO)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/etexcmds/etexcmds.sty
+Package: etexcmds 2019/12/15 v1.7 Avoid name clashes with e-TeX commands (HO)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/auxhook/auxhook.sty
+Package: auxhook 2019-12-17 v1.6 Hooks for auxiliary files (HO)
+)
+Package zref Info: New property list: main on input line 767.
+Package zref Info: New property: default on input line 768.
+Package zref Info: New property: page on input line 769.
+)
+\c@abspage=\count327
+Package zref Info: New property: abspage on input line 67.
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/needspace/needspace.sty
+Package: needspace 2010/09/12 v1.3d reserve vertical space
+)
+\mdf@templength=\skip82
+\c@mdf@globalstyle@cnt=\count328
+\mdf@skipabove@length=\skip83
+\mdf@skipbelow@length=\skip84
+\mdf@leftmargin@length=\skip85
+\mdf@rightmargin@length=\skip86
+\mdf@innerleftmargin@length=\skip87
+\mdf@innerrightmargin@length=\skip88
+\mdf@innertopmargin@length=\skip89
+\mdf@innerbottommargin@length=\skip90
+\mdf@splittopskip@length=\skip91
+\mdf@splitbottomskip@length=\skip92
+\mdf@outermargin@length=\skip93
+\mdf@innermargin@length=\skip94
+\mdf@linewidth@length=\skip95
+\mdf@innerlinewidth@length=\skip96
+\mdf@middlelinewidth@length=\skip97
+\mdf@outerlinewidth@length=\skip98
+\mdf@roundcorner@length=\skip99
+\mdf@footenotedistance@length=\skip100
+\mdf@userdefinedwidth@length=\skip101
+\mdf@needspace@length=\skip102
+\mdf@frametitleaboveskip@length=\skip103
+\mdf@frametitlebelowskip@length=\skip104
+\mdf@frametitlerulewidth@length=\skip105
+\mdf@frametitleleftmargin@length=\skip106
+\mdf@frametitlerightmargin@length=\skip107
+\mdf@shadowsize@length=\skip108
+\mdf@extratopheight@length=\skip109
+\mdf@subtitleabovelinewidth@length=\skip110
+\mdf@subtitlebelowlinewidth@length=\skip111
+\mdf@subtitleaboveskip@length=\skip112
+\mdf@subtitlebelowskip@length=\skip113
+\mdf@subtitleinneraboveskip@length=\skip114
+\mdf@subtitleinnerbelowskip@length=\skip115
+\mdf@subsubtitleabovelinewidth@length=\skip116
+\mdf@subsubtitlebelowlinewidth@length=\skip117
+\mdf@subsubtitleaboveskip@length=\skip118
+\mdf@subsubtitlebelowskip@length=\skip119
+\mdf@subsubtitleinneraboveskip@length=\skip120
+\mdf@subsubtitleinnerbelowskip@length=\skip121
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/mdframed/md-frame-0.mdf
+File: md-frame-0.mdf 2013/07/01\ 1.9b: md-frame-0
+)
+\mdf@frametitlebox=\box68
+\mdf@footnotebox=\box69
+\mdf@splitbox@one=\box70
+\mdf@splitbox@two=\box71
+\mdf@splitbox@save=\box72
+\mdfsplitboxwidth=\skip122
+\mdfsplitboxtotalwidth=\skip123
+\mdfsplitboxheight=\skip124
+\mdfsplitboxdepth=\skip125
+\mdfsplitboxtotalheight=\skip126
+\mdfframetitleboxwidth=\skip127
+\mdfframetitleboxtotalwidth=\skip128
+\mdfframetitleboxheight=\skip129
+\mdfframetitleboxdepth=\skip130
+\mdfframetitleboxtotalheight=\skip131
+\mdffootnoteboxwidth=\skip132
+\mdffootnoteboxtotalwidth=\skip133
+\mdffootnoteboxheight=\skip134
+\mdffootnoteboxdepth=\skip135
+\mdffootnoteboxtotalheight=\skip136
+\mdftotallinewidth=\skip137
+\mdfboundingboxwidth=\skip138
+\mdfboundingboxtotalwidth=\skip139
+\mdfboundingboxheight=\skip140
+\mdfboundingboxdepth=\skip141
+\mdfboundingboxtotalheight=\skip142
+\mdf@freevspace@length=\skip143
+\mdf@horizontalwidthofbox@length=\skip144
+\mdf@verticalmarginwhole@length=\skip145
+\mdf@horizontalspaceofbox=\skip146
+\mdfsubtitleheight=\skip147
+\mdfsubsubtitleheight=\skip148
+\c@mdfcountframes=\count329
+
+****** mdframed patching \endmdf@trivlist
+
+****** -- success******
+
+\mdf@envdepth=\count330
+\c@mdf@env@i=\count331
+\c@mdf@env@ii=\count332
+\c@mdf@zref@counter=\count333
+Package zref Info: New property: mdf@pagevalue on input line 895.
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/caption/caption.sty
+Package: caption 2023/08/05 v3.6o Customizing captions (AR)
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/caption/caption3.sty
+Package: caption3 2023/07/31 v2.4d caption3 kernel (AR)
+\caption@tempdima=\dimen263
+\captionmargin=\dimen264
+\caption@leftmargin=\dimen265
+\caption@rightmargin=\dimen266
+\caption@width=\dimen267
+\caption@indent=\dimen268
+\caption@parindent=\dimen269
+\caption@hangindent=\dimen270
+Package caption Info: Standard document class detected.
+)
+\c@caption@flags=\count334
+\c@continuedfloat=\count335
+Package caption Info: float package is loaded.
+Package caption Info: hyperref package is loaded.
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/listings/listings.sty
+\lst@mode=\count336
+\lst@gtempboxa=\box73
+\lst@token=\toks40
+\lst@length=\count337
+\lst@currlwidth=\dimen271
+\lst@column=\count338
+\lst@pos=\count339
+\lst@lostspace=\dimen272
+\lst@width=\dimen273
+\lst@newlines=\count340
+\lst@lineno=\count341
+\lst@maxwidth=\dimen274
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/listings/lstpatch.sty
+File: lstpatch.sty 2024/09/23 1.10c (Carsten Heinz)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/listings/lstmisc.sty
+File: lstmisc.sty 2024/09/23 1.10c (Carsten Heinz)
+\c@lstnumber=\count342
+\lst@skipnumbers=\count343
+\lst@framebox=\box74
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/listings/listings.cfg
+File: listings.cfg 2024/09/23 1.10c listings configuration
+))
+Package: listings 2024/09/23 1.10c (Carsten Heinz)
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/listings/lstlang1.sty
+File: lstlang1.sty 2024/09/23 1.10c listings language file
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tcolorbox/tcolorbox.sty
+Package: tcolorbox 2024/10/22 version 6.4.1 text color boxes
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/pgf/frontendlayer/tikz.sty
+(/usr/local/texlive/2025/texmf-dist/tex/latex/pgf/basiclayer/pgf.sty
+(/usr/local/texlive/2025/texmf-dist/tex/latex/pgf/utilities/pgfrcs.sty
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/utilities/pgfutil-common.te
+x
+\pgfutil@everybye=\toks41
+\pgfutil@tempdima=\dimen275
+\pgfutil@tempdimb=\dimen276
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/utilities/pgfutil-latex.def
+\pgfutil@abb=\box75
+) (/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/utilities/pgfrcs.code.tex
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/pgf.revision.tex)
+Package: pgfrcs 2023-01-15 v3.1.10 (3.1.10)
+))
+Package: pgf 2023-01-15 v3.1.10 (3.1.10)
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/pgf/basiclayer/pgfcore.sty
+(/usr/local/texlive/2025/texmf-dist/tex/latex/pgf/systemlayer/pgfsys.sty
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/systemlayer/pgfsys.code.tex
+Package: pgfsys 2023-01-15 v3.1.10 (3.1.10)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/utilities/pgfkeys.code.tex
+\pgfkeys@pathtoks=\toks42
+\pgfkeys@temptoks=\toks43
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/utilities/pgfkeyslibraryfil
+tered.code.tex
+\pgfkeys@tmptoks=\toks44
+))
+\pgf@x=\dimen277
+\pgf@y=\dimen278
+\pgf@xa=\dimen279
+\pgf@ya=\dimen280
+\pgf@xb=\dimen281
+\pgf@yb=\dimen282
+\pgf@xc=\dimen283
+\pgf@yc=\dimen284
+\pgf@xd=\dimen285
+\pgf@yd=\dimen286
+\w@pgf@writea=\write3
+\r@pgf@reada=\read2
+\c@pgf@counta=\count344
+\c@pgf@countb=\count345
+\c@pgf@countc=\count346
+\c@pgf@countd=\count347
+\t@pgf@toka=\toks45
+\t@pgf@tokb=\toks46
+\t@pgf@tokc=\toks47
+\pgf@sys@id@count=\count348
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/systemlayer/pgf.cfg
+File: pgf.cfg 2023-01-15 v3.1.10 (3.1.10)
+)
+Driver file for pgf: pgfsys-xetex.def
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/systemlayer/pgfsys-xetex.de
+f
+File: pgfsys-xetex.def 2023-01-15 v3.1.10 (3.1.10)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/systemlayer/pgfsys-dvipdfmx
+.def
+File: pgfsys-dvipdfmx.def 2023-01-15 v3.1.10 (3.1.10)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/systemlayer/pgfsys-common-p
+df.def
+File: pgfsys-common-pdf.def 2023-01-15 v3.1.10 (3.1.10)
+)
+\pgfsys@objnum=\count349
+)))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/systemlayer/pgfsyssoftpath.
+code.tex
+File: pgfsyssoftpath.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgfsyssoftpath@smallbuffer@items=\count350
+\pgfsyssoftpath@bigbuffer@items=\count351
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/systemlayer/pgfsysprotocol.
+code.tex
+File: pgfsysprotocol.code.tex 2023-01-15 v3.1.10 (3.1.10)
+))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcore.code.tex
+Package: pgfcore 2023-01-15 v3.1.10 (3.1.10)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmath.code.tex
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathutil.code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathparser.code.tex
+\pgfmath@dimen=\dimen287
+\pgfmath@count=\count352
+\pgfmath@box=\box76
+\pgfmath@toks=\toks48
+\pgfmath@stack@operand=\toks49
+\pgfmath@stack@operation=\toks50
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.code.
+tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.basic
+.code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.trigo
+nometric.code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.rando
+m.code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.compa
+rison.code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.base.
+code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.round
+.code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.misc.
+code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.integ
+erarithmetics.code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathcalc.code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmathfloat.code.tex
+\c@pgfmathroundto@lastzeros=\count353
+)) (/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfint.code.tex)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepoints.co
+de.tex
+File: pgfcorepoints.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgf@picminx=\dimen288
+\pgf@picmaxx=\dimen289
+\pgf@picminy=\dimen290
+\pgf@picmaxy=\dimen291
+\pgf@pathminx=\dimen292
+\pgf@pathmaxx=\dimen293
+\pgf@pathminy=\dimen294
+\pgf@pathmaxy=\dimen295
+\pgf@xx=\dimen296
+\pgf@xy=\dimen297
+\pgf@yx=\dimen298
+\pgf@yy=\dimen299
+\pgf@zx=\dimen300
+\pgf@zy=\dimen301
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepathconst
+ruct.code.tex
+File: pgfcorepathconstruct.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgf@path@lastx=\dimen302
+\pgf@path@lasty=\dimen303
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepathusage
+.code.tex
+File: pgfcorepathusage.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgf@shorten@end@additional=\dimen304
+\pgf@shorten@start@additional=\dimen305
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcorescopes.co
+de.tex
+File: pgfcorescopes.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgfpic=\box77
+\pgf@hbox=\box78
+\pgf@layerbox@main=\box79
+\pgf@picture@serial@count=\count354
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcoregraphicst
+ate.code.tex
+File: pgfcoregraphicstate.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgflinewidth=\dimen306
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcoretransform
+ations.code.tex
+File: pgfcoretransformations.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgf@pt@x=\dimen307
+\pgf@pt@y=\dimen308
+\pgf@pt@temp=\dimen309
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcorequick.cod
+e.tex
+File: pgfcorequick.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreobjects.c
+ode.tex
+File: pgfcoreobjects.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepathproce
+ssing.code.tex
+File: pgfcorepathprocessing.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcorearrows.co
+de.tex
+File: pgfcorearrows.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgfarrowsep=\dimen310
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreshade.cod
+e.tex
+File: pgfcoreshade.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgf@max=\dimen311
+\pgf@sys@shading@range@num=\count355
+\pgf@shadingcount=\count356
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreimage.cod
+e.tex
+File: pgfcoreimage.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreexternal.
+code.tex
+File: pgfcoreexternal.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgfexternal@startupbox=\box80
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcorelayers.co
+de.tex
+File: pgfcorelayers.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcoretranspare
+ncy.code.tex
+File: pgfcoretransparency.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepatterns.
+code.tex
+File: pgfcorepatterns.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/basiclayer/pgfcorerdf.code.
+tex
+File: pgfcorerdf.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/modules/pgfmoduleshapes.cod
+e.tex
+File: pgfmoduleshapes.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgfnodeparttextbox=\box81
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/modules/pgfmoduleplot.code.
+tex
+File: pgfmoduleplot.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/pgf/compatibility/pgfcomp-version
+-0-65.sty
+Package: pgfcomp-version-0-65 2023-01-15 v3.1.10 (3.1.10)
+\pgf@nodesepstart=\dimen312
+\pgf@nodesepend=\dimen313
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/pgf/compatibility/pgfcomp-version
+-1-18.sty
+Package: pgfcomp-version-1-18 2023-01-15 v3.1.10 (3.1.10)
+))
+(/usr/local/texlive/2025/texmf-dist/tex/latex/pgf/utilities/pgffor.sty
+(/usr/local/texlive/2025/texmf-dist/tex/latex/pgf/utilities/pgfkeys.sty
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/utilities/pgfkeys.code.tex)
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/pgf/math/pgfmath.sty
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/math/pgfmath.code.tex))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/utilities/pgffor.code.tex
+Package: pgffor 2023-01-15 v3.1.10 (3.1.10)
+\pgffor@iter=\dimen314
+\pgffor@skip=\dimen315
+\pgffor@stack=\toks51
+\pgffor@toks=\toks52
+))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/tikz.cod
+e.tex
+Package: tikz 2023-01-15 v3.1.10 (3.1.10)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/libraries/pgflibraryplothan
+dlers.code.tex
+File: pgflibraryplothandlers.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgf@plot@mark@count=\count357
+\pgfplotmarksize=\dimen316
+)
+\tikz@lastx=\dimen317
+\tikz@lasty=\dimen318
+\tikz@lastxsaved=\dimen319
+\tikz@lastysaved=\dimen320
+\tikz@lastmovetox=\dimen321
+\tikz@lastmovetoy=\dimen322
+\tikzleveldistance=\dimen323
+\tikzsiblingdistance=\dimen324
+\tikz@figbox=\box82
+\tikz@figbox@bg=\box83
+\tikz@tempbox=\box84
+\tikz@tempbox@bg=\box85
+\tikztreelevel=\count358
+\tikznumberofchildren=\count359
+\tikznumberofcurrentchild=\count360
+\tikz@fig@count=\count361
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/modules/pgfmodulematrix.cod
+e.tex
+File: pgfmodulematrix.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgfmatrixcurrentrow=\count362
+\pgfmatrixcurrentcolumn=\count363
+\pgf@matrix@numberofcolumns=\count364
+)
+\tikz@expandcount=\count365
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibrarytopaths.code.tex
+File: tikzlibrarytopaths.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)))
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tools/verbatim.sty
+Package: verbatim 2024-01-22 v1.5x LaTeX2e package for verbatim enhancements
+\every@verbatim=\toks53
+\verbatim@line=\toks54
+\verbatim@in@stream=\read3
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/environ/environ.sty
+Package: environ 2014/05/04 v0.3 A new way to define environments
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/trimspaces/trimspaces.sty
+Package: trimspaces 2009/09/17 v1.1 Trim spaces around a token list
+))
+\tcb@titlebox=\box86
+\tcb@upperbox=\box87
+\tcb@lowerbox=\box88
+\tcb@phantombox=\box89
+\c@tcbbreakpart=\count366
+\c@tcblayer=\count367
+\c@tcolorbox@number=\count368
+\l__tcobox_tmpa_box=\box90
+\l__tcobox_tmpa_dim=\dimen325
+\tcb@temp=\box91
+\tcb@temp=\box92
+\tcb@temp=\box93
+\tcb@temp=\box94
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tcolorbox/tcbtheorems.code.tex
+Library (tcolorbox): 'tcbtheorems.code.tex' version '6.4.1'
+) (/usr/local/texlive/2025/texmf-dist/tex/latex/tcolorbox/tcbskins.code.tex
+Library (tcolorbox): 'tcbskins.code.tex' version '6.4.1'
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tikzfill/tikzfill.image.sty
+Package: tikzfill.image 2023/08/08 v1.0.1 Image filling library for TikZ
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tikzfill/tikzfill-common.sty
+Package: tikzfill-common 2023/08/08 v1.0.1 Auxiliary code for tikzfill
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tikzfill/tikzlibraryfill.image.co
+de.tex
+File: tikzlibraryfill.image.code.tex 2023/08/08 v1.0.1 Image filling library
+\l__tikzfill_img_box=\box95
+))
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tcolorbox/tcbskinsjigsaw.code.tex
+Library (tcolorbox): 'tcbskinsjigsaw.code.tex' version '6.4.1'
+))
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tcolorbox/tcbbreakable.code.tex
+Library (tcolorbox): 'tcbbreakable.code.tex' version '6.4.1'
+(/usr/local/texlive/2025/texmf-dist/tex/latex/pdfcol/pdfcol.sty
+Package: pdfcol 2022-09-21 v1.7 Handle new color stacks for pdfTeX (HO)
+Package pdfcol Info: Interface disabled because of missing PDF mode of pdfTeX.
+)
+Package pdfcol Info: pdfTeX's color stacks are not available.
+\tcb@testbox=\box96
+\tcb@totalupperbox=\box97
+\tcb@totallowerbox=\box98
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tcolorbox/tcblistings.code.tex
+Library (tcolorbox): 'tcblistings.code.tex' version '6.4.1'
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tcolorbox/tcblistingscore.code.te
+x
+Library (tcolorbox): 'tcblistingscore.code.tex' version '6.4.1'
+(/usr/local/texlive/2025/texmf-dist/tex/latex/tcolorbox/tcbprocessing.code.tex
+Library (tcolorbox): 'tcbprocessing.code.tex' version '6.4.1'
+)
+\c@tcblisting=\count369
+))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/libraries/pgflibraryarrows.
+meta.code.tex
+File: pgflibraryarrows.meta.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgfarrowinset=\dimen326
+\pgfarrowlength=\dimen327
+\pgfarrowwidth=\dimen328
+\pgfarrowlinewidth=\dimen329
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibrarypositioning.code.tex
+File: tikzlibrarypositioning.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibraryshapes.code.tex
+File: tikzlibraryshapes.code.tex 2023-01-15 v3.1.10 (3.1.10)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibraryshapes.geometric.code.tex
+File: tikzlibraryshapes.geometric.code.tex 2023-01-15 v3.1.10 (3.1.10)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/libraries/shapes/pgflibrary
+shapes.geometric.code.tex
+File: pgflibraryshapes.geometric.code.tex 2023-01-15 v3.1.10 (3.1.10)
+))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibraryshapes.misc.code.tex
+File: tikzlibraryshapes.misc.code.tex 2023-01-15 v3.1.10 (3.1.10)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/libraries/shapes/pgflibrary
+shapes.misc.code.tex
+File: pgflibraryshapes.misc.code.tex 2023-01-15 v3.1.10 (3.1.10)
+))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibraryshapes.symbols.code.tex
+File: tikzlibraryshapes.symbols.code.tex 2023-01-15 v3.1.10 (3.1.10)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/libraries/shapes/pgflibrary
+shapes.symbols.code.tex
+File: pgflibraryshapes.symbols.code.tex 2023-01-15 v3.1.10 (3.1.10)
+))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibraryshapes.arrows.code.tex
+File: tikzlibraryshapes.arrows.code.tex 2023-01-15 v3.1.10 (3.1.10)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/libraries/shapes/pgflibrary
+shapes.arrows.code.tex
+File: pgflibraryshapes.arrows.code.tex 2023-01-15 v3.1.10 (3.1.10)
+))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibraryshapes.callouts.code.tex
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/libraries/shapes/pgflibrary
+shapes.callouts.code.tex))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibraryshapes.multipart.code.tex
+File: tikzlibraryshapes.multipart.code.tex 2023-01-15 v3.1.10 (3.1.10)
+
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/libraries/shapes/pgflibrary
+shapes.multipart.code.tex
+File: pgflibraryshapes.multipart.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgfnodepartlowerbox=\box99
+\pgfnodeparttwobox=\box100
+\pgfnodepartthreebox=\box101
+\pgfnodepartfourbox=\box102
+\pgfnodeparttwentybox=\box103
+\pgfnodepartnineteenbox=\box104
+\pgfnodeparteighteenbox=\box105
+\pgfnodepartseventeenbox=\box106
+\pgfnodepartsixteenbox=\box107
+\pgfnodepartfifteenbox=\box108
+\pgfnodepartfourteenbox=\box109
+\pgfnodepartthirteenbox=\box110
+\pgfnodeparttwelvebox=\box111
+\pgfnodepartelevenbox=\box112
+\pgfnodeparttenbox=\box113
+\pgfnodepartninebox=\box114
+\pgfnodeparteightbox=\box115
+\pgfnodepartsevenbox=\box116
+\pgfnodepartsixbox=\box117
+\pgfnodepartfivebox=\box118
+)))
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibraryfit.code.tex
+File: tikzlibraryfit.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibrarybackgrounds.code.tex
+File: tikzlibrarybackgrounds.code.tex 2023-01-15 v3.1.10 (3.1.10)
+\pgf@layerbox@background=\box119
+\pgf@layerboxsaved@background=\box120
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibrarycalc.code.tex
+File: tikzlibrarycalc.code.tex 2023-01-15 v3.1.10 (3.1.10)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibrarydecorations.pathreplacing.code.tex
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/frontendlayer/tikz/librarie
+s/tikzlibrarydecorations.code.tex
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/modules/pgfmoduledecoration
+s.code.tex
+\pgfdecoratedcompleteddistance=\dimen330
+\pgfdecoratedremainingdistance=\dimen331
+\pgfdecoratedinputsegmentcompleteddistance=\dimen332
+\pgfdecoratedinputsegmentremainingdistance=\dimen333
+\pgf@decorate@distancetomove=\dimen334
+\pgf@decorate@repeatstate=\count370
+\pgfdecorationsegmentamplitude=\dimen335
+\pgfdecorationsegmentlength=\dimen336
+)
+\tikz@lib@dec@box=\box121
+)
+(/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/libraries/decorations/pgfli
+brarydecorations.pathreplacing.code.tex)) (./workbook.aux
+(./chapters/01_foundations.aux) (./chapters/02_temporal_networks.aux)
+(./chapters/03_epidemic_models.aux) (./chapters/04_source_detection.aux)
+(./chapters/05_classical_algorithms.aux
+
+LaTeX Warning: Label `eq:rank-score' multiply defined.
+
+) (./chapters/06_deep_learning.aux) (./chapters/07_gnn_pytorch.aux)
+(./chapters/08_paper_saramaki.aux
+
+LaTeX Warning: Label `fig:static_projection' multiply defined.
+
+) (./chapters/09_paper_ru.aux) (./chapters/10_paper_qarkaxhija.aux)
+(./chapters/12_paper_rey_dagcn.aux) (./chapters/11_baselines_codebase.aux))
+\openout1 = `workbook.aux'.
+
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 98.
+LaTeX Font Info:    ... okay on input line 98.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 98.
+LaTeX Font Info:    ... okay on input line 98.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 98.
+LaTeX Font Info:    ... okay on input line 98.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 98.
+LaTeX Font Info:    ... okay on input line 98.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 98.
+LaTeX Font Info:    ... okay on input line 98.
+LaTeX Font Info:    Checking defaults for TU/lmr/m/n on input line 98.
+LaTeX Font Info:    ... okay on input line 98.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 98.
+LaTeX Font Info:    ... okay on input line 98.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 98.
+LaTeX Font Info:    ... okay on input line 98.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 98.
+LaTeX Font Info:    ... okay on input line 98.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 98.
+LaTeX Font Info:    ... okay on input line 98.
+
+Package fontspec Info: 
+(fontspec)             Adjusting the maths setup (use [no-math] to avoid
+(fontspec)             this).
+
+\symlegacymaths=\mathgroup6
+LaTeX Font Info:    Overwriting symbol font `legacymaths' in version `bold'
+(Font)                  OT1/cmr/m/n --> OT1/cmr/bx/n on input line 98.
+LaTeX Font Info:    Redeclaring math accent \acute on input line 98.
+LaTeX Font Info:    Redeclaring math accent \grave on input line 98.
+LaTeX Font Info:    Redeclaring math accent \ddot on input line 98.
+LaTeX Font Info:    Redeclaring math accent \tilde on input line 98.
+LaTeX Font Info:    Redeclaring math accent \bar on input line 98.
+LaTeX Font Info:    Redeclaring math accent \breve on input line 98.
+LaTeX Font Info:    Redeclaring math accent \check on input line 98.
+LaTeX Font Info:    Redeclaring math accent \hat on input line 98.
+LaTeX Font Info:    Redeclaring math accent \dot on input line 98.
+LaTeX Font Info:    Redeclaring math accent \mathring on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Gamma on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Delta on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Theta on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Lambda on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Xi on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Pi on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Sigma on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Upsilon on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Phi on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Psi on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \Omega on input line 98.
+LaTeX Font Info:    Redeclaring math symbol \mathdollar on input line 98.
+LaTeX Font Info:    Redeclaring symbol font `operators' on input line 98.
+LaTeX Font Info:    Encoding `OT1' has changed to `TU' for symbol font
+(Font)              `operators' in the math version `normal' on input line 98.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `normal'
+(Font)                  OT1/cmr/m/n --> TU/HelveticaNeue(0)/m/n on input line 9
+8.
+LaTeX Font Info:    Encoding `OT1' has changed to `TU' for symbol font
+(Font)              `operators' in the math version `bold' on input line 98.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `bold'
+(Font)                  OT1/cmr/bx/n --> TU/HelveticaNeue(0)/m/n on input line 
+98.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `normal'
+(Font)                  TU/HelveticaNeue(0)/m/n --> TU/HelveticaNeue(0)/m/n on 
+input line 98.
+LaTeX Font Info:    Overwriting math alphabet `\mathit' in version `normal'
+(Font)                  OT1/cmr/m/it --> TU/HelveticaNeue(0)/m/it on input line
+ 98.
+LaTeX Font Info:    Overwriting math alphabet `\mathbf' in version `normal'
+(Font)                  OT1/cmr/bx/n --> TU/HelveticaNeue(0)/b/n on input line 
+98.
+LaTeX Font Info:    Overwriting math alphabet `\mathsf' in version `normal'
+(Font)                  OT1/cmss/m/n --> TU/lmss/m/n on input line 98.
+LaTeX Font Info:    Overwriting math alphabet `\mathtt' in version `normal'
+(Font)                  OT1/cmtt/m/n --> TU/lmtt/m/n on input line 98.
+LaTeX Font Info:    Overwriting symbol font `operators' in version `bold'
+(Font)                  TU/HelveticaNeue(0)/m/n --> TU/HelveticaNeue(0)/b/n on 
+input line 98.
+LaTeX Font Info:    Overwriting math alphabet `\mathit' in version `bold'
+(Font)                  OT1/cmr/bx/it --> TU/HelveticaNeue(0)/b/it on input lin
+e 98.
+LaTeX Font Info:    Overwriting math alphabet `\mathsf' in version `bold'
+(Font)                  OT1/cmss/bx/n --> TU/lmss/b/n on input line 98.
+LaTeX Font Info:    Overwriting math alphabet `\mathtt' in version `bold'
+(Font)                  OT1/cmtt/m/n --> TU/lmtt/b/n on input line 98.
+
+*geometry* driver: auto-detecting
+*geometry* detected driver: xetex
+*geometry* verbose mode - [ preamble ] result:
+* driver: xetex
+* paper: a4paper
+* layout: <same size as paper>
+* layoutoffset:(h,v)=(0.0pt,0.0pt)
+* modes: 
+* h-part:(L,W,R)=(71.13188pt, 455.24411pt, 71.13188pt)
+* v-part:(T,H,B)=(71.13188pt, 702.78308pt, 71.13188pt)
+* \paperwidth=597.50787pt
+* \paperheight=845.04684pt
+* \textwidth=455.24411pt
+* \textheight=702.78308pt
+* \oddsidemargin=-1.1381pt
+* \evensidemargin=-1.1381pt
+* \topmargin=-38.1381pt
+* \headheight=12.0pt
+* \headsep=25.0pt
+* \topskip=11.0pt
+* \footskip=30.0pt
+* \marginparwidth=50.0pt
+* \marginparsep=10.0pt
+* \columnsep=10.0pt
+* \skip\footins=10.0pt plus 4.0pt minus 2.0pt
+* \hoffset=0.0pt
+* \voffset=0.0pt
+* \mag=1000
+* \@twocolumnfalse
+* \@twosidefalse
+* \@mparswitchfalse
+* \@reversemarginfalse
+* (1in=72.27pt=25.4mm, 1cm=28.453pt)
+
+Package hyperref Info: Link coloring ON on input line 98.
+(./workbook.out) (./workbook.out)
+\@outlinefile=\write4
+\openout4 = `workbook.out'.
+
+LaTeX Info: Redefining \microtypecontext on input line 98.
+Package microtype Info: Applying patch `item' on input line 98.
+Package microtype Info: Applying patch `toc' on input line 98.
+Package microtype Info: Applying patch `eqnum' on input line 98.
+Package microtype Info: Applying patch `footnote' on input line 98.
+Package microtype Info: Applying patch `verbatim' on input line 98.
+LaTeX Info: Redefining \microtypesetup on input line 98.
+Package microtype Info: Character protrusion enabled (level 2).
+Package microtype Info: Using default protrusion set `alltext'.
+Package microtype Info: No adjustment of tracking.
+Package microtype Info: No adjustment of spacing.
+Package microtype Info: No adjustment of kerning.
+Package microtype Info: Loading generic protrusion settings for font family
+(microtype)             `HelveticaNeue' (encoding: TU).
+(microtype)             For optimal results, create family-specific settings.
+(microtype)             See the microtype manual for details.
+
+Couldn't patch \deferred@thm@head!
+Package caption Info: Begin \AtBeginDocument code.
+Package caption Info: listings package is loaded.
+Package caption Info: End \AtBeginDocument code.
+\c@lstlisting=\count371
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/n' will be
+(Font)              scaled to size 23.63593pt on input line 103.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/b/n' will be
+(Font)              scaled to size 23.63593pt on input line 103.
+Package microtype Info: Loading generic protrusion settings for font family
+(microtype)             `lmss' (encoding: TU).
+(microtype)             For optimal results, create family-specific settings.
+(microtype)             See the microtype manual for details.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/n' will be
+(Font)              scaled to size 11.39996pt on input line 105.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/it' will be
+(Font)              scaled to size 11.39996pt on input line 105.
+Package mdframed Info: mdframed detected package amsthm 
+ changed the theorem header of amsthm
+(mdframed)              on input line 109.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/b/n' will be
+(Font)              scaled to size 10.40245pt on input line 111.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/n' will be
+(Font)              scaled to size 9.49997pt on input line 112.
+
+
+[1
+
+]
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/n' will be
+(Font)              scaled to size 19.70294pt on input line 121.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/b/n' will be
+(Font)              scaled to size 19.70294pt on input line 121.
+ (./workbook.toc
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/b/n' will be
+(Font)              scaled to size 11.39996pt on input line 1.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/n' will be
+(Font)              scaled to size 7.59998pt on input line 3.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/n' will be
+(Font)              scaled to size 5.69998pt on input line 3.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 3.
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amsfonts/umsa.fd
+File: umsa.fd 2013/01/14 v3.01 AMS symbols A
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/microtype/mt-msa.cfg
+File: mt-msa.cfg 2006/02/04 v1.1 microtype config. file: AMS symbols (a) (RS)
+)
+LaTeX Font Info:    Trying to load font information for U+msb on input line 3.
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/amsfonts/umsb.fd
+File: umsb.fd 2013/01/14 v3.01 AMS symbols B
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/microtype/mt-msb.cfg
+File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/microtype/mt-cmr.cfg
+File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman 
+(RS)
+)
+
+[1
+
+]
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/b/n' will be
+(Font)              scaled to size 7.59998pt on input line 50.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/b/n' will be
+(Font)              scaled to size 5.69998pt on input line 50.
+
+
+[2]
+Package microtype Info: Loading generic protrusion settings for font family
+(microtype)             `lmtt' (encoding: TU).
+(microtype)             For optimal results, create family-specific settings.
+(microtype)             See the microtype manual for details.
+
+
+[3]
+Overfull \hbox (1.22746pt too wide) detected at line 173
+ []\TU/HelveticaNeue(0)/m/n/10.95 100
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 174
+ []\TU/HelveticaNeue(0)/m/n/10.95 100
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 175
+ []\TU/HelveticaNeue(0)/m/n/10.95 101
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 176
+ []\TU/HelveticaNeue(0)/m/n/10.95 102
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 177
+ []\TU/HelveticaNeue(0)/m/n/10.95 102
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 178
+ []\TU/HelveticaNeue(0)/m/n/10.95 103
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 179
+ []\TU/HelveticaNeue(0)/m/n/10.95 103
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 180
+ []\TU/HelveticaNeue(0)/m/n/10.95 104
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 181
+ []\TU/HelveticaNeue(0)/m/n/10.95 105
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 182
+ []\TU/HelveticaNeue(0)/m/n/10.95 105
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 183
+ []\TU/HelveticaNeue(0)/m/n/10.95 105
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 184
+ []\TU/HelveticaNeue(0)/m/n/10.95 106
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 185
+ []\TU/HelveticaNeue(0)/m/n/10.95 107
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 186
+ []\TU/HelveticaNeue(0)/m/n/10.95 107
+ []
+
+
+
+[4]
+Overfull \hbox (1.22746pt too wide) detected at line 187
+ []\TU/HelveticaNeue(0)/m/n/10.95 107
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 188
+ []\TU/HelveticaNeue(0)/m/n/10.95 108
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 189
+ []\TU/HelveticaNeue(0)/m/n/10.95 109
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 190
+ []\TU/HelveticaNeue(0)/m/n/10.95 109
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 191
+ []\TU/HelveticaNeue(0)/m/n/10.95 110
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 192
+ []\TU/HelveticaNeue(0)/m/n/10.95 111
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 193
+ []\TU/HelveticaNeue(0)/m/n/10.95 111
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 194
+ []\TU/HelveticaNeue(0)/m/n/10.95 112
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 195
+ []\TU/HelveticaNeue(0)/m/n/10.95 112
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 196
+ []\TU/HelveticaNeue(0)/m/n/10.95 113
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 197
+ []\TU/HelveticaNeue(0)/m/n/10.95 113
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 198
+ []\TU/HelveticaNeue(0)/m/n/10.95 113
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 199
+ []\TU/HelveticaNeue(0)/m/n/10.95 115
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 200
+ []\TU/HelveticaNeue(0)/m/n/10.95 115
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 201
+ []\TU/HelveticaNeue(0)/m/n/10.95 115
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 202
+ []\TU/HelveticaNeue(0)/m/n/10.95 116
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 203
+ []\TU/HelveticaNeue(0)/m/n/10.95 116
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 204
+ []\TU/HelveticaNeue(0)/m/n/10.95 116
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 205
+ []\TU/HelveticaNeue(0)/m/n/10.95 116
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 206
+ []\TU/HelveticaNeue(0)/m/n/10.95 117
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 207
+ []\TU/HelveticaNeue(0)/m/n/10.95 117
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 208
+ []\TU/HelveticaNeue(0)/m/n/10.95 117
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 209
+ []\TU/HelveticaNeue(0)/m/n/10.95 118
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 210
+ []\TU/HelveticaNeue(0)/m/n/10.95 118
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 211
+ []\TU/HelveticaNeue(0)/m/n/10.95 120
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 213
+ []\TU/HelveticaNeue(0)/m/n/10.95 121
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 214
+ []\TU/HelveticaNeue(0)/m/n/10.95 121
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 215
+ []\TU/HelveticaNeue(0)/m/n/10.95 122
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 216
+ []\TU/HelveticaNeue(0)/m/n/10.95 122
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 217
+ []\TU/HelveticaNeue(0)/m/n/10.95 122
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 218
+ []\TU/HelveticaNeue(0)/m/n/10.95 123
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 219
+ []\TU/HelveticaNeue(0)/m/n/10.95 123
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 220
+ []\TU/HelveticaNeue(0)/m/n/10.95 123
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 221
+ []\TU/HelveticaNeue(0)/m/n/10.95 124
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 222
+ []\TU/HelveticaNeue(0)/m/n/10.95 124
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 223
+ []\TU/HelveticaNeue(0)/m/n/10.95 125
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 224
+ []\TU/HelveticaNeue(0)/m/n/10.95 125
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 225
+ []\TU/HelveticaNeue(0)/m/n/10.95 126
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 226
+ []\TU/HelveticaNeue(0)/m/n/10.95 127
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 227
+ []\TU/HelveticaNeue(0)/m/n/10.95 127
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 228
+ []\TU/HelveticaNeue(0)/m/n/10.95 128
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 229
+ []\TU/HelveticaNeue(0)/m/n/10.95 128
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 230
+ []\TU/HelveticaNeue(0)/m/n/10.95 129
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 231
+ []\TU/HelveticaNeue(0)/m/n/10.95 129
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 232
+ []\TU/HelveticaNeue(0)/m/n/10.95 130
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 233
+ []\TU/HelveticaNeue(0)/m/n/10.95 130
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 234
+ []\TU/HelveticaNeue(0)/m/n/10.95 130
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 235
+ []\TU/HelveticaNeue(0)/m/n/10.95 131
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 236
+ []\TU/HelveticaNeue(0)/m/n/10.95 131
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 237
+ []\TU/HelveticaNeue(0)/m/n/10.95 131
+ []
+
+
+
+[5]
+Overfull \hbox (1.22746pt too wide) detected at line 238
+ []\TU/HelveticaNeue(0)/m/n/10.95 131
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 239
+ []\TU/HelveticaNeue(0)/m/n/10.95 132
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 240
+ []\TU/HelveticaNeue(0)/m/n/10.95 132
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 241
+ []\TU/HelveticaNeue(0)/m/n/10.95 133
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 242
+ []\TU/HelveticaNeue(0)/m/n/10.95 133
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 243
+ []\TU/HelveticaNeue(0)/m/n/10.95 134
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 244
+ []\TU/HelveticaNeue(0)/m/n/10.95 134
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 245
+ []\TU/HelveticaNeue(0)/m/n/10.95 135
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 246
+ []\TU/HelveticaNeue(0)/m/n/10.95 136
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 247
+ []\TU/HelveticaNeue(0)/m/n/10.95 136
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 248
+ []\TU/HelveticaNeue(0)/m/n/10.95 137
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 249
+ []\TU/HelveticaNeue(0)/m/n/10.95 138
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 250
+ []\TU/HelveticaNeue(0)/m/n/10.95 138
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 253
+ []\TU/HelveticaNeue(0)/m/n/10.95 141
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 254
+ []\TU/HelveticaNeue(0)/m/n/10.95 141
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 255
+ []\TU/HelveticaNeue(0)/m/n/10.95 142
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 256
+ []\TU/HelveticaNeue(0)/m/n/10.95 142
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 257
+ []\TU/HelveticaNeue(0)/m/n/10.95 143
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 258
+ []\TU/HelveticaNeue(0)/m/n/10.95 143
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 259
+ []\TU/HelveticaNeue(0)/m/n/10.95 143
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 260
+ []\TU/HelveticaNeue(0)/m/n/10.95 144
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 261
+ []\TU/HelveticaNeue(0)/m/n/10.95 144
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 265
+ []\TU/HelveticaNeue(0)/m/n/10.95 145
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 266
+ []\TU/HelveticaNeue(0)/m/n/10.95 145
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 267
+ []\TU/HelveticaNeue(0)/m/n/10.95 145
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 268
+ []\TU/HelveticaNeue(0)/m/n/10.95 146
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 269
+ []\TU/HelveticaNeue(0)/m/n/10.95 146
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 270
+ []\TU/HelveticaNeue(0)/m/n/10.95 146
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 271
+ []\TU/HelveticaNeue(0)/m/n/10.95 147
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 272
+ []\TU/HelveticaNeue(0)/m/n/10.95 147
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 273
+ []\TU/HelveticaNeue(0)/m/n/10.95 147
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 274
+ []\TU/HelveticaNeue(0)/m/n/10.95 148
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 275
+ []\TU/HelveticaNeue(0)/m/n/10.95 148
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 276
+ []\TU/HelveticaNeue(0)/m/n/10.95 148
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 277
+ []\TU/HelveticaNeue(0)/m/n/10.95 152
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 278
+ []\TU/HelveticaNeue(0)/m/n/10.95 152
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 279
+ []\TU/HelveticaNeue(0)/m/n/10.95 152
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 280
+ []\TU/HelveticaNeue(0)/m/n/10.95 153
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 281
+ []\TU/HelveticaNeue(0)/m/n/10.95 153
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 283
+ []\TU/HelveticaNeue(0)/m/n/10.95 155
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 284
+ []\TU/HelveticaNeue(0)/m/n/10.95 156
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 285
+ []\TU/HelveticaNeue(0)/m/n/10.95 156
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 286
+ []\TU/HelveticaNeue(0)/m/n/10.95 157
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 287
+ []\TU/HelveticaNeue(0)/m/n/10.95 158
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 288
+ []\TU/HelveticaNeue(0)/m/n/10.95 158
+ []
+
+
+
+[6]
+Overfull \hbox (1.22746pt too wide) detected at line 289
+ []\TU/HelveticaNeue(0)/m/n/10.95 158
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 290
+ []\TU/HelveticaNeue(0)/m/n/10.95 159
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 291
+ []\TU/HelveticaNeue(0)/m/n/10.95 160
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 292
+ []\TU/HelveticaNeue(0)/m/n/10.95 161
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 293
+ []\TU/HelveticaNeue(0)/m/n/10.95 161
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 294
+ []\TU/HelveticaNeue(0)/m/n/10.95 162
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 295
+ []\TU/HelveticaNeue(0)/m/n/10.95 164
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 296
+ []\TU/HelveticaNeue(0)/m/n/10.95 164
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 298
+ []\TU/HelveticaNeue(0)/m/n/10.95 165
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 299
+ []\TU/HelveticaNeue(0)/m/n/10.95 165
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 300
+ []\TU/HelveticaNeue(0)/m/n/10.95 167
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 301
+ []\TU/HelveticaNeue(0)/m/n/10.95 167
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 302
+ []\TU/HelveticaNeue(0)/m/n/10.95 167
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 303
+ []\TU/HelveticaNeue(0)/m/n/10.95 168
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 304
+ []\TU/HelveticaNeue(0)/m/n/10.95 168
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 305
+ []\TU/HelveticaNeue(0)/m/n/10.95 169
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 306
+ []\TU/HelveticaNeue(0)/m/n/10.95 169
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 307
+ []\TU/HelveticaNeue(0)/m/n/10.95 169
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 308
+ []\TU/HelveticaNeue(0)/m/n/10.95 169
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 309
+ []\TU/HelveticaNeue(0)/m/n/10.95 169
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 310
+ []\TU/HelveticaNeue(0)/m/n/10.95 170
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 311
+ []\TU/HelveticaNeue(0)/m/n/10.95 171
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 312
+ []\TU/HelveticaNeue(0)/m/n/10.95 171
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 313
+ []\TU/HelveticaNeue(0)/m/n/10.95 171
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 314
+ []\TU/HelveticaNeue(0)/m/n/10.95 172
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 315
+ []\TU/HelveticaNeue(0)/m/n/10.95 172
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 316
+ []\TU/HelveticaNeue(0)/m/n/10.95 173
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 317
+ []\TU/HelveticaNeue(0)/m/n/10.95 173
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 318
+ []\TU/HelveticaNeue(0)/m/n/10.95 173
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 319
+ []\TU/HelveticaNeue(0)/m/n/10.95 174
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 320
+ []\TU/HelveticaNeue(0)/m/n/10.95 174
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 321
+ []\TU/HelveticaNeue(0)/m/n/10.95 174
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 322
+ []\TU/HelveticaNeue(0)/m/n/10.95 174
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 323
+ []\TU/HelveticaNeue(0)/m/n/10.95 175
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 324
+ []\TU/HelveticaNeue(0)/m/n/10.95 176
+ []
+
+
+Overfull \hbox (2.10127pt too wide) detected at line 325
+\TU/HelveticaNeue(0)/m/n/10.95 10.10 
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 325
+ []\TU/HelveticaNeue(0)/m/n/10.95 177
+ []
+
+
+Overfull \hbox (2.10127pt too wide) detected at line 326
+\TU/HelveticaNeue(0)/m/n/10.95 10.11 
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 326
+ []\TU/HelveticaNeue(0)/m/n/10.95 179
+ []
+
+
+Overfull \hbox (2.10127pt too wide) detected at line 327
+\TU/HelveticaNeue(0)/m/n/10.95 10.12 
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 327
+ []\TU/HelveticaNeue(0)/m/n/10.95 180
+ []
+
+
+Overfull \hbox (2.10127pt too wide) detected at line 328
+\TU/HelveticaNeue(0)/m/n/10.95 10.13 
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 328
+ []\TU/HelveticaNeue(0)/m/n/10.95 180
+ []
+
+
+Overfull \hbox (2.10127pt too wide) detected at line 329
+\TU/HelveticaNeue(0)/m/n/10.95 10.14 
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 329
+ []\TU/HelveticaNeue(0)/m/n/10.95 181
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 331
+ []\TU/HelveticaNeue(0)/m/n/10.95 182
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 332
+ []\TU/HelveticaNeue(0)/m/n/10.95 182
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 333
+ []\TU/HelveticaNeue(0)/m/n/10.95 183
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 334
+ []\TU/HelveticaNeue(0)/m/n/10.95 183
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 336
+ []\TU/HelveticaNeue(0)/m/n/10.95 184
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 337
+ []\TU/HelveticaNeue(0)/m/n/10.95 184
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 338
+ []\TU/HelveticaNeue(0)/m/n/10.95 185
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 339
+ []\TU/HelveticaNeue(0)/m/n/10.95 186
+ []
+
+
+
+[7]
+Overfull \hbox (1.22746pt too wide) detected at line 340
+ []\TU/HelveticaNeue(0)/m/n/10.95 186
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 341
+ []\TU/HelveticaNeue(0)/m/n/10.95 186
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 342
+ []\TU/HelveticaNeue(0)/m/n/10.95 187
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 343
+ []\TU/HelveticaNeue(0)/m/n/10.95 188
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 344
+ []\TU/HelveticaNeue(0)/m/n/10.95 189
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 345
+ []\TU/HelveticaNeue(0)/m/n/10.95 189
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 346
+ []\TU/HelveticaNeue(0)/m/n/10.95 189
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 349
+ []\TU/HelveticaNeue(0)/m/n/10.95 190
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 352
+ []\TU/HelveticaNeue(0)/m/n/10.95 192
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 353
+ []\TU/HelveticaNeue(0)/m/n/10.95 193
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 354
+ []\TU/HelveticaNeue(0)/m/n/10.95 193
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 356
+ []\TU/HelveticaNeue(0)/m/n/10.95 193
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 357
+ []\TU/HelveticaNeue(0)/m/n/10.95 194
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 358
+ []\TU/HelveticaNeue(0)/m/n/10.95 194
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 359
+ []\TU/HelveticaNeue(0)/m/n/10.95 195
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 360
+ []\TU/HelveticaNeue(0)/m/n/10.95 195
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 361
+ []\TU/HelveticaNeue(0)/m/n/10.95 195
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 362
+ []\TU/HelveticaNeue(0)/m/n/10.95 196
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 363
+ []\TU/HelveticaNeue(0)/m/n/10.95 196
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 364
+ []\TU/HelveticaNeue(0)/m/n/10.95 196
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 365
+ []\TU/HelveticaNeue(0)/m/n/10.95 196
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 366
+ []\TU/HelveticaNeue(0)/m/n/10.95 197
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 367
+ []\TU/HelveticaNeue(0)/m/n/10.95 197
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 368
+ []\TU/HelveticaNeue(0)/m/n/10.95 198
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 369
+ []\TU/HelveticaNeue(0)/m/n/10.95 198
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 370
+ []\TU/HelveticaNeue(0)/m/n/10.95 198
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 371
+ []\TU/HelveticaNeue(0)/m/n/10.95 198
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 372
+ []\TU/HelveticaNeue(0)/m/n/10.95 199
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 373
+ []\TU/HelveticaNeue(0)/m/n/10.95 199
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 374
+ []\TU/HelveticaNeue(0)/m/n/10.95 200
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 375
+ []\TU/HelveticaNeue(0)/m/n/10.95 200
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 376
+ []\TU/HelveticaNeue(0)/m/n/10.95 200
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 377
+ []\TU/HelveticaNeue(0)/m/n/10.95 201
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 378
+ []\TU/HelveticaNeue(0)/m/n/10.95 201
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 384
+ []\TU/HelveticaNeue(0)/m/n/10.95 204
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 385
+ []\TU/HelveticaNeue(0)/m/n/10.95 205
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 386
+ []\TU/HelveticaNeue(0)/m/n/10.95 205
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 387
+ []\TU/HelveticaNeue(0)/m/n/10.95 206
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 388
+ []\TU/HelveticaNeue(0)/m/n/10.95 206
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 389
+ []\TU/HelveticaNeue(0)/m/n/10.95 206
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 390
+ []\TU/HelveticaNeue(0)/m/n/10.95 207
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 391
+ []\TU/HelveticaNeue(0)/m/n/10.95 207
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 392
+ []\TU/HelveticaNeue(0)/m/n/10.95 208
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 393
+ []\TU/HelveticaNeue(0)/m/n/10.95 209
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 394
+ []\TU/HelveticaNeue(0)/m/n/10.95 209
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 395
+ []\TU/HelveticaNeue(0)/m/n/10.95 209
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 396
+ []\TU/HelveticaNeue(0)/m/n/10.95 210
+ []
+
+
+
+[8]
+Overfull \hbox (1.22746pt too wide) detected at line 397
+ []\TU/HelveticaNeue(0)/m/n/10.95 210
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 398
+ []\TU/HelveticaNeue(0)/m/n/10.95 210
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 399
+ []\TU/HelveticaNeue(0)/m/n/10.95 211
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 400
+ []\TU/HelveticaNeue(0)/m/n/10.95 211
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 401
+ []\TU/HelveticaNeue(0)/m/n/10.95 212
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 402
+ []\TU/HelveticaNeue(0)/m/n/10.95 212
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 403
+ []\TU/HelveticaNeue(0)/m/n/10.95 212
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 404
+ []\TU/HelveticaNeue(0)/m/n/10.95 213
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 405
+ []\TU/HelveticaNeue(0)/m/n/10.95 213
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 406
+ []\TU/HelveticaNeue(0)/m/n/10.95 214
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 407
+ []\TU/HelveticaNeue(0)/m/n/10.95 215
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 408
+ []\TU/HelveticaNeue(0)/m/n/10.95 215
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 409
+ []\TU/HelveticaNeue(0)/m/n/10.95 215
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 410
+ []\TU/HelveticaNeue(0)/m/n/10.95 216
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 411
+ []\TU/HelveticaNeue(0)/m/n/10.95 217
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 412
+ []\TU/HelveticaNeue(0)/m/n/10.95 217
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 413
+ []\TU/HelveticaNeue(0)/m/n/10.95 218
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 414
+ []\TU/HelveticaNeue(0)/m/n/10.95 218
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 415
+ []\TU/HelveticaNeue(0)/m/n/10.95 219
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 416
+ []\TU/HelveticaNeue(0)/m/n/10.95 219
+ []
+
+
+Overfull \hbox (1.22746pt too wide) detected at line 417
+ []\TU/HelveticaNeue(0)/m/n/10.95 219
+ []
+
+)
+\tf@toc=\write5
+\openout5 = `workbook.toc'.
+
+
+
+[9]
+
+[10
+
+
+]
+\openout2 = `chapters/01_foundations.aux'.
+
+ (./chapters/01_foundations.tex
+Chapter 1.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/it' will be
+(Font)              scaled to size 10.40245pt on input line 8.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/n' will be
+(Font)              scaled to size 13.67995pt on input line 12.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/b/n' will be
+(Font)              scaled to size 13.67995pt on input line 12.
+
+
+[11
+
+
+]
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/b/n' will be
+(Font)              scaled to size 9.49997pt on input line 81.
+
+
+[12]
+
+[13]
+
+[14]
+
+[15]
+Overfull \hbox (8.09pt too wide) detected at line 292
+[][] \OT1/cmr/m/n/10.95 = []  [] \OMS/cmsy/m/n/10.95 ^^Y []\OT1/cmr/m/n/10.95 (
+0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 707\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/n
+/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 577\OML/cmm/m/it/10.95 ;  \OT1/
+cmr/m/n/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 577\OML/cmm/m/it/10.95 ;
+  \OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 577\OML/cmm/m/it/
+10.95 ;  \OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 577\OML/cm
+m/m/it/10.95 ;  \OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 707
+)
+ []
+
+
+LaTeX Warning: Citation `kipf2017' on page 16 undefined on input line 312.
+
+
+
+[16]
+
+[17]
+
+[18]
+
+LaTeX Warning: Citation `kipf2017' on page 19 undefined on input line 474.
+
+
+
+[19]
+
+[20]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 554.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 554.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 554.
+
+
+
+[21]
+
+[22]
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/it' will be
+(Font)              scaled to size 9.49997pt on input line 674.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/n' will be
+(Font)              scaled to size 6.64998pt on input line 699.
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/b/n' will be
+(Font)              scaled to size 6.64998pt on input line 699.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 699.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 699.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 699.
+
+
+
+[23]
+
+[24])
+
+[25]
+\openout2 = `chapters/02_temporal_networks.aux'.
+
+ (./chapters/02_temporal_networks.tex
+Chapter 2.
+
+Overfull \hbox (13.94722pt too wide) in paragraph at lines 1--1
+|\TU/lmss/bx/n/24.88 Temporal Networks: When Time Changes
+ []
+
+
+
+[26
+
+
+
+
+]
+
+LaTeX Warning: Citation `holme2012temporal' on page 27 undefined on input line 
+83.
+
+
+LaTeX Warning: Citation `kempe2000connectivity' on page 27 undefined on input l
+ine 89.
+
+
+LaTeX Warning: Citation `saramaki2019temporal' on page 27 undefined on input li
+ne 91.
+
+
+
+[27]
+Underfull \hbox (badness 10000) in paragraph at lines 196--199
+[]\TU/HelveticaNeue(0)/b/n/10.95 Time-varying graph / snapshot sequence: \TU/He
+lveticaNeue(0)/m/n/10.95 A sequence of static graphs
+ []
+
+
+
+[28]
+
+[29]
+Overfull \hbox (502.22235pt too wide) in paragraph at lines 286--300
+ [] 
+ []
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 314.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\Delta' on input line 314.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 314.
+
+
+
+[30]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 364.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\Delta' on input line 364.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 364.
+
+
+Overfull \hbox (9.26341pt too wide) detected at line 393
+\OT1/cmr/m/n/10.95 ^^A\OML/cmm/m/it/10.95 t \OT1/cmr/m/n/10.95 = \OMS/cmsy/m/n/
+10.95 1 \OT1/cmr/m/n/10.95 :  \OMS/cmsy/m/n/10.95 I\OT1/cmr/m/n/10.95 (1) = \OM
+S/cmsy/m/n/10.95 f\OT1/cmr/m/n/10.95 1\OML/cmm/m/it/10.95 ; \OT1/cmr/m/n/10.95 
+2\OML/cmm/m/it/10.95 ; \OT1/cmr/m/n/10.95 3\OML/cmm/m/it/10.95 ; \OT1/cmr/m/n/1
+0.95 4\OMS/cmsy/m/n/10.95 g\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/n/10.95 ^^A\OML/cm
+m/m/it/10.95 t \OT1/cmr/m/n/10.95 = 2 :  \OMS/cmsy/m/n/10.95 I\OT1/cmr/m/n/10.9
+5 (1) = \OMS/cmsy/m/n/10.95 f\OT1/cmr/m/n/10.95 1\OML/cmm/m/it/10.95 ; \OT1/cmr
+/m/n/10.95 2\OML/cmm/m/it/10.95 ; \OT1/cmr/m/n/10.95 3\OML/cmm/m/it/10.95 ; \OT
+1/cmr/m/n/10.95 4\OMS/cmsy/m/n/10.95 g\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/n/10.95
+ ^^A\OML/cmm/m/it/10.95 t \OT1/cmr/m/n/10.95 = 1 :  \OMS/cmsy/m/n/10.95 I\OT1/c
+mr/m/n/10.95 (1) = \OMS/cmsy/m/n/10.95 f\OT1/cmr/m/n/10.95 1\OML/cmm/m/it/10.95
+ ; \OT1/cmr/m/n/10.95 2\OML/cmm/m/it/10.95 ; \OT1/cmr/m/n/10.95 3\OML/cmm/m/it/
+10.95 ; \OT1/cmr/m/n/10.95 4\OMS/cmsy/m/n/10.95 g
+ []
+
+
+
+[31]
+
+[32]
+
+[33]
+
+[34]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 604.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 604.
+
+
+
+[35]
+
+[36]
+Overfull \hbox (108.00098pt too wide) in paragraph at lines 775--793
+ [] 
+ []
+
+
+
+[37]
+
+[38]
+
+[39]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 957.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 957.
+
+
+
+[40]
+Overfull \hbox (46.8526pt too wide) in paragraph at lines 1047--1051
+\TU/HelveticaNeue(0)/m/n/10.95 mat described in Section [][]2.6[][]. In Python,
+ after loading via NetworkX, the function \TU/lmtt/m/n/10.95 make_array_from_ne
+tworkx
+ []
+
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/n' will be
+(Font)              scaled to size 8.54997pt on input line 1054.
+LaTeX Font Info:    Font shape `TU/lmtt/bx/n' in size <9> not available
+(Font)              Font shape `TU/lmtt/b/n' tried instead on input line 1054.
+
+
+[41]
+
+[42]
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/b/n' will be
+(Font)              scaled to size 8.54997pt on input line 1209.
+
+
+[43]
+
+[44]
+Underfull \hbox (badness 10000) in paragraph at lines 1377--1381
+[]\TU/HelveticaNeue(0)/m/n/10.95 In the codebase, the event list lives in the N
+etworkX graph \TU/lmtt/m/n/10.95 H \TU/HelveticaNeue(0)/m/n/10.95 (loaded
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1377--1381
+\TU/HelveticaNeue(0)/m/n/10.95 by \TU/lmtt/m/n/10.95 setup/read_network.py\TU/H
+elveticaNeue(0)/m/n/10.95 ), the temporal reachability is encoded in
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1377--1381
+\TU/lmtt/m/n/10.95 TSIRData.maximal_outbreak\TU/HelveticaNeue(0)/m/n/10.95 , an
+d the observation window is controlled by
+ []
+
+
+
+[45])
+
+[46]
+\openout2 = `chapters/03_epidemic_models.aux'.
+
+ (./chapters/03_epidemic_models.tex
+Chapter 3.
+
+
+[47
+
+
+
+
+]
+LaTeX Font Info:    Font shape `TU/HelveticaNeue(0)/m/it' will be
+(Font)              scaled to size 8.54997pt on input line 89.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 95.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\beta' on input line 95.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 95.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 95.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\mu' on input line 95.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 95.
+
+
+
+[48]
+
+[49]
+
+[50]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 246.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 246.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 246.
+
+
+
+[51]
+Overfull \hbox (153.18361pt too wide) in paragraph at lines 313--314
+ [] 
+ []
+
+
+
+[52]
+
+[53]
+
+[54]
+
+[55]
+
+[56]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 567.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 567.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 567.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 567.
+
+LaTeX Font Info:    Font shape `TU/lmtt/bx/n' in size <10.95> not available
+(Font)              Font shape `TU/lmtt/b/n' tried instead on input line 572.
+
+
+[57]
+Underfull \hbox (badness 3471) in paragraph at lines 654--655
+[]\TU/HelveticaNeue(0)/m/n/10.95 The three arrays \TU/lmtt/m/n/10.95 truth_S\TU
+/HelveticaNeue(0)/m/n/10.95 , \TU/lmtt/m/n/10.95 truth_I\TU/HelveticaNeue(0)/m/
+n/10.95 , \TU/lmtt/m/n/10.95 truth_R \TU/HelveticaNeue(0)/m/n/10.95 each have s
+hape \TU/lmtt/m/n/10.95 (n_nodes, n_runs,
+ []
+
+
+
+[58]
+
+LaTeX Warning: Citation `holme2020fast' on page 59 undefined on input line 684.
+
+
+
+
+[59]
+LaTeX Font Info:    Font shape `TU/lmtt/bx/n' in size <12> not available
+(Font)              Font shape `TU/lmtt/b/n' tried instead on input line 746.
+
+
+[60]
+
+[61]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 857.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 857.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 857.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 861.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 861.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 861.
+
+
+
+[62]
+Overfull \hbox (8.05508pt too wide) in paragraph at lines 873--883
+ [] 
+ []
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 894.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 894.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 894.
+
+
+
+[63])
+
+[64]
+
+[65
+
+
+
+]
+\openout2 = `chapters/04_source_detection.aux'.
+
+ (./chapters/04_source_detection.tex
+Chapter 4.
+
+
+[66
+
+
+]
+
+[67]
+
+[68]
+
+LaTeX Warning: Reference `sec:classical-heuristics' on page 69 undefined on inp
+ut line 244.
+
+
+
+[69]
+
+[70]
+Overfull \hbox (1.15677pt too wide) in paragraph at lines 359--362
+\TU/HelveticaNeue(0)/m/n/10.95 observed states may be wrong. Requiring exact ag
+reement with a noisy observation is counter-
+ []
+
+
+
+[71]
+
+[72]
+
+[73]
+Overfull \hbox (5.11874pt too wide) in paragraph at lines 576--580
+\TU/HelveticaNeue(0)/m/n/10.95 After running a source detection method on a tes
+t case, we obtain a \TU/HelveticaNeue(0)/b/n/10.95 score vector $[] \OT1/cmr/m/
+n/10.95 = (\OML/cmm/m/it/10.95 p[]; p[]; [] ; p[]\OT1/cmr/m/n/10.95 )$
+ []
+
+
+
+[74]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 666.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 666.
+
+
+
+[75]
+
+[76]
+
+[77]
+
+[78]
+
+[79]
+
+[80]
+
+[81]
+Overfull \hbox (36.99742pt too wide) in paragraph at lines 1111--1115
+\TU/HelveticaNeue(0)/m/n/10.95 size-independent and are computed only on valid 
+test cases via the \TU/lmtt/m/n/10.95 possible \TU/HelveticaNeue(0)/m/n/10.95 a
+nd \TU/lmtt/m/n/10.95 maximal_outbreak
+ []
+
+)
+
+[82]
+\openout2 = `chapters/05_classical_algorithms.aux'.
+
+ (./chapters/05_classical_algorithms.tex
+Chapter 5.
+
+Overfull \hbox (40.24223pt too wide) in paragraph at lines 30--42
+ [][] 
+ []
+
+
+
+[83
+
+
+
+
+]
+
+[84]
+Underfull \hbox (badness 1163) in paragraph at lines 185--187
+[]\TU/lmtt/m/n/10.95 np.sum(possible, axis=1, keepdims=True) \TU/HelveticaNeue(
+0)/m/n/10.95 counts how many valid candidates
+ []
+
+
+
+[85]
+
+[86]
+
+[87]
+
+[88]
+
+[89]
+
+LaTeX Warning: Citation `Sterchi2025' on page 90 undefined on input line 531.
+
+
+LaTeX Warning: Citation `Shah2011' on page 90 undefined on input line 561.
+
+
+
+[90]
+
+[91]
+
+[92]
+
+[93]
+
+[94]
+
+[95]
+
+[96]
+
+LaTeX Warning: Citation `Sterchi2025' on page 97 undefined on input line 1084.
+
+
+
+[97])
+
+[98]
+
+[99
+
+
+
+]
+\openout2 = `chapters/06_deep_learning.aux'.
+
+ (./chapters/06_deep_learning.tex
+Chapter 6.
+
+
+[100
+
+
+]
+
+[101]
+
+[102]
+
+[103]
+
+[104]
+
+[105]
+
+[106]
+
+[107]
+Underfull \hbox (badness 5446) in paragraph at lines 472--474
+\TU/HelveticaNeue(0)/m/n/10.95 This is identical to cross-entropy when the mode
+l uses log-softmax. The com-
+ []
+
+
+Underfull \hbox (badness 2781) in paragraph at lines 472--474
+\TU/HelveticaNeue(0)/m/n/10.95 bination \TU/lmtt/m/n/10.95 F.log_softmax + nn.N
+LLLoss \TU/HelveticaNeue(0)/m/n/10.95 is numerically more stable than \TU/lmtt/
+m/n/10.95 F.softmax +
+ []
+
+
+
+[108]
+
+[109]
+
+[110]
+
+[111]
+
+[112]
+
+[113]
+Overfull \hbox (56.33446pt too wide) detected at line 707
+\OML/cmm/m/it/10.95 ^^[[] \OT1/cmr/m/n/10.95 = [] = [] = [] = 1\OML/cmm/m/it/10
+.95 :\OT1/cmr/m/n/10.95 25
+ []
+
+
+
+[114]
+Overfull \hbox (82.10599pt too wide) detected at line 773
+[] \OT1/cmr/m/n/10.95 = [] \OMS/cmsy/m/n/10.95 ^^B \OT1/cmr/m/n/10.95 [0\OML/cm
+m/m/it/10.95 :\OT1/cmr/m/n/10.95 5 \OMS/cmsy/m/n/10.95 ^^B \OT1/cmr/m/n/10.95 1
+\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/n/10.95 1\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10
+.95 2 \OMS/cmsy/m/n/10.95 ^^B \OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 ;  \OMS/c
+msy/m/n/10.95 ^^@\OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 3 
+\OMS/cmsy/m/n/10.95 ^^B \OT1/cmr/m/n/10.95 1\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/n
+/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 8 \OMS/cmsy/m/n/10.95 ^^B \OT1/
+cmr/m/n/10.95 0\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/n/10.95 2\OML/cmm/m/it/10.95 :
+\OT1/cmr/m/n/10.95 1 \OMS/cmsy/m/n/10.95 ^^B \OT1/cmr/m/n/10.95 1] = [] \OMS/cm
+sy/m/n/10.95 ^^B \OT1/cmr/m/n/10.95 [0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 5
+\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 ;  \OMS/cmsy/m/n
+/10.95 ^^@\OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 3\OML/cmm
+/m/it/10.95 ;  \OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/n/10.95 2\
+OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 1] = [0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n
+/10.95 833\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 ;  \OM
+S/cmsy/m/n/10.95 ^^@\OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95
+ 5\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 ;  \OT1/cmr/m/
+n/10.95 3\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 5]
+ []
+
+
+
+[115]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 826.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 826.
+
+
+
+[116]
+
+[117]
+Underfull \hbox (badness 1248) in paragraph at lines 905--906
+[]\TU/HelveticaNeue(0)/m/n/10.95 Everything else — the linear transformations, 
+activation functions, batch normalization,
+ []
+
+
+
+[118]
+
+[119])
+
+[120]
+\openout2 = `chapters/07_gnn_pytorch.aux'.
+
+ (./chapters/07_gnn_pytorch.tex
+Chapter 7.
+
+Overfull \hbox (9.48169pt too wide) in paragraph at lines 11--12
+[]\TU/HelveticaNeue(0)/m/n/10.95 Walk through the complete forward pass of the 
+\TU/lmtt/m/n/10.95 StaticGNN \TU/HelveticaNeue(0)/m/n/10.95 implemented in \TU/
+lmtt/m/n/10.95 gnn/static_gnn.py\TU/HelveticaNeue(0)/m/n/10.95 . 
+ []
+
+
+
+[121
+
+
+
+
+]
+
+[122]
+
+[123]
+
+[124]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 183.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `superscript' on input line 183.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `superscript' on input line 183.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 183.
+
+
+Overfull \hbox (15.13272pt too wide) detected at line 251
+[][][] \OMS/cmsy/m/n/10.95 ^^Y [] \OT1/cmr/m/n/10.95 = []
+ []
+
+
+
+[125]
+
+[126]
+
+[127]
+
+[128]
+
+[129]
+
+[130]
+
+[131]
+Underfull \hbox (badness 10000) in paragraph at lines 525--526
+\TU/HelveticaNeue(0)/m/n/10.95 The combined tensor has shape \TU/lmtt/m/n/10.95
+ [2, |E|]\TU/HelveticaNeue(0)/m/n/10.95 . The $\OML/cmm/m/it/10.95 i$\TU/Helvet
+icaNeue(0)/m/n/10.95 -th column
+ []
+
+
+
+[132]
+
+[133]
+LaTeX Font Info:    Font shape `TU/lmtt/bx/n' in size <14.4> not available
+(Font)              Font shape `TU/lmtt/b/n' tried instead on input line 662.
+
+
+[134]
+
+[135]
+Overfull \hbox (59.58331pt too wide) in paragraph at lines 755--756
+[]\TU/lmtt/b/n/10.95 ModuleList \TU/HelveticaNeue(0)/b/n/10.95 for conv/bn/acti
+v\TU/HelveticaNeue(0)/m/n/10.95 : the preprocessing and postprocessing stages u
+se \TU/lmtt/m/n/10.95 torch.nn.Sequential
+ []
+
+
+
+[136]
+
+[137]
+Overfull \hbox (10.3575pt too wide) in paragraph at lines 885--886
+[]\TU/HelveticaNeue(0)/b/n/10.95 StaticGNN\TU/HelveticaNeue(0)/m/n/10.95 : a co
+nfigurable Preprocess $\OMS/cmsy/m/n/10.95 !$ \TU/HelveticaNeue(0)/m/n/10.95 Gr
+aphConv Stack $\OMS/cmsy/m/n/10.95 !$ \TU/HelveticaNeue(0)/m/n/10.95 Postproces
+s $\OMS/cmsy/m/n/10.95 !$ \TU/HelveticaNeue(0)/m/n/10.95 Skip-augmented
+ []
+
+
+
+[138])
+
+[139]
+
+[140
+
+
+
+]
+\openout2 = `chapters/08_paper_saramaki.aux'.
+
+ (./chapters/08_paper_saramaki.tex
+Chapter 8.
+
+
+[141
+
+
+]
+
+LaTeX Warning: Citation `saramaki2019temporal' on page 142 undefined on input l
+ine 112.
+
+
+
+[142]
+
+[143]
+
+[144]
+
+[145]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 378.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\Delta' on input line 378.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 378.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 399.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\Delta' on input line 399.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 399.
+
+LaTeX Font Info:    Font shape `TU/lmss/m/it' in size <8> not available
+(Font)              Font shape `TU/lmss/m/sl' tried instead on input line 457.
+
+
+[146]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 466.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\Delta' on input line 466.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 466.
+
+
+
+[147]
+LaTeX Font Info:    Font shape `TU/lmss/m/it' in size <9> not available
+(Font)              Font shape `TU/lmss/m/sl' tried instead on input line 545.
+
+
+[148]
+
+[149]
+
+[150]
+
+[151]
+
+[152]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 890.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\Delta' on input line 890.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 890.
+
+
+
+[153])
+
+[154]
+\openout2 = `chapters/09_paper_ru.aux'.
+
+ (./chapters/09_paper_ru.tex
+Chapter 9.
+
+Underfull \hbox (badness 1122) in paragraph at lines 26--26
+[]|\TU/HelveticaNeue(0)/b/n/10.95 Temporal resolution: \TU/HelveticaNeue(0)/m/n
+/10.95 Binned. The
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 29--30
+[]|\TU/HelveticaNeue(0)/b/n/10.95 Message passing: \TU/HelveticaNeue(0)/m/n/10.
+95 Novel edge-
+ []
+
+
+Underfull \hbox (badness 2221) in paragraph at lines 29--30
+\TU/HelveticaNeue(0)/m/n/10.95 conditioned scheme: edges update
+ []
+
+
+
+[155
+
+
+
+
+]
+
+[156]
+
+[157]
+Underfull \hbox (badness 5533) in paragraph at lines 198--199
+[]|\TU/HelveticaNeue(0)/b/n/10.95 Concatenation\TU/HelveticaNeue(0)/m/n/10.95 :
+ places two vectors end-to-end. $\OT1/cmr/m/n/10.95 [\OML/cmm/m/it/10.95 g\OMS/
+cmsy/m/n/10.95 k\OML/cmm/m/it/10.95 h[]\OT1/cmr/m/n/10.95 ]$ \TU/HelveticaNeue(
+0)/m/n/10.95 is $\OT1/cmr/m/n/10.95 2\OML/cmm/m/it/10.95 D$\TU/HelveticaNeue(0)
+/m/n/10.95 -
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 201--201
+[]|$[]\OT1/cmr/m/n/10.95 (\OML/cmm/m/it/10.95 x\OT1/cmr/m/n/10.95 ) =
+ []
+
+
+
+[158]
+
+[159]
+
+[160]
+
+[161]
+
+[162]
+
+[163])
+
+[164]
+\openout2 = `chapters/10_paper_qarkaxhija.aux'.
+
+ (./chapters/10_paper_qarkaxhija.tex
+Chapter 10.
+
+LaTeX Warning: Reference `ch:saramaki' on page 165 undefined on input line 10.
+
+
+LaTeX Warning: Reference `ch:ru' on page 165 undefined on input line 17.
+
+
+LaTeX Warning: Citation `qarkaxhija2022' on page 165 undefined on input line 25
+.
+
+
+
+[165
+
+
+
+
+]
+
+[166]
+
+[167]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 192.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 192.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 232.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 232.
+
+
+Overfull \hbox (56.0509pt too wide) in paragraph at lines 234--237
+\TU/HelveticaNeue(0)/m/n/10.95 In the implementation used in this thesis (see \
+TU/lmtt/m/n/10.95 utils/make_de_bruijn_graph.py \TU/HelveticaNeue(0)/m/n/10.95 
+and \TU/lmtt/m/n/10.95 gnn/graph_builder.py\TU/HelveticaNeue(0)/m/n/10.95 ),
+ []
+
+
+
+[168]
+
+[169]
+
+[170]
+
+LaTeX Font Warning: Font shape `TU/HelveticaNeue(0)/m/sc' undefined
+(Font)              using `TU/HelveticaNeue(0)/m/n' instead on input line 437.
+
+
+
+[171]
+
+[172]
+
+[173]
+Overfull \hbox (67.09135pt too wide) in paragraph at lines 613--616
+\TU/HelveticaNeue(0)/m/sc/10.95 The De Bruijn graph is constructed by the funct
+ion \TU/lmtt/m/n/10.95 make_de_bruijn_graph \TU/HelveticaNeue(0)/m/sc/10.95 in 
+\TU/lmtt/m/n/10.95 utils/make_de_bruijn_graph.py\TU/HelveticaNeue(0)/m/sc/10.95
+ .
+ []
+
+
+
+[174]
+Overfull \hbox (0.3614pt too wide) in paragraph at lines 663--666
+\TU/HelveticaNeue(0)/m/sc/10.95 The function \TU/lmtt/m/n/10.95 build_de_bruijn
+_graph \TU/HelveticaNeue(0)/m/sc/10.95 in \TU/lmtt/m/n/10.95 gnn/graph_builder.
+py \TU/HelveticaNeue(0)/m/sc/10.95 converts the NetworkX De Bruijn
+ []
+
+
+
+[175]
+
+[176]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 806.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 806.
+
+
+
+[177]
+Underfull \hbox (badness 10000) in paragraph at lines 846--846
+[]|\TU/HelveticaNeue(0)/b/n/10.95 Saramäki DAG-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 848--849
+[]|\TU/HelveticaNeue(0)/b/n/10.95 Qarkaxhija De
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 851--851
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 Events become
+ []
+
+
+Underfull \hbox (badness 5008) in paragraph at lines 851--851
+\TU/HelveticaNeue(0)/m/sc/10.95 nodes in a DAG;
+ []
+
+
+Underfull \hbox (badness 7595) in paragraph at lines 851--851
+\TU/HelveticaNeue(0)/m/sc/10.95 edges are causal
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 852--852
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 Original graph
+ []
+
+
+Underfull \hbox (badness 1270) in paragraph at lines 852--852
+\TU/HelveticaNeue(0)/m/sc/10.95 binary activation
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 853--854
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 Contact se-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 853--854
+\TU/HelveticaNeue(0)/m/sc/10.95 nodes; edges
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 856--856
+[]|$\OML/cmm/m/it/10.95 N[] \OT1/cmr/m/n/10.95 = \OML/cmm/m/it/10.95 E$
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 857--857
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 Identical to
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 857--857
+\TU/HelveticaNeue(0)/m/sc/10.95 static graph:
+ []
+
+
+Underfull \hbox (badness 2781) in paragraph at lines 857--857
+\OML/cmm/m/it/10.95 N[] \OT1/cmr/m/n/10.95 = \OMS/cmsy/m/n/10.95 j\OML/cmm/m/it
+/10.95 V\OMS/cmsy/m/n/10.95 j$\TU/HelveticaNeue(0)/m/sc/10.95 ,
+ []
+
+
+Underfull \hbox (badness 3179) in paragraph at lines 857--857
+\OML/cmm/m/it/10.95 N[] \OT1/cmr/m/n/10.95 = \OMS/cmsy/m/n/10.95 j\OML/cmm/m/it
+/10.95 E\OMS/cmsy/m/n/10.95 j$\TU/HelveticaNeue(0)/m/sc/10.95 .
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 857--857
+\TU/HelveticaNeue(0)/m/sc/10.95 Memory
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 858--859
+[]|$\OML/cmm/m/it/10.95 N[] \OT1/cmr/m/n/10.95 =
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 858--859
+\OT1/cmr/m/n/10.95 2\OML/cmm/m/it/10.95 E \OT1/cmr/m/n/10.95 + 2\OMS/cmsy/m/n/1
+0.95 j\OML/cmm/m/it/10.95 V\OMS/cmsy/m/n/10.95 j$
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 858--859
+\TU/HelveticaNeue(0)/m/sc/10.95 (events + sen-
+ []
+
+
+Underfull \hbox (badness 1292) in paragraph at lines 861--861
+\TU/HelveticaNeue(0)/m/sc/10.95 is a distinct entity
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 862--862
+\TU/HelveticaNeue(0)/m/sc/10.95 line is divided
+ []
+
+
+Underfull \hbox (badness 6493) in paragraph at lines 862--862
+\TU/HelveticaNeue(0)/m/sc/10.95 into $\OML/cmm/m/it/10.95 T$ \TU/HelveticaNeue(
+0)/m/sc/10.95 discrete
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 863--864
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 Exact: each
+ []
+
+
+Underfull \hbox (badness 5036) in paragraph at lines 863--864
+\TU/HelveticaNeue(0)/m/sc/10.95 De Bruijn node
+ []
+
+
+Underfull \hbox (badness 6708) in paragraph at lines 867--867
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 Partial: tempo-
+ []
+
+
+Underfull \hbox (badness 6876) in paragraph at lines 867--867
+\TU/HelveticaNeue(0)/m/sc/10.95 ral encoding is
+ []
+
+
+Underfull \hbox (badness 2717) in paragraph at lines 867--867
+\TU/HelveticaNeue(0)/m/sc/10.95 in features; the
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 868--869
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 Full: only
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 868--869
+\TU/HelveticaNeue(0)/m/sc/10.95 causally valid
+ []
+
+
+Underfull \hbox (badness 3068) in paragraph at lines 868--869
+\TU/HelveticaNeue(0)/m/sc/10.95 sequences exist
+ []
+
+
+Underfull \hbox (badness 5345) in paragraph at lines 868--869
+\TU/HelveticaNeue(0)/m/sc/10.95 ward paths are
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 872--872
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 All time steps
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 872--872
+\TU/HelveticaNeue(0)/m/sc/10.95 (the full $\OML/cmm/m/it/10.95 T$\TU/HelveticaN
+eue(0)/m/sc/10.95 -dim
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 872--872
+\TU/HelveticaNeue(0)/m/sc/10.95 vector captures
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 872--872
+\TU/HelveticaNeue(0)/m/sc/10.95 all past activa-
+ []
+
+
+Underfull \hbox (badness 6859) in paragraph at lines 873--874
+\TU/HelveticaNeue(0)/m/sc/10.95 itly encoded in
+ []
+
+
+Underfull \hbox (badness 2042) in paragraph at lines 873--874
+\OML/cmm/m/it/10.95 k$ \TU/HelveticaNeue(0)/m/sc/10.95 is a hyperpa-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 876--876
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 Lossless causal
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 876--876
+\TU/HelveticaNeue(0)/m/sc/10.95 structure. First
+ []
+
+
+Underfull \hbox (badness 2990) in paragraph at lines 876--876
+\TU/HelveticaNeue(0)/m/sc/10.95 GNN approach to
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 877--877
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 Graph size un-
+ []
+
+
+Underfull \hbox (badness 1701) in paragraph at lines 877--877
+\TU/HelveticaNeue(0)/m/sc/10.95 changed. Tem-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 877--877
+\TU/HelveticaNeue(0)/m/sc/10.95 computationally
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 878--879
+[]|\TU/HelveticaNeue(0)/m/sc/10.95 Non-Markovian
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 878--879
+\TU/HelveticaNeue(0)/m/sc/10.95 message pass-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 878--879
+\TU/HelveticaNeue(0)/m/sc/10.95 as nodes; the
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 878--879
+\TU/HelveticaNeue(0)/m/sc/10.95 GNN reasons
+ []
+
+
+Overfull \hbox (3.80016pt too wide) in paragraph at lines 881--881
+\TU/lmtt/m/n/10.95 graph_builder.py:
+ []
+
+
+Overfull \hbox (29.675pt too wide) in paragraph at lines 881--881
+\TU/lmtt/m/n/10.95 build_dag_event_graph| 
+ []
+
+
+Overfull \hbox (78.44028pt too wide) in paragraph at lines 882--882
+[]|\TU/lmtt/m/n/10.95 gnn/backtracking_network.py\TU/HelveticaNeue(0)/m/sc/10.9
+5 , 
+ []
+
+
+Overfull \hbox (15.18108pt too wide) in paragraph at lines 882--882
+\TU/lmtt/m/n/10.95 graph_builder.py:
+ []
+
+
+Overfull \hbox (64.0509pt too wide) in paragraph at lines 882--882
+\TU/lmtt/m/n/10.95 build_temporal_activation| 
+ []
+
+
+Overfull \hbox (15.18108pt too wide) in paragraph at lines 883--884
+\TU/lmtt/m/n/10.95 graph_builder.py:
+ []
+
+
+Overfull \hbox (41.05592pt too wide) in paragraph at lines 883--884
+\TU/lmtt/m/n/10.95 build_de_bruijn_graph| 
+ []
+
+
+
+[178]
+Overfull \vbox (6.7712pt too high) has occurred while \output is active []
+
+
+
+[179]
+
+[180]
+Overfull \hbox (7.00894pt too wide) in paragraph at lines 994--1000
+[]\TU/HelveticaNeue(0)/b/n/10.95 Implementation: \TU/HelveticaNeue(0)/m/sc/10.9
+5 The complete pipeline is implemented in \TU/lmtt/m/n/10.95 utils/make_de_brui
+jn_graph.py
+ []
+
+)
+
+[181]
+\openout2 = `chapters/12_paper_rey_dagcn.aux'.
+
+ (./chapters/12_paper_rey_dagcn.tex
+Chapter 11.
+
+Overfull \hbox (15.8505pt too wide) in paragraph at lines 1--1
+|\TU/lmss/bx/n/24.88 Directed Acyclic Graph Convolutional Net-
+ []
+
+
+LaTeX Warning: Citation `rey2025dagcn' on page 182 undefined on input line 25.
+
+
+
+[182
+
+
+
+
+]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[183]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[184]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[185]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[186]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[187]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[188]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[189]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[190]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[191]
+Overfull \hbox (2.89299pt too wide) in paragraph at lines 651--653
+[]\TU/HelveticaNeue(0)/m/sc/10.95 First, compute the exogenous contributions: $
+[] \OT1/cmr/m/n/10.95 = [][][] = [2\OML/cmm/m/it/10.95 ; \OT1/cmr/m/n/10.95 3\O
+ML/cmm/m/it/10.95 ; \OT1/cmr/m/n/10.95 1 \OMS/cmsy/m/n/10.95 ^^@ \OT1/cmr/m/n/1
+0.95 2 \OMS/cmsy/m/n/10.95 ^^@ \OT1/cmr/m/n/10.95 3\OML/cmm/m/it/10.95 ; \OT1/c
+mr/m/n/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 5 \OMS/cmsy/m/n/10.95 ^^@
+ \OT1/cmr/m/n/10.95 1][] = [2\OML/cmm/m/it/10.95 ; \OT1/cmr/m/n/10.95 3\OML/cmm
+/m/it/10.95 ; \OMS/cmsy/m/n/10.95 ^^@\OT1/cmr/m/n/10.95 4\OML/cmm/m/it/10.95 ; 
+\OMS/cmsy/m/n/10.95 ^^@\OT1/cmr/m/n/10.95 0\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10
+.95 5][]$\TU/HelveticaNeue(0)/m/sc/10.95 . 
+ []
+
+
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[192]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[193]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[194]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[195]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[196]
+
+! LaTeX Error: Not allowed in LR mode.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.1059 ....5, -3.4) {Same $\boldsymbol{\Theta}$\\f
+                                                  or all branches};
+You've lost some text.  Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[197]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[198]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[199]
+
+LaTeX Warning: Citation `rey2025dagcn' on page 200 undefined on input line 1255
+.
+
+
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[200]
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[201])
+
+
+Package fancyhdr Warning: \headheight is too small (12.0pt): 
+(fancyhdr)                Make it at least 22.76004pt, for example:
+(fancyhdr)                \setlength{\headheight}{22.76004pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-10.76004pt}.
+
+[202]
+
+[203
+
+
+
+]
+\openout2 = `chapters/11_baselines_codebase.aux'.
+
+ (./chapters/11_baselines_codebase.tex
+Chapter 12.
+
+
+[204
+
+
+]
+Overfull \hbox (2.83267pt too wide) in paragraph at lines 108--109
+[]\TU/HelveticaNeue(0)/b/n/10.95 Monte Carlo simulations \TU/HelveticaNeue(0)/m
+/sc/10.95 (\TU/lmtt/m/n/10.95 monte_carlo_{S,I,R}.bin\TU/HelveticaNeue(0)/m/sc/
+10.95 ): Also from every source, but $\OML/cmm/m/it/10.95 mc[][]$
+ []
+
+
+
+[205]
+
+[206]
+
+[207]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 301.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 301.
+
+
+
+[208]
+
+[209]
+
+[210]
+
+[211]
+
+[212]
+
+[213]
+
+[214]
+
+[215] (/usr/local/texlive/2025/texmf-dist/tex/latex/listings/lstlang1.sty
+File: lstlang1.sty 2024/09/23 1.10c listings language file
+)
+(/usr/local/texlive/2025/texmf-dist/tex/latex/listings/lstlang1.sty
+File: lstlang1.sty 2024/09/23 1.10c listings language file
+)
+
+[216]
+
+[217]
+
+[218]
+
+[219])
+
+[220] (./workbook.aux (./chapters/01_foundations.aux)
+(./chapters/02_temporal_networks.aux) (./chapters/03_epidemic_models.aux)
+(./chapters/04_source_detection.aux) (./chapters/05_classical_algorithms.aux)
+(./chapters/06_deep_learning.aux) (./chapters/07_gnn_pytorch.aux)
+(./chapters/08_paper_saramaki.aux) (./chapters/09_paper_ru.aux)
+(./chapters/10_paper_qarkaxhija.aux) (./chapters/12_paper_rey_dagcn.aux)
+(./chapters/11_baselines_codebase.aux))
+ ***********
+LaTeX2e <2024-11-01> patch level 2
+L3 programming layer <2025-01-18>
+ ***********
+
+
+LaTeX Font Warning: Some font shapes were not available, defaults substituted.
+
+
+LaTeX Warning: There were undefined references.
+
+
+LaTeX Warning: There were multiply-defined labels.
+
+Package rerunfilecheck Info: File `workbook.out' has not changed.
+(rerunfilecheck)             Checksum: D9D7BC39412C65EE90F34A222917386E;95561.
+ ) 
+Here is how much of TeX's memory you used:
+ 40750 strings out of 473832
+ 861097 string characters out of 5729482
+ 1971433 words of memory out of 5000000
+ 63066 multiletter control sequences out of 15000+600000
+ 576194 words of font info for 160 fonts, out of 8000000 for 9000
+ 1348 hyphenation exceptions out of 8191
+ 98i,19n,101p,1197b,1466s stack positions out of 10000i,1000n,20000p,200000b,200000s
+
+Output written on workbook.pdf (221 pages).

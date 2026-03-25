@@ -1,0 +1,96 @@
+\relax 
+\providecommand\zref@newlabel[2]{}
+\providecommand\hyper@newdestlabel[2]{}
+\@writefile{toc}{\contentsline {chapter}{\numberline {5}Classical Source Detection Algorithms}{83}{chapter.5}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:classical}{{5}{83}{Classical Source Detection Algorithms}{chapter.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.1}Overview: A Map of Classical Methods}{83}{section.5.1}\protected@file@percent }
+\newlabel{sec:classical-overview}{{5.1}{83}{Overview: A Map of Classical Methods}{section.5.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.1}{\ignorespaces Comparison of the four classical source-detection baselines. $N$ = number of nodes; $|\mathcal  {I}|$ = number of infected nodes; $|E_{\mathcal  {I}}|$ = edges in the infected subgraph. The ``Network required?'' column asks whether the method needs the contact graph or only the compartment labels.}}{83}{table.caption.12}\protected@file@percent }
+\newlabel{tab:classical-overview}{{5.1}{83}{Comparison of the four classical source-detection baselines. $N$ = number of nodes; $|\mathcal {I}|$ = number of infected nodes; $|E_{\mathcal {I}}|$ = edges in the infected subgraph. The ``Network required?'' column asks whether the method needs the contact graph or only the compartment labels}{table.caption.12}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.2}Baseline 1: Uniform Random Guess}{84}{section.5.2}\protected@file@percent }
+\newlabel{sec:uniform}{{5.2}{84}{Baseline 1: Uniform Random Guess}{section.5.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.1}The Idea}{84}{subsection.5.2.1}\protected@file@percent }
+\newlabel{eq:uniform}{{5.1}{84}{The Idea}{equation.5.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.2}The Rank Score Metric}{84}{subsection.5.2.2}\protected@file@percent }
+\newlabel{eq:rank-score}{{5.2}{84}{The Rank Score Metric}{equation.5.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.3}Implementation in the Codebase}{85}{subsection.5.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.3}Baseline 2: Degree Centrality}{86}{section.5.3}\protected@file@percent }
+\newlabel{sec:degree}{{5.3}{86}{Baseline 2: Degree Centrality}{section.5.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.1}The Idea and Its Justification}{86}{subsection.5.3.1}\protected@file@percent }
+\newlabel{eq:degree}{{5.3}{86}{The Idea and Its Justification}{equation.5.3}{}}
+\newlabel{eq:degree-heuristic}{{5.4}{86}{The Idea and Its Justification}{equation.5.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.2}Worked Example on a 5-Node Graph}{86}{subsection.5.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.3}The Critical Limitation: Blindness to the Observation}{87}{subsection.5.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.4}Baseline 3: Jordan Center}{87}{section.5.4}\protected@file@percent }
+\newlabel{sec:jordan}{{5.4}{87}{Baseline 3: Jordan Center}{section.5.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.1}Motivation: The Source Is Near the Center}{87}{subsection.5.4.1}\protected@file@percent }
+\newlabel{eq:eccentricity}{{5.5}{88}{Motivation: The Source Is Near the Center}{equation.5.5}{}}
+\newlabel{eq:jordan}{{5.6}{88}{Motivation: The Source Is Near the Center}{equation.5.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.2}Step-by-Step Example on a 6-Node Infected Subgraph}{88}{subsection.5.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.3}Algorithm Pseudocode}{89}{subsection.5.4.3}\protected@file@percent }
+\citation{Sterchi2025}
+\citation{Shah2011}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.4}Why the Jordan Center Works (and When It Fails)}{90}{subsection.5.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.5}Baseline 4: Rumor Centrality (Shah \& Zaman, 2011)}{90}{section.5.5}\protected@file@percent }
+\newlabel{sec:rumor}{{5.5}{90}{Baseline 4: Rumor Centrality (Shah \& Zaman, 2011)}{section.5.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.1}Motivation: Counting Infection Orderings}{90}{subsection.5.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.2}Formal Definition}{91}{subsection.5.5.2}\protected@file@percent }
+\newlabel{eq:subtree-size}{{5.7}{91}{Formal Definition}{equation.5.7}{}}
+\newlabel{eq:rumor}{{5.8}{91}{Formal Definition}{equation.5.8}{}}
+\newlabel{eq:rumor-update}{{5.9}{91}{Formal Definition}{equation.5.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.3}Worked Example on a 5-Node Tree}{92}{subsection.5.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.4}Why Rumor Centrality Fails on Temporal Networks}{93}{subsection.5.5.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.6}Comparing All Four Methods on a Worked Example}{93}{section.5.6}\protected@file@percent }
+\newlabel{sec:classical-comparison}{{5.6}{93}{Comparing All Four Methods on a Worked Example}{section.5.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.7}Implementation in the Codebase}{95}{section.5.7}\protected@file@percent }
+\newlabel{sec:classical-code}{{5.7}{95}{Implementation in the Codebase}{section.5.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.1}How the Evaluation Pipeline Works}{95}{subsection.5.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.2}Uniform Baseline}{96}{subsection.5.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.3}Rank Score and Top-k Metrics}{96}{subsection.5.7.3}\protected@file@percent }
+\citation{Sterchi2025}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.4}Putting It Together: What to Expect from Each Baseline}{97}{subsection.5.7.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.8}Chapter Summary}{98}{section.5.8}\protected@file@percent }
+\newlabel{sec:classical-summary}{{5.8}{98}{Chapter Summary}{section.5.8}{}}
+\@setckpt{chapters/05_classical_algorithms}{
+\setcounter{page}{99}
+\setcounter{equation}{9}
+\setcounter{enumi}{4}
+\setcounter{enumii}{0}
+\setcounter{enumiii}{0}
+\setcounter{enumiv}{0}
+\setcounter{footnote}{0}
+\setcounter{mpfootnote}{0}
+\setcounter{part}{2}
+\setcounter{chapter}{5}
+\setcounter{section}{8}
+\setcounter{subsection}{0}
+\setcounter{subsubsection}{0}
+\setcounter{paragraph}{0}
+\setcounter{subparagraph}{0}
+\setcounter{figure}{0}
+\setcounter{table}{1}
+\setcounter{parentequation}{0}
+\setcounter{BAenumi}{0}
+\setcounter{nlinenum}{0}
+\setcounter{section@level}{0}
+\setcounter{Item}{65}
+\setcounter{Hfootnote}{0}
+\setcounter{Hy@AnnotLevel}{0}
+\setcounter{bookmark@seq@number}{170}
+\setcounter{float@type}{16}
+\setcounter{mdf@globalstyle@cnt}{0}
+\setcounter{mdfcountframes}{0}
+\setcounter{mdf@env@i}{0}
+\setcounter{mdf@env@ii}{0}
+\setcounter{mdf@zref@counter}{0}
+\setcounter{caption@flags}{2}
+\setcounter{continuedfloat}{0}
+\setcounter{lstnumber}{22}
+\setcounter{tcbbreakpart}{2}
+\setcounter{tcblayer}{0}
+\setcounter{tcolorbox@number}{222}
+\setcounter{tcblisting}{0}
+\setcounter{lstlisting}{0}
+}

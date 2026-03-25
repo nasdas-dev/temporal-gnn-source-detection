@@ -1,0 +1,1391 @@
+\chapter{Temporal Networks: When Time Changes Everything}
+\label{chap:temporal_networks}
+
+\textit{This chapter builds the mathematical language of temporal networks from the ground up. We
+start with a simple three-person story that makes the core problem immediately tangible, then
+formalise every concept step by step. By the end you will be able to read temporal network
+papers, compute reachability by hand, and understand exactly how the project codebase stores
+and uses contact sequences.}
+
+%=============================================================================
+\section{Why Static Graphs Fail for Epidemics: The Phantom Path Problem}
+\label{sec:phantom_paths}
+%=============================================================================
+
+\subsection{A Three-Person Story}
+
+Imagine three people: Alice (A), Bob (B), and Carol (C). They meet as follows:
+
+\begin{itemize}
+    \item \textbf{Monday ($t = 1$):} Alice meets Bob. They shake hands.
+    \item \textbf{Tuesday ($t = 2$):} Bob meets Carol. They share a meal.
+    \item \textbf{Sunday ($t = 7$):} Carol meets Alice. They sit together at a concert.
+\end{itemize}
+
+Now suppose Bob was infected with a virus on Monday. The question an epidemiologist asks is:
+\textit{who could Bob have infected, and through whom?}
+
+\begin{examplebox}{Drawing the Static Graph}
+If we draw a graph that simply records ``who has met whom'' (ignoring time), we get:
+
+\medskip
+\begin{center}
+\begin{tikzpicture}[
+  nd/.style={circle, draw=blue!60!black, fill=blue!8, thick,
+             minimum size=10mm, font=\bfseries\small},
+  >=Stealth, thick
+]
+  \node[nd] (A) at (0,0)   {A};
+  \node[nd] (B) at (2,0)   {B};
+  \node[nd] (C) at (1,1.7) {C};
+  \draw (A) -- node[below, font=\scriptsize]{Mon} (B);
+  \draw (B) -- node[right, font=\scriptsize]{Tue} (C);
+  \draw (C) -- node[left,  font=\scriptsize]{Sun} (A);
+\end{tikzpicture}
+\end{center}
+
+\medskip
+In this static graph every pair of nodes is connected. A standard graph algorithm will
+happily report the path $C \to A \to B$: Carol can infect Alice, and Alice can infect Bob.
+
+But wait. Carol meets Alice on \textbf{Sunday} ($t=7$). Alice meets Bob on \textbf{Monday}
+($t=1$). Sunday comes \textit{after} Monday. A pathogen cannot travel backwards in time. Carol
+cannot infect Alice on Sunday and then have that infection arrive at Bob on Monday, six days
+earlier.
+
+The path $C \to A \to B$ \textbf{does not exist in reality}. It is a \textbf{phantom path}:
+a path that looks valid in the static graph but is causally impossible because the edge
+timestamps are in the wrong order.
+\end{examplebox}
+
+\begin{conceptbox}{Phantom Path}
+A \textbf{phantom path} is a sequence of edges in the static projection of a temporal network
+that appears to be a valid path but violates causal ordering: at least one edge in the sequence
+has a timestamp that is \textit{earlier} than a preceding edge. An epidemic cannot travel
+along a phantom path.
+\end{conceptbox}
+
+\begin{keyinsight}{The Core Problem with Static Graphs}
+Static graphs tell you \textit{who has been in contact}, but not \textit{in what order}. For
+epidemic spreading, order is everything: a virus can only move \emph{forward} in time. When a
+static-graph algorithm suggests that Carol is a likely source because she is ``connected'' to
+both Alice and Bob, it may be completely wrong---if Carol's contacts all happened after the
+outbreak was already established, she cannot be the origin.
+
+\textbf{This is why temporal networks exist}: they preserve the one piece of information that
+static graphs discard---the timestamps that encode causality.
+\end{keyinsight}
+
+\subsection{A Brief History of Temporal Network Analysis}
+
+Temporal or \textit{dynamic} graph models have been studied since at least the 1970s in the
+context of communications networks, but the field gained coherent identity around 2012 with the
+comprehensive review by \cite{holme2012temporal}. The key empirical observation motivating this
+work was that real-world contact sequences exhibit strong non-Poissonian (``bursty'') timing:
+inter-event times follow heavy-tailed rather than exponential distributions, with dramatic
+consequences for how fast pathogens spread.
+
+The formal study of \textit{time-respecting paths} and \textit{temporal reachability} was
+pioneered by Kempe, Kleinberg, and Kumar \cite{kempe2000connectivity}, who established
+complexity results for temporal connectivity problems. The event graph representation used in
+this thesis derives from Saram\"{a}ki, Kivel\"{a}, and Karsai \cite{saramaki2019temporal},
+covered in depth in Chapter~8.
+
+%=============================================================================
+\section{Formal Definition of a Temporal Network}
+\label{sec:tn_definition}
+%=============================================================================
+
+We now give a precise mathematical definition. Every symbol will be introduced before it is
+used.
+
+\begin{conceptbox}{Notation We Need Before the Definition}
+\begin{itemize}[noitemsep]
+  \item $\mathcal{V}$ --- the \textbf{node set}: the collection of all individuals (people,
+        computers, animals) in the network. We write $|\mathcal{V}| = n$ for the number of
+        nodes.
+  \item $\times$ --- the \textbf{Cartesian product}: $\mathcal{V} \times \mathcal{V}$ is the
+        set of all \emph{ordered pairs} of nodes, e.g.\ $\{(A,B), (A,C), (B,A), \ldots\}$.
+  \item $\mathcal{T}$ --- the \textbf{observation window}: the time interval $[t_{\min},
+        t_{\max}]$ during which we recorded contacts.
+  \item $\mathbb{R}^+$ --- the set of \textbf{non-negative real numbers}: $\{x \in \mathbb{R}
+        \mid x \geq 0\}$.
+  \item $\subseteq$ --- ``is a subset of'': every element on the left also belongs to the set
+        on the right.
+  \item $(u, v, t)$ --- an ordered \textbf{triple}: the contact between node $u$ and node $v$
+        at time $t$.
+  \item $\in$ --- ``is an element of'': $e \in E^T$ means event $e$ belongs to the event set.
+\end{itemize}
+\end{conceptbox}
+
+\begin{conceptbox}{Temporal Network: Formal Definition}
+A \textbf{temporal network} (also called a \emph{contact sequence}) is a triple
+\[
+  G^T = \bigl(\mathcal{V},\; E^T,\; \mathcal{T}\bigr)
+\]
+where:
+\begin{itemize}[noitemsep]
+  \item $\mathcal{V} = \{v_1, v_2, \ldots, v_n\}$ is the finite set of $n$ \textbf{nodes}.
+  \item $\mathcal{T} = [t_{\min}, t_{\max}] \subset \mathbb{R}^+$ is the
+        \textbf{observation window}.
+  \item $E^T \subseteq \mathcal{V} \times \mathcal{V} \times \mathcal{T}$ is the
+        finite set of \textbf{temporal events} (contacts).
+\end{itemize}
+Each event $e = (u, v, t) \in E^T$ records that nodes $u$ and $v$ were in contact at time $t$.
+We assume contacts are \textbf{undirected}: $(u, v, t) \in E^T$ if and only if
+$(v, u, t) \in E^T$ (if Alice meets Bob, Bob also meets Alice). The total number of distinct
+events is $|E^T|$.
+\end{conceptbox}
+
+\textbf{Reading the definition aloud}: $G^T = (\mathcal{V}, E^T, \mathcal{T})$ is read as
+``$G$-superscript-$T$ is a temporal network with node set $\mathcal{V}$, event set $E^T$, and
+observation window $\mathcal{T}$.'' The superscript $T$ stands for \emph{temporal} (not
+transpose).
+
+\begin{examplebox}{The Alice--Bob--Carol Network as a Formal Temporal Network}
+Returning to our three-person story:
+\[
+  \mathcal{V} = \{A,\; B,\; C\}, \qquad
+  \mathcal{T} = [1, 7], \qquad
+  E^T = \{(A,B,1),\; (B,C,2),\; (C,A,7)\}
+\]
+Reading each triple:
+\begin{itemize}[noitemsep]
+  \item $(A, B, 1)$: Alice and Bob were in contact at time $t = 1$ (Monday).
+  \item $(B, C, 2)$: Bob and Carol were in contact at time $t = 2$ (Tuesday).
+  \item $(C, A, 7)$: Carol and Alice were in contact at time $t = 7$ (Sunday).
+\end{itemize}
+
+As a table (the most common format in data files):
+\begin{center}
+\begin{tabular}{ccc}
+\toprule
+\textbf{Node $u$} & \textbf{Node $v$} & \textbf{Time $t$} \\
+\midrule
+A & B & 1 \\
+B & C & 2 \\
+C & A & 7 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The static projection $G = (\mathcal{V}, \mathcal{E})$ discards the timestamps and retains
+only connectivity:
+$\mathcal{E} = \{\{A,B\}, \{B,C\}, \{C,A\}\}$.
+This is a triangle. Every node can reach every other node. But only \textit{two} of the three
+directed paths are causally valid, as we will see in the next section.
+\end{examplebox}
+
+\begin{analogybox}{The Photograph vs.\ the Video}
+A static graph is a \textbf{photograph}: it shows who was in the same frame, but gives no
+information about who arrived first or who left before whom. A temporal network is a
+\textbf{video}: it shows every frame in order. To trace an epidemic, you need the video. The
+photograph might show Alice and Bob standing next to a sick person, but only the video reveals
+whether they were there before or after the person fell ill.
+\end{analogybox}
+
+\subsection{Distinguishing Temporal Networks from Related Concepts}
+
+The literature uses several overlapping terms. Here is a precise glossary:
+
+\begin{conceptbox}{Terminology: Contact Sequence vs.\ Snapshot vs.\ Dynamic Graph}
+\begin{itemize}[noitemsep]
+  \item \textbf{Contact sequence / temporal network:} An explicit list of timestamped events
+        $(u, v, t)$. Time is treated as a fine-grained attribute. This is the format used in
+        this thesis and by the TSIR simulation engine.
+  \item \textbf{Time-varying graph / snapshot sequence:} A sequence of static graphs
+        $\{G_1, G_2, \ldots, G_T\}$, each valid over a time bin
+        $[t_{k-1}, t_k)$. This is a discretised approximation; within-bin ordering is lost.
+  \item \textbf{Dynamic graph:} A broad term for any graph that changes over time, including
+        models where edges are permanently added or deleted (e.g.\ social network growth).
+  \item \textbf{Multilayer / supra-adjacency:} A representation stacking all snapshots into a
+        single block matrix, connecting copies of each node across time layers.
+\end{itemize}
+The key structural difference: a contact sequence preserves the \textit{exact timing} of every
+event, whereas a snapshot sequence only preserves whether a contact occurred within a time bin.
+\end{conceptbox}
+
+%=============================================================================
+\section{Time-Respecting Paths: The Causal Highways of Epidemics}
+\label{sec:time_respecting_paths}
+%=============================================================================
+
+\subsection{The Relay Race Analogy}
+
+\begin{analogybox}{The Relay Race}
+Imagine a relay race. Runner A passes the baton to Runner B at the $t = 10\,\text{s}$ mark.
+Runner B then passes the baton to Runner C at the $t = 25\,\text{s}$ mark.
+
+This is valid: B \textit{received} the baton at $t = 10\,\text{s}$ and \textit{passed} it at
+$t = 25\,\text{s}$. The sequence is $10 < 25$: time moves forward.
+
+Now imagine the race announcement says B passed the baton to C at $t = 8\,\text{s}$. This is
+impossible: B had not yet received the baton at $t = 8\,\text{s}$. B cannot pass what B does
+not yet have.
+
+An epidemic works exactly the same way. A node can only \textit{transmit} a pathogen after it
+has \textit{received} it. Every step in the chain must happen \emph{after} the previous step.
+This is the defining constraint of a \textbf{time-respecting path}.
+\end{analogybox}
+
+\subsection{Formal Definition}
+
+\begin{mathbox}{Time-Respecting Path: Step-by-Step Definition}
+Let $G^T = (\mathcal{V}, E^T, \mathcal{T})$ be a temporal network.
+
+\textbf{Step 1 --- What is a path?} A \textit{path} from node $v_0$ to node $v_k$ is a
+sequence of nodes and events:
+\[
+  P = \bigl(v_0,\; e_1,\; v_1,\; e_2,\; v_2,\; \ldots,\; e_k,\; v_k\bigr)
+\]
+where each $e_i = (v_{i-1},\, v_i,\, t_i) \in E^T$ is a contact event involving consecutive
+nodes in the path.
+
+\textbf{Step 2 --- What makes it ``time-respecting''?} The path is \textbf{time-respecting}
+if and only if the event times are \textit{strictly increasing}:
+\[
+  t_1 < t_2 < \cdots < t_k.
+\]
+This enforces causality: each node must receive the pathogen before it can pass it on.
+
+\textbf{Step 3 --- What is the temporal length?} The \textbf{length} of $P$ is $k$, the
+number of hops. The \textbf{duration} of $P$ is $t_k - t_1$, the elapsed time from first to
+last event.
+
+\textbf{Step 4 --- What does it mean for $u$ to reach $v$?} Node $u$ \textbf{temporally
+reaches} node $v$ (written $u \leadsto v$) if there exists \textit{at least one}
+time-respecting path from $u$ to $v$.
+\end{mathbox}
+
+\subsection{Worked Example: Five Events, Valid and Invalid Paths}
+
+We now work through a complete example. Consider the following five-event contact sequence on
+four nodes $\{1, 2, 3, 4\}$:
+
+\begin{examplebox}{Five-Event Temporal Network}
+\begin{center}
+\begin{tabular}{cccc}
+\toprule
+\textbf{Event} & \textbf{Node $u$} & \textbf{Node $v$} & \textbf{Time $t$} \\
+\midrule
+$e_1$ & 1 & 2 & 1 \\
+$e_2$ & 2 & 3 & 3 \\
+$e_3$ & 3 & 4 & 5 \\
+$e_4$ & 1 & 3 & 4 \\
+$e_5$ & 4 & 2 & 2 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+\noindent\textbf{Which paths from node 1 are time-respecting?}
+
+We check every possible sequence of events that starts at node 1:
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Candidate path} & \textbf{Event times} & \textbf{Strictly increasing?} & \textbf{Valid?} \\
+\midrule
+$1 \xrightarrow{e_1} 2$               & $t=1$             & --- (single hop)  & \textcolor{green!60!black}{\textbf{Yes}} \\
+$1 \xrightarrow{e_4} 3$               & $t=4$             & --- (single hop)  & \textcolor{green!60!black}{\textbf{Yes}} \\
+$1 \xrightarrow{e_1} 2 \xrightarrow{e_2} 3$  & $t=1 < t=3$  & Yes  & \textcolor{green!60!black}{\textbf{Yes}} \\
+$1 \xrightarrow{e_1} 2 \xrightarrow{e_2} 3 \xrightarrow{e_3} 4$ & $t=1<t=3<t=5$ & Yes & \textcolor{green!60!black}{\textbf{Yes}} \\
+$1 \xrightarrow{e_4} 3 \xrightarrow{e_3} 4$ & $t=4 < t=5$ & Yes & \textcolor{green!60!black}{\textbf{Yes}} \\
+$1 \xrightarrow{e_1} 2 \xrightarrow{e_5?} 4$ & need $e$ with nodes $(2,4)$ after $t=1$: none & --- & \textcolor{red!70!black}{\textbf{No path}} \\
+$1 \xrightarrow{e_4} 3 \xrightarrow{e_2?} 2$ & $e_2=(2,3,t=3)$, but $t=3 < t=4$ & $3 \not> 4$ & \textcolor{red!70!black}{\textbf{Invalid}} \\
+$1 \xrightarrow{e_1} 2 \xrightarrow{e_5} 4$ & $e_5=(4,2,t=2)$; $t=2>t=1$ but $4\to 2$ direction wrong via $e_5$: need $(2,\cdot)$ event after $t=1$; $e_5$ is $(4,2,t=2)$, so 2 is reached \textit{by} 4, not \textit{from} 2 & n/a & \textcolor{red!70!black}{\textbf{No}} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+\textbf{Temporal reachability set of node 1:} $\mathcal{I}(1) = \{1, 2, 3, 4\}$ --- node 1
+can reach all others.
+
+\textbf{Can node 4 reach node 1?} Node 4 appears in events $e_3$ (at $t=5$, with node 3) and
+$e_5$ (at $t=2$, with node 2). From $e_5$: $4 \to 2$ at $t=2$. From node 2: the only later
+event is $e_2$ ($2$--$3$ at $t=3$). From node 3: $e_3$ ($3$--$4$ at $t=5$). So $4 \leadsto 2
+\leadsto 3 \leadsto 4$ --- but this loops back and never reaches node 1. There is no path from
+4 to 1. \textbf{Asymmetry confirmed}: $1 \leadsto 4$ but $4 \not\leadsto 1$.
+\end{examplebox}
+
+%=============================================================================
+\section{The $\Delta t$ Constraint: Modelling the Infectious Period}
+\label{sec:delta_t_constraint}
+%=============================================================================
+
+\subsection{Why We Need an Additional Constraint}
+
+A simple time-respecting path allows any gap between consecutive events, even a gap of years.
+But in a real epidemic, a person who was infected does not remain infectious forever: they
+either recover or die. If node $B$ was infected at time $t=1$ and the next event involving $B$
+is at time $t=100$, can $B$ really transmit the virus at $t=100$?
+
+Not if the virus only survives in the host for, say, 10 days. This motivates the
+$\Delta t$-constrained path, where $\Delta t$ (read ``delta $t$'') is the maximum time a node
+can remain infectious.
+
+\begin{conceptbox}{The $\Delta t$ Constraint, Symbol by Symbol}
+\[
+  t_i - t_{i-1} \leq \Delta t \quad \forall\, i \in \{2, \ldots, k\}
+\]
+Reading this symbol by symbol:
+\begin{itemize}[noitemsep]
+  \item $t_i$ --- the time of the $i$-th event in the path.
+  \item $t_{i-1}$ --- the time of the immediately preceding event.
+  \item $t_i - t_{i-1}$ --- the \textbf{gap} (inter-event time) between consecutive hops.
+  \item $\leq$ --- ``less than or equal to''.
+  \item $\Delta t$ --- the \textbf{maximum infectious duration}: the longest a node can hold
+        the pathogen without transmitting it before recovering.
+  \item $\forall\, i \in \{2, \ldots, k\}$ --- ``for every hop index $i$ from 2 to $k$'': the
+        constraint must hold at \textit{every} step, not just the first or last.
+\end{itemize}
+\end{conceptbox}
+
+\begin{mathbox}{$\Delta t$-Constrained Time-Respecting Path}
+A time-respecting path
+\[
+  P = (v_0,\; e_1,\; v_1,\; e_2,\; v_2,\; \ldots,\; e_k,\; v_k)
+\]
+with event times $t_1 < t_2 < \cdots < t_k$ is \textbf{$\Delta t$-constrained} if and only
+if:
+\[
+  t_i - t_{i-1} \leq \Delta t \quad \text{for all } i = 2, 3, \ldots, k.
+\]
+The set of $\Delta t$-constrained paths is always a subset of the set of all time-respecting
+paths. As $\Delta t \to \infty$, the constraint disappears and we recover unconstrained
+time-respecting paths.
+
+In our TSIR simulations (Chapter~3), $\Delta t \approx 1/\mu$ in expectation, where $\mu$ is
+the SIR recovery rate.
+\end{mathbox}
+
+\subsection{Numerical Example: Cutting Paths with $\Delta t = 2$}
+
+\begin{examplebox}{Which Paths Survive a $\Delta t = 2$ Cut?}
+We return to our five-event network. The valid time-respecting paths from node 1 were:
+\begin{enumerate}[noitemsep]
+  \item $1 \xrightarrow{t=1} 2$: single hop, no gap to check. \textbf{Survives} any $\Delta t$.
+  \item $1 \xrightarrow{t=4} 3$: single hop. \textbf{Survives}.
+  \item $1 \xrightarrow{t=1} 2 \xrightarrow{t=3} 3$: gap = $3 - 1 = 2 \leq 2$. \textbf{Survives}.
+  \item $1 \xrightarrow{t=1} 2 \xrightarrow{t=3} 3 \xrightarrow{t=5} 4$: gaps $= 2$ and $= 2$.
+        Both $\leq 2$. \textbf{Survives}.
+  \item $1 \xrightarrow{t=4} 3 \xrightarrow{t=5} 4$: gap $= 5 - 4 = 1 \leq 2$. \textbf{Survives}.
+\end{enumerate}
+
+Now try $\Delta t = 1$:
+\begin{enumerate}[noitemsep]
+  \item $1 \to 2$: single hop. \textbf{Survives}.
+  \item $1 \to 3$: single hop. \textbf{Survives}.
+  \item $1 \xrightarrow{1} 2 \xrightarrow{3} 3$: gap $= 3 - 1 = 2 > 1$. \textbf{Cut!}
+  \item $1 \xrightarrow{1} 2 \xrightarrow{3} 3 \xrightarrow{5} 4$: first gap already $=2>1$.
+        \textbf{Cut!}
+  \item $1 \xrightarrow{4} 3 \xrightarrow{5} 4$: gap $= 1 \leq 1$. \textbf{Survives}.
+\end{enumerate}
+
+With $\Delta t = 1$, node 1 can no longer reach node 2 via 3, and the long chain $1 \to 2 \to
+3 \to 4$ is severed. The reachability set from node 1 shrinks:
+\[
+  \Delta t = \infty:\; \mathcal{I}(1) = \{1,2,3,4\}, \qquad
+  \Delta t = 2:\; \mathcal{I}(1) = \{1,2,3,4\}, \qquad
+  \Delta t = 1:\; \mathcal{I}(1) = \{1,2,3,4\}
+\]
+(In this small example the set happens to be the same, but the \textit{number of paths} and
+the \textit{routes} available differ. In larger, sparser networks the set itself shrinks
+significantly.)
+\end{examplebox}
+
+\begin{keyinsight}{Why $\Delta t$ Matters for Source Detection}
+When we search for the epidemic source, we ask: ``from which node could the observed infected
+set be reached by a valid transmission chain?'' If we forget the $\Delta t$ constraint, we
+over-estimate the set of possible sources (any node connected in the static graph looks
+plausible). If we set $\Delta t$ too small, we under-estimate it (we incorrectly rule out the
+true source). Using the correct $\Delta t$ --- matching the biology of the disease --- gives
+the tightest, most informative set of candidate sources.
+\end{keyinsight}
+
+%=============================================================================
+\section{Temporal vs.\ Static Reachability: The Numbers That Differ}
+\label{sec:reachability_comparison}
+%=============================================================================
+
+In this section we compute both static and temporal reachability for a small, fully worked
+example and display them in a comparison table. The numbers will disagree, and every
+disagreement corresponds to a phantom path in the static graph.
+
+\subsection{A Four-Node, Five-Event Example}
+
+Consider the following contact sequence on nodes $\{A, B, C, D\}$:
+
+\begin{center}
+\begin{tabular}{cccc}
+\toprule
+\textbf{Event} & \textbf{$u$} & \textbf{$v$} & \textbf{$t$} \\
+\midrule
+$e_1$ & A & B & 1 \\
+$e_2$ & B & C & 2 \\
+$e_3$ & C & D & 3 \\
+$e_4$ & D & A & 5 \\
+$e_5$ & A & C & 4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  nd/.style={circle, draw=blue!60!black, fill=blue!8, thick,
+             minimum size=10mm, font=\bfseries},
+  ev/.style={font=\scriptsize, color=blue!60!black},
+  >=Stealth, thick
+]
+% Nodes in a square
+\node[nd] (A) at (0, 2)  {A};
+\node[nd] (B) at (2, 4)  {B};
+\node[nd] (C) at (4, 2)  {C};
+\node[nd] (D) at (2, 0)  {D};
+
+% Edges with timestamps
+\draw (A) -- node[ev, left]{$e_1,\,t=1$} (B);
+\draw (B) -- node[ev, right]{$e_2,\,t=2$} (C);
+\draw (C) -- node[ev, right]{$e_3,\,t=3$} (D);
+\draw (D) -- node[ev, left]{$e_4,\,t=5$} (A);
+\draw (A) -- node[ev, above]{$e_5,\,t=4$} (C);
+\end{tikzpicture}
+\caption{The four-node, five-event temporal network used in the reachability comparison.
+Edge labels show the event identifier and its timestamp.}
+\label{fig:reachability_example}
+\end{figure}
+
+\subsection{Computing Static Reachability}
+
+In the static projection $G = (\{A,B,C,D\}, \{\{A,B\},\{B,C\},\{C,D\},\{D,A\},\{A,C\}\})$,
+we simply ask: is there any path (ignoring time) from $u$ to $v$?
+
+Since the graph is connected (you can traverse from any node to any other), the answer is
+\textbf{yes for all pairs}. The static reachability matrix $R^{\text{static}}$ where
+$R^{\text{static}}_{uv} = 1$ iff $u$ can reach $v$ in $G$:
+
+\[
+R^{\text{static}} =
+\begin{array}{c|cccc}
+  & A & B & C & D \\
+\hline
+A & 1 & 1 & 1 & 1 \\
+B & 1 & 1 & 1 & 1 \\
+C & 1 & 1 & 1 & 1 \\
+D & 1 & 1 & 1 & 1 \\
+\end{array}
+\]
+
+All entries are 1: every node reaches every other node. (We include diagonal entries as 1
+by convention: every node trivially reaches itself.)
+
+\subsection{Computing Temporal Reachability}
+
+Now we apply the strict time-ordering rule. We trace all time-respecting paths from each node.
+
+\begin{examplebox}{Temporal Reachability: Node A}
+Events involving A: $e_1$ (A--B, $t=1$), $e_5$ (A--C, $t=4$), $e_4$ (D--A, $t=5$, but this
+is \textit{incoming} to A).
+
+\textbf{From A, outgoing in time:}
+\begin{itemize}[noitemsep]
+  \item $e_1$: $A \xrightarrow{t=1} B$. From B: $e_2$ (B--C, $t=2>1$) $\Rightarrow B \xrightarrow{t=2} C$. From C: $e_3$ (C--D, $t=3>2$) $\Rightarrow C \xrightarrow{t=3} D$. Also $e_5$ (A--C, $t=4>2$) but we came \textit{to} C, not from A again.
+  \item $e_5$: $A \xrightarrow{t=4} C$. From C: $e_3$ (C--D, $t=3$). But $3 < 4$, so this is \textbf{not} valid. No forward events from C after $t=4$.
+\end{itemize}
+$\mathcal{I}(A) = \{A, B, C, D\}$ (all reachable).
+\end{examplebox}
+
+\begin{examplebox}{Temporal Reachability: Node B}
+Events involving B: $e_1$ (A--B, $t=1$, incoming), $e_2$ (B--C, $t=2$, outgoing).
+
+\textbf{From B outgoing:}
+$B \xrightarrow{t=2} C \xrightarrow{t=3} D$. Node D: event $e_4$ (D--A, $t=5>3$), so
+$D \xrightarrow{t=5} A$. But this is an event \textit{involving} D and A; since we arrived at
+D at $t=3$, and $e_4$ is at $t=5>3$, A is reachable.
+
+Can B reach A? Only through D at $t=5$. Yes: $B \to C \to D \to A$ with times $2<3<5$.
+
+$\mathcal{I}(B) = \{B, C, D, A\}$.
+\end{examplebox}
+
+\begin{examplebox}{Temporal Reachability: Node C}
+Events involving C: $e_2$ (B--C, $t=2$), $e_3$ (C--D, $t=3$), $e_5$ (A--C, $t=4$).
+
+\textbf{From C outgoing:}
+\begin{itemize}[noitemsep]
+  \item $C \xrightarrow{t=3} D$ (via $e_3$). From D: $e_4$ (D--A, $t=5>3$). So $C \to D \to A$.
+  \item Event $e_5$ is at $t=4>3$ but it involves A and C. Since we are \textit{at} C after
+        time $t=3$, we need events where C is the \textit{source}. $e_5$ is the contact $(A,C,4)$:
+        this is A meeting C at $t=4$. If we are already at C, can we reach A via $e_5$? Yes: $C
+        \xrightarrow{e_5,\,t=4} A$ (undirected contact, so C can transmit to A at $t=4$ as long
+        as $4 > 3$). (\textit{Wait}: we need to check: does this make a valid path? $C$ starts at
+        time $0$ (or whenever), and is involved in $e_3$ at $t=3$ and $e_5$ at $t=4$. The path
+        $C \xrightarrow{t=3} D$ leads to D, not a return to C.)
+\end{itemize}
+
+Let us be systematic. From node C at the \textit{start} of the observation:
+\begin{itemize}[noitemsep]
+  \item Direct 1-hop: $C \xrightarrow{t=3} D$; $C \xrightarrow{t=4} A$ (via $e_5$, undirected).
+  \item From D at $t=3$: $D \xrightarrow{t=5} A$ (via $e_4$). Conflict: we also reached A via $e_5$ at $t=4$.
+  \item From A at $t=4$ (reached via $e_5$): no outgoing events from A after $t=4$ except $e_4$ which is \textit{incoming} to A.
+\end{itemize}
+
+Can C reach B? B only appears in $e_1$ ($t=1$) and $e_2$ ($t=2$), both \textit{before} C's
+first event at $t=3$. So B is \textbf{not reachable} from C via time-respecting paths.
+
+$\mathcal{I}(C) = \{C, D, A\}$. Note: \textbf{B is not reachable from C}!
+\end{examplebox}
+
+\begin{examplebox}{Temporal Reachability: Node D}
+Events involving D: $e_3$ (C--D, $t=3$, incoming), $e_4$ (D--A, $t=5$).
+
+\textbf{From D outgoing:} $D \xrightarrow{t=5} A$ (via $e_4$). From A at $t=5$: no later
+events. From A, can we reach B or C after $t=5$? No events involve A, B, or C after $t=5$.
+
+$\mathcal{I}(D) = \{D, A\}$. D can only reach itself and A.
+\end{examplebox}
+
+\subsection{Side-by-Side Comparison}
+
+\begin{examplebox}{Static vs.\ Temporal Reachability Matrix}
+
+\begin{center}
+\begin{tabular}{cc}
+\begin{tabular}{c|cccc}
+\multicolumn{5}{c}{\textbf{Static reachability} $R^{\text{static}}$}\\[2pt]
+  & A & B & C & D \\
+\hline
+A & 1 & 1 & 1 & 1 \\
+B & 1 & 1 & 1 & 1 \\
+C & 1 & 1 & 1 & 1 \\
+D & 1 & 1 & 1 & 1 \\
+\end{tabular}
+&
+\begin{tabular}{c|cccc}
+\multicolumn{5}{c}{\textbf{Temporal reachability} $R^T$}\\[2pt]
+  & A & B & C & D \\
+\hline
+A & 1 & 1 & 1 & 1 \\
+B & 1 & 1 & 1 & 1 \\
+C & 1 & \textcolor{red!70!black}{\textbf{0}} & 1 & 1 \\
+D & 1 & \textcolor{red!70!black}{\textbf{0}} & \textcolor{red!70!black}{\textbf{0}} & 1 \\
+\end{tabular}
+\end{tabular}
+\end{center}
+
+\medskip
+The entries marked in \textcolor{red!70!black}{\textbf{red}} are \textbf{phantom paths}: the
+static graph claims $C \leadsto B$ and $D \leadsto B$ and $D \leadsto C$, but no
+time-respecting path exists for these pairs.
+
+\textbf{Explanation of each phantom:}
+\begin{itemize}[noitemsep]
+  \item $C \to B$: B's only events are at $t=1$ and $t=2$. C's earliest outgoing event is at
+        $t=3$. No valid path from C can reach B at a time after C was first involved.
+  \item $D \to B$: D's earliest outgoing event is at $t=5$. B's last event is at $t=2$. No
+        path from D can travel back to $t=2$ to reach B.
+  \item $D \to C$: D can only reach A (at $t=5$). From A there are no later events involving
+        C.
+\end{itemize}
+
+Note also the \textbf{asymmetry}: $R^T_{AB} = 1$ (A reaches B) but $R^T_{BA} = 1$ too in
+this example because the cycle A--B--C--D--A eventually loops. In general, temporal
+reachability need not be symmetric even in undirected networks.
+\end{examplebox}
+
+%=============================================================================
+\section{Adjacency Representation of Temporal Networks}
+\label{sec:adjacency_representation}
+%=============================================================================
+
+\subsection{The Adjacency Tensor $\mathbf{A}(t)$}
+
+For a static graph we use the \textbf{adjacency matrix} $A \in \{0,1\}^{n \times n}$, where
+$A_{ij} = 1$ iff there is an edge between $i$ and $j$. For a temporal network, we need to
+capture the time dimension as well.
+
+\begin{conceptbox}{The Adjacency Tensor}
+Define $A_{ij}(t) = 1$ if nodes $i$ and $j$ were in contact at time $t$, and $A_{ij}(t) = 0$
+otherwise. This gives a function $\mathbf{A} : \mathcal{T} \to \{0,1\}^{n \times n}$, which
+we can think of as a \textbf{three-dimensional tensor} (a cube of numbers) with dimensions:
+\[
+  \underbrace{n}_{\text{node }i} \times \underbrace{n}_{\text{node }j} \times
+  \underbrace{T}_{\text{time slice }t}
+\]
+For each time step $t$, the slice $\mathbf{A}(\cdot, \cdot, t) = A_t$ is the adjacency matrix
+of the \textbf{snapshot graph} at time $t$.
+
+For \textbf{instantaneous contacts} (our case), $A_{ij}(t) = 1$ only at isolated time points.
+For \textbf{discrete time}, $t$ takes integer values and we can write $\mathbf{A}$ as a stack
+of $T$ binary matrices of size $n \times n$.
+\end{conceptbox}
+
+\begin{examplebox}{Adjacency Tensor for the Four-Node Example}
+Using the events $\{(A,B,1), (B,C,2), (C,D,3), (A,C,4), (D,A,5)\}$ and discrete time steps
+$t \in \{1,2,3,4,5\}$:
+
+\medskip
+\noindent$A_1$ (contacts at $t=1$): only $A$--$B$.
+\[
+A_1 = \begin{pmatrix} 0&1&0&0\\ 1&0&0&0\\ 0&0&0&0\\ 0&0&0&0 \end{pmatrix}
+\]
+
+\noindent$A_2$ (contacts at $t=2$): only $B$--$C$.
+\[
+A_2 = \begin{pmatrix} 0&0&0&0\\ 0&0&1&0\\ 0&1&0&0\\ 0&0&0&0 \end{pmatrix}
+\]
+And so on for $t=3,4,5$. At all other time steps (and all steps not listed), $A_t = \mathbf{0}$.
+\end{examplebox}
+
+\subsection{The COO Format: How Computers Store Sparse Temporal Graphs}
+
+The adjacency tensor is very sparse: most entries are zero (most pairs of nodes are not in
+contact at any given moment). Storing the full $n \times n \times T$ tensor wastes enormous
+amounts of memory. Instead, computers use the \textbf{coordinate (COO) format}: store only the
+non-zero entries as a list of (row, column, value) triples.
+
+For a temporal network, the COO format stores each event $(u, v, t)$ explicitly. This is
+exactly the event list we have been using all along.
+
+\begin{conceptbox}{COO Format for Temporal Networks}
+The COO event list for a temporal network with $|E^T|$ events is:
+\[
+\underbrace{\begin{pmatrix} u_1 \\ v_1 \\ t_1 \end{pmatrix},\;
+\begin{pmatrix} u_2 \\ v_2 \\ t_2 \end{pmatrix},\;
+\ldots,\;
+\begin{pmatrix} u_{|E^T|} \\ v_{|E^T|} \\ t_{|E^T|} \end{pmatrix}}_{\text{one column per event}}
+\]
+This is stored as a matrix with 3 rows and $|E^T|$ columns.
+
+In \textbf{PyTorch Geometric} (the GNN library used in this project), the graph connectivity is
+stored in \texttt{edge\_index}: a $2 \times |E|$ tensor where the first row contains source
+node indices and the second row contains target node indices. Edge features (including
+timestamps) are stored separately in \texttt{edge\_attr}.
+\end{conceptbox}
+
+\begin{examplebox}{From Event List to PyTorch Geometric Format}
+Our four-node example has events (using integer node labels $0=A, 1=B, 2=C, 3=D$):
+\begin{itemize}[noitemsep]
+  \item $(A,B,1) \to (0,1,1)$
+  \item $(B,C,2) \to (1,2,2)$
+  \item $(C,D,3) \to (2,3,3)$
+  \item $(A,C,4) \to (0,2,4)$
+  \item $(D,A,5) \to (3,0,5)$
+\end{itemize}
+
+The PyTorch Geometric \texttt{edge\_index} for the static projection (both directions, since
+undirected):
+\[
+\texttt{edge\_index} = \begin{pmatrix}
+0 & 1 & 1 & 2 & 2 & 3 & 0 & 3 \\
+1 & 0 & 2 & 1 & 3 & 2 & 2 & 0
+\end{pmatrix}
+\]
+(first row: sources; second row: targets; both directions included for each undirected edge).
+
+The timestamps become \texttt{edge\_attr}:
+\[
+\texttt{edge\_attr} = [1,\; 1,\; 2,\; 2,\; 3,\; 3,\; 4,\; 5]
+\]
+corresponding to the edges in the same column order. This is exactly the format read by our
+\texttt{gnn/static\_gnn.py} and temporal GNN models.
+\end{examplebox}
+
+%=============================================================================
+\section{Temporal Centrality Metrics}
+\label{sec:temporal_centrality}
+%=============================================================================
+
+Classical centrality metrics like degree, betweenness, and closeness have \textit{temporal}
+counterparts that carry substantially more epidemiological information. We define each one,
+give intuition, and then compute it step by step on our running example.
+
+\subsection{Temporal Degree}
+
+\begin{conceptbox}{Temporal Degree: Definition}
+The \textbf{temporal degree} of node $v$ is the total number of events (contacts) involving
+$v$ in the observation window:
+\[
+  k_v^T = \bigl|\{(u, v, t) \in E^T\}\bigr| + \bigl|\{(v, w, t) \in E^T\}\bigr|
+\]
+In plain English: count every event where $v$ appears on either side.
+
+This differs from the \textbf{static degree} $k_v = |\mathcal{N}(v)|$, which counts the
+number of \textit{distinct neighbours} of $v$. A node with many repeated contacts to the same
+neighbour has high temporal degree but the same static degree as a node with one contact to
+that neighbour.
+\end{conceptbox}
+
+\begin{examplebox}{Computing Temporal Degree for All Four Nodes}
+Event list: $\{(A,B,1), (B,C,2), (C,D,3), (A,C,4), (D,A,5)\}$.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Node} & \textbf{Events involving this node} & \textbf{Temporal degree $k_v^T$} \\
+\midrule
+A & $(A,B,1)$, $(A,C,4)$, $(D,A,5)$ & 3 \\
+B & $(A,B,1)$, $(B,C,2)$             & 2 \\
+C & $(B,C,2)$, $(C,D,3)$, $(A,C,4)$ & 3 \\
+D & $(C,D,3)$, $(D,A,5)$             & 2 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Static degrees: A has 3 neighbours ($B,C,D$), B has 2, C has 3, D has 2. In this particular
+example the numbers match because no node has repeated contacts with the same neighbour.
+
+\textbf{What can temporal degree tell us?} High temporal degree means a node is frequently
+involved in contacts. In an epidemic context, a node with many events is likely to be infected
+early and to transmit widely. But temporal degree alone does not capture \textit{when} those
+events occur or whether they can form valid transmission chains.
+\end{examplebox}
+
+\subsection{Temporal Betweenness Centrality}
+
+\begin{conceptbox}{Temporal Betweenness: Definition}
+The \textbf{temporal betweenness centrality} of node $v$ measures how often $v$ lies on the
+\textit{fastest} (shortest hop count) time-respecting paths between all other pairs of nodes:
+\[
+  C_B^T(v) = \sum_{\substack{s \neq v \neq d \\ s,d \in \mathcal{V}}}
+             \frac{\sigma^T(s, d \mid v)}{\sigma^T(s, d)}
+\]
+where:
+\begin{itemize}[noitemsep]
+  \item $\sigma^T(s, d)$ --- the number of shortest (minimum-hop) time-respecting paths from
+        $s$ to $d$.
+  \item $\sigma^T(s, d \mid v)$ --- the number of those shortest paths that pass through $v$.
+  \item The fraction $\sigma^T(s, d \mid v) / \sigma^T(s, d)$ is the proportion of shortest
+        paths through $v$ for the pair $(s, d)$.
+\end{itemize}
+Summing over all ordered pairs $(s, d)$ with $s \neq v \neq d$ gives the total centrality.
+\end{conceptbox}
+
+\begin{examplebox}{Temporal Betweenness: Step-by-Step for Four Nodes}
+We use strict time-ordering and unit edge weights (hop count). We already know the
+time-respecting paths, so we identify the \textit{shortest} (fewest hops) ones for each pair.
+
+\medskip
+\noindent\textbf{All ordered pairs and their shortest time-respecting paths:}
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+$(s,d)$ & Shortest temporal path(s) & Hops & Intermediaries \\
+\midrule
+$(A,B)$ & $A \xrightarrow{1} B$ & 1 & none \\
+$(A,C)$ & $A \xrightarrow{4} C$ and $A \xrightarrow{1} B \xrightarrow{2} C$ & 1 and 2 & shortest: none (direct hop) \\
+$(A,D)$ & $A \xrightarrow{1} B \xrightarrow{2} C \xrightarrow{3} D$ and $A \xrightarrow{4} C \xrightarrow{?}$ (no later C--D event after $t=4$) & 3 & B, C \\
+$(B,C)$ & $B \xrightarrow{2} C$ & 1 & none \\
+$(B,D)$ & $B \xrightarrow{2} C \xrightarrow{3} D$ & 2 & C \\
+$(B,A)$ & $B \xrightarrow{2} C \xrightarrow{3} D \xrightarrow{5} A$ & 3 & C, D \\
+$(C,D)$ & $C \xrightarrow{3} D$ & 1 & none \\
+$(C,A)$ & $C \xrightarrow{4} A$ and $C \xrightarrow{3} D \xrightarrow{5} A$ & 1 and 2 & shortest: none (direct hop) \\
+$(D,A)$ & $D \xrightarrow{5} A$ & 1 & none \\
+$(C,B)$ & \textbf{none} (phantom) & --- & --- \\
+$(D,B)$ & \textbf{none} (phantom) & --- & --- \\
+$(D,C)$ & \textbf{none} (phantom) & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+\noindent\textbf{Counting betweenness contributions:}
+
+For each node $v$, sum over all pairs $(s,d)$ the fraction of shortest temporal paths through
+$v$:
+
+\begin{itemize}
+  \item \textbf{Node B:}
+    \begin{itemize}[noitemsep]
+      \item $(A,D)$: shortest path is $A \to B \to C \to D$ (3 hops). B is on this path.
+            Contribution: $1/1 = 1$.
+      \item $(B,A)$: B is the source, not an intermediary. Not counted.
+      \item No other shortest paths pass through B.
+    \end{itemize}
+    $C_B^T(B) = 1$.
+
+  \item \textbf{Node C:}
+    \begin{itemize}[noitemsep]
+      \item $(A,D)$: $A \to B \to C \to D$. C is on this path. Contribution: $1/1 = 1$.
+      \item $(B,D)$: $B \to C \to D$. C is on this path. Contribution: $1/1 = 1$.
+      \item $(B,A)$: $B \to C \to D \to A$. C is on this path. Contribution: $1/1 = 1$.
+    \end{itemize}
+    $C_B^T(C) = 3$.
+
+  \item \textbf{Node D:}
+    \begin{itemize}[noitemsep]
+      \item $(B,A)$: $B \to C \to D \to A$. D is on this path. Contribution: $1/1 = 1$.
+    \end{itemize}
+    $C_B^T(D) = 1$.
+
+  \item \textbf{Node A:} We check all pairs where A is neither source nor destination:
+    \begin{itemize}[noitemsep]
+      \item $(B,C)$: $B \to C$ directly. A not involved.
+      \item $(B,D)$: $B \to C \to D$. A not involved.
+      \item $(C,D)$: $C \to D$ directly. A not involved.
+      \item $(D,A)$: D is source, A is destination.
+    \end{itemize}
+    $C_B^T(A) = 0$.
+\end{itemize}
+
+\medskip
+\noindent\textbf{Summary:}
+\begin{center}
+\begin{tabular}{cc}
+\toprule
+\textbf{Node} & \textbf{Temporal betweenness $C_B^T(v)$} \\
+\midrule
+A & 0 \\
+B & 1 \\
+C & \textbf{3} \\
+D & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{examplebox}
+
+\begin{keyinsight}{Static vs.\ Temporal Centrality Can Disagree Strongly}
+In the static graph, all nodes have the same degree (A: 3, B: 2, C: 3, D: 2) and the static
+betweenness of each node is influenced by the number of shortest static paths passing through
+it. In this connected, roughly symmetric graph, static betweenness would distribute roughly
+evenly.
+
+The temporal betweenness, however, concentrates on node \textbf{C}: C is on 3 out of 4 pairs
+that have temporal paths through an intermediary. This is because C is in the ``middle'' of
+the time ordering: it is reachable early (at $t=2$ from B, at $t=3$ from the chain starting
+at A) and has outgoing temporal contacts later.
+
+\textbf{Epidemiological consequence:} If we were looking for the most important superspreader
+in this network --- the node that, if removed, would most reduce temporal spread --- temporal
+betweenness tells us it is C, not the high-static-degree nodes A or C (which happen to tie).
+A static betweenness calculation might rank A higher because of its three static neighbours,
+but temporal analysis correctly identifies C as the temporal hub.
+\end{keyinsight}
+
+%=============================================================================
+\section{Inter-Event Time Distributions and Burstiness}
+\label{sec:interevent_times}
+%=============================================================================
+
+\subsection{What is an Inter-Event Time?}
+
+Consider a single node $v$ that participates in a series of contacts at times
+$t_1 < t_2 < t_3 < \cdots < t_m$. The \textbf{inter-event times} are the gaps between
+consecutive contacts:
+\[
+  \tau_1 = t_2 - t_1, \quad \tau_2 = t_3 - t_2, \quad \ldots, \quad \tau_{m-1} = t_m - t_{m-1}.
+\]
+Each $\tau_i$ is a positive number representing how long node $v$ waited between one contact
+and the next.
+
+\subsection{Poisson vs.\ Bursty Contact Patterns}
+
+\begin{analogybox}{Bus Arrivals: Regular vs.\ Bursty}
+Imagine waiting at a bus stop. In the ideal world, buses arrive exactly every 10 minutes:
+perfectly \textbf{regular} (periodic). In a less ideal world, buses come at random but with an
+average of one every 10 minutes: a \textbf{Poisson process}. In the real world, buses sometimes
+cluster: three come in a row (a ``burst''), then nothing for 40 minutes.
+
+The third pattern is called \textbf{bursty}: long silences punctuated by intense bursts of
+activity. This is precisely what contact data looks like in real epidemiological settings.
+Hospital staff talk intensely during morning rounds (a burst), then have long gaps during
+administrative hours. The same pattern appears in phone calls, email, and face-to-face contact
+sensors.
+
+\textbf{Why does burstiness matter for epidemics?} Consider two nodes, each with an average
+of 1 contact per hour:
+\begin{itemize}[noitemsep]
+  \item \textbf{Regular node}: contacts every hour, on the clock.
+  \item \textbf{Bursty node}: 5 contacts within a 10-minute window, then silence for 5 hours.
+\end{itemize}
+The bursty node has long silent periods during which a pathogen it is carrying would cause
+recovery before transmission. In the short burst windows, it transmits rapidly. The net effect
+is often \textit{slower} epidemic spread than the regular node, despite the same average rate.
+\end{analogybox}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  >=Stealth, thick,
+  label/.style={font=\small\bfseries\sffamily}
+]
+% Left panel: regular (Poisson-like) contact sequence
+\begin{scope}[xshift=0cm]
+  \node[label] at (3, 2.5) {Regular (Poisson-like)};
+  \draw[->] (0,0) -- (6.5,0) node[right,font=\scriptsize]{time};
+  \draw[->] (0,0) -- (0,2.2) node[above,font=\scriptsize]{events};
+  % Bars at roughly equal spacing
+  \foreach \x in {0.5, 1.2, 1.9, 2.6, 3.4, 4.1, 4.8, 5.5}{
+    \draw[blue!70!black, ultra thick] (\x,0) -- (\x,1.5);
+    \filldraw[blue!70!black] (\x,0) circle (2pt);
+  }
+  \node[font=\scriptsize, color=blue!60!black] at (3, -0.4) {gaps $\approx$ equal};
+\end{scope}
+
+% Right panel: bursty contact sequence
+\begin{scope}[xshift=8cm]
+  \node[label] at (3, 2.5) {Bursty};
+  \draw[->] (0,0) -- (6.5,0) node[right,font=\scriptsize]{time};
+  \draw[->] (0,0) -- (0,2.2) node[above,font=\scriptsize]{events};
+  % Burst 1: three close events
+  \foreach \x in {0.3, 0.5, 0.7}{
+    \draw[red!70!black, ultra thick] (\x,0) -- (\x,1.5);
+    \filldraw[red!70!black] (\x,0) circle (2pt);
+  }
+  % Long gap then Burst 2
+  \foreach \x in {4.0, 4.2, 4.4, 4.6}{
+    \draw[red!70!black, ultra thick] (\x,0) -- (\x,1.5);
+    \filldraw[red!70!black] (\x,0) circle (2pt);
+  }
+  % Annotation for gap
+  \draw[<->, gray!60, thick] (0.7, -0.25) -- node[below,font=\scriptsize]{long silence} (4.0, -0.25);
+  \node[font=\scriptsize, color=red!60!black] at (3, -0.6) {bursts + long gaps};
+\end{scope}
+\end{tikzpicture}
+\caption{Comparison of a regular (Poisson-like) contact sequence (left) and a bursty contact
+sequence (right). The bursty sequence has the same number of events but concentrates them in
+short bursts separated by long silences. This pattern is ubiquitous in real contact data
+(hospital wards, phone logs, proximity sensors) and has significant consequences for epidemic
+dynamics.}
+\label{fig:burstiness}
+\end{figure}
+
+\subsection{Quantifying Burstiness: The $B$ Parameter}
+
+\begin{mathbox}{The Burstiness Parameter}
+Let $\mu_\tau = \mathbb{E}[\tau]$ be the \textbf{mean} inter-event time and $\sigma_\tau =
+\sqrt{\mathrm{Var}[\tau]}$ be the \textbf{standard deviation} of inter-event times for a node.
+The \textbf{burstiness parameter} is:
+\[
+  B = \frac{\sigma_\tau - \mu_\tau}{\sigma_\tau + \mu_\tau} \in (-1,\, 1).
+\]
+
+\textbf{Interpreting the three limiting cases:}
+\begin{itemize}
+  \item \textbf{Perfectly periodic} ($\sigma_\tau = 0$): all gaps are equal, $\sigma_\tau = 0$.
+        Then $B = (0 - \mu_\tau)/(0 + \mu_\tau) = -1$. Maximum negative burstiness: completely
+        regular activity.
+  \item \textbf{Poisson process} ($\tau \sim \text{Exp}(\lambda)$): for an exponential
+        distribution, the mean equals the standard deviation, $\sigma_\tau = \mu_\tau$. Then
+        $B = 0$. Neutral: random but not particularly bursty.
+  \item \textbf{Maximally bursty} ($\sigma_\tau \gg \mu_\tau$): a few very large gaps dominate,
+        so $\sigma_\tau \to \infty$ relative to $\mu_\tau$. Then $B \to 1$. Maximum positive
+        burstiness: intense bursts separated by very long silences.
+\end{itemize}
+
+\textbf{Empirical finding:} Real human contact networks typically have $B \in [0.2, 0.8]$,
+indicating moderately bursty activity. This is why epidemic simulation cannot simply assume
+Poisson contacts.
+\end{mathbox}
+
+\begin{examplebox}{Computing Burstiness for a Node}
+Suppose node $v$ has contacts at times $t = \{1, 2, 3, 10, 11, 12\}$. The inter-event times
+are:
+\[
+  \tau = \{t_2 - t_1,\, t_3 - t_2,\, t_4 - t_3,\, t_5 - t_4,\, t_6 - t_5\}
+       = \{1, 1, 7, 1, 1\}.
+\]
+
+\textbf{Mean:}
+\[
+  \mu_\tau = \frac{1 + 1 + 7 + 1 + 1}{5} = \frac{11}{5} = 2.2
+\]
+
+\textbf{Standard deviation:}
+\[
+  \sigma_\tau = \sqrt{\frac{(1-2.2)^2 + (1-2.2)^2 + (7-2.2)^2 + (1-2.2)^2 + (1-2.2)^2}{5}}
+\]
+\[
+  = \sqrt{\frac{1.44 + 1.44 + 23.04 + 1.44 + 1.44}{5}}
+  = \sqrt{\frac{28.8}{5}} = \sqrt{5.76} = 2.4
+\]
+
+\textbf{Burstiness:}
+\[
+  B = \frac{2.4 - 2.2}{2.4 + 2.2} = \frac{0.2}{4.6} \approx 0.043
+\]
+
+This is nearly Poisson ($B \approx 0$). Intuitively: although we see two ``bursts'' of
+contacts, the single large gap ($\tau_3 = 7$) is only $3\times$ the mean gap. True bursty
+sequences have gaps that are $10$--$100\times$ the mean.
+
+\textbf{Compare with a truly bursty node} whose inter-event times are $\{0.1, 0.1, 0.1, 50,
+0.1\}$:
+\[
+  \mu_\tau = \frac{50.4}{5} = 10.08, \quad
+  \sigma_\tau \approx 19.9, \quad
+  B = \frac{19.9 - 10.08}{19.9 + 10.08} \approx 0.33.
+\]
+This is moderately bursty ($B \approx 0.33$), reflecting the one long gap of 50 time units
+surrounded by rapid-fire contacts.
+\end{examplebox}
+
+\begin{keyinsight}{Burstiness and Source Detection}
+A node that is bursty may look less infectious than its average contact rate suggests: its
+long silent periods give the pathogen time to ``time out'' (the $\Delta t$ constraint). When
+fitting epidemic models or choosing the $\Delta t$ parameter in a $\Delta t$-constrained path
+analysis, bursty contact distributions require special attention. Incorrectly assuming Poisson
+contacts in a bursty network will lead to wrong reachability estimates and, consequently, wrong
+source predictions.
+\end{keyinsight}
+
+%=============================================================================
+\section{How the Codebase Represents Temporal Networks}
+\label{sec:codebase_representation}
+%=============================================================================
+
+Having built the theory from scratch, we now close the loop by showing exactly how these
+concepts are implemented in the project codebase. Every abstract object introduced in this
+chapter has a concrete counterpart in the code.
+
+\subsection{The Event List Format}
+
+The project stores temporal networks as a list of $(u, v, t)$ triples, sorted by time. This is
+the COO format described in Section~\ref{sec:adjacency_representation}. In Python, after
+loading via NetworkX, the function \texttt{make\_array\_from\_networkx} (in
+\texttt{setup/read\_network.py}) converts the graph object to a plain NumPy array:
+
+\begin{codewalk}{make\_array\_from\_networkx in setup/read\_network.py}
+\begin{lstlisting}[language=Python]
+def make_array_from_networkx(H):
+    """From the networkx graph, make a numpy array
+    with rows (u, v, t), sorted by t."""
+    rows = []
+    for u, v, data in H.edges(data=True):
+        # Each edge stores a list of timestamps
+        rows.extend([[u, v, t] for t in data['times']])
+    arr = np.array(rows)
+    arr = arr[arr[:, 2].argsort()]  # sort by time
+    return arr
+\end{lstlisting}
+
+The result is a NumPy array with shape \texttt{(|E\^{}T|, 3)}, where:
+\begin{itemize}[noitemsep]
+  \item Column 0: source node $u$ (integer index)
+  \item Column 1: target node $v$ (integer index)
+  \item Column 2: timestamp $t$
+\end{itemize}
+
+For an Alice--Bob--Carol style example, this would look like:
+\begin{lstlisting}[language=Python]
+# arr for a 3-node, 3-event network:
+arr = np.array([
+    [0, 1, 1],   # Alice(0) -- Bob(1)   at t=1
+    [1, 2, 2],   # Bob(1)   -- Carol(2) at t=2
+    [2, 0, 7],   # Carol(2) -- Alice(0) at t=7
+])
+\end{lstlisting}
+\end{codewalk}
+
+\subsection{Loading the Network}
+
+The entry point for loading a temporal network is \texttt{setup/read\_network.py}. It handles
+two cases:
+
+\begin{codewalk}{load\_network in setup/read\_network.py}
+\begin{lstlisting}[language=Python]
+def load_network(cfg, label_attribute="old_id"):
+    if cfg.nwk.type == "empirical":
+        # Load from CSV file: each row is "u v t"
+        H = read_networkx(
+            'nwk/' + cfg.nwk.name + '.csv',
+            t_max=cfg.nwk.t_max,
+            directed=cfg.nwk.directed
+        )
+    elif cfg.nwk.type == "synthetic":
+        # Generate e.g. Erdos-Renyi with all time steps
+        H = generate_synthetic_graph(cfg)
+    return H
+\end{lstlisting}
+
+For \textbf{empirical networks}, each line of the CSV file contains \texttt{u v t}: the two
+node labels and the timestamp. Events after \texttt{t\_max} are ignored. Self-contacts
+(where $u = v$) are discarded. The function returns a NetworkX graph object where each edge
+\texttt{(u, v)} carries a \texttt{'times'} attribute: a list of all timestamps at which that
+pair was in contact.
+
+For \textbf{synthetic networks} (e.g.\ Erd\H{o}s--R\'enyi graphs), the contact times are set
+to \texttt{range(t\_max + 1)}: every edge is active at every discrete time step. This is the
+``always-on'' baseline that is equivalent to a static graph for temporal methods.
+\end{codewalk}
+
+\subsection{The TSIRData Dataclass}
+
+Once simulations have been run, all data --- network, simulation outcomes, and ground truth ---
+is stored in a single \texttt{TSIRData} dataclass (in \texttt{setup/data\_loader.py}):
+
+\begin{codewalk}{TSIRData Dataclass in setup/data\_loader.py}
+\begin{lstlisting}[language=Python]
+@dataclass
+class TSIRData:
+    config: dict         # experiment configuration
+    n_nodes: int         # |V|: number of nodes
+    n_runs: int          # ground-truth simulation runs
+    mc_runs: int         # Monte Carlo simulation runs
+    # Monte Carlo SIR state arrays, shape: (n_nodes, mc_runs, n_nodes)
+    mc_S: np.ndarray     # mc_S[s, r, v] = 1 if node v is Susceptible
+    mc_I: np.ndarray     #   in run r of MC sim starting at source s
+    mc_R: np.ndarray
+    # Ground truth SIR state arrays, shape: (n_nodes, n_runs, n_nodes)
+    truth_S: np.ndarray  # truth_S[s, r, v] = 1 if node v is Susceptible
+    truth_I: np.ndarray  #   in ground-truth run r with true source s
+    truth_R: np.ndarray
+    # Binary masks for filtering:
+    maximal_outbreak: np.ndarray  # shape (n_nodes, n_nodes)
+    possible: np.ndarray          # shape (n_nodes, n_runs, n_nodes)
+    lik_possible: np.ndarray      # log-likelihood correction mask
+\end{lstlisting}
+
+The three-dimensional arrays deserve explanation:
+\begin{itemize}
+  \item \texttt{truth\_S[s, r, v]}: the SIR state of node $v$ in run $r$ of the ground-truth
+        simulation, given that node $s$ was the true source. This is the label data our GNN
+        trains on.
+  \item \texttt{mc\_S[s, r, v]}: the SIR state of node $v$ in Monte Carlo run $r$ with
+        seed node $s$. These are the simulated ``observations'' the model uses for inference.
+  \item \texttt{maximal\_outbreak[s, v]}: 1 if node $v$ \textit{ever} becomes infected in any
+        run with source $s$, 0 otherwise. This is exactly the temporal reachability indicator
+        $\mathbf{1}[s \leadsto v]$ --- a direct implementation of the temporal reachability
+        concept from Section~\ref{sec:reachability_comparison}.
+\end{itemize}
+\end{codewalk}
+
+\begin{keyinsight}{Theory Meets Code}
+Every concept in this chapter has a direct counterpart in the codebase:
+\begin{itemize}[noitemsep]
+  \item The event list $(u, v, t)$ $\Leftrightarrow$ the \texttt{arr} array from
+        \texttt{make\_array\_from\_networkx}.
+  \item The observation window $\mathcal{T}$ $\Leftrightarrow$ \texttt{cfg.nwk.t\_max}.
+  \item The $\Delta t$ constraint $\Leftrightarrow$ the SIR parameter \texttt{cfg.sir.mu}
+        (recovery rate; $\Delta t \approx 1/\mu$).
+  \item Temporal reachability $\mathcal{I}(s)$ $\Leftrightarrow$
+        \texttt{TSIRData.maximal\_outbreak[s, :]}.
+  \item The static projection $G$ $\Leftrightarrow$ the NetworkX graph $H$ (which stores the
+        edge list but ignores timing when passed to a static GNN).
+\end{itemize}
+The entire research project is, at its core, an attempt to exploit the temporal information
+that the static projection discards --- to use $E^T$ instead of $G$ whenever possible.
+\end{keyinsight}
+
+%=============================================================================
+\section{Static Projection and Information Loss}
+\label{sec:static_projection}
+%=============================================================================
+
+We formalise what we lose when we project a temporal network to a static graph.
+
+\begin{mathbox}{The Static Projection: Formal Definition}
+Given a temporal network $G^T = (\mathcal{V}, E^T, \mathcal{T})$, its \textbf{static
+projection} is the undirected graph $G = (\mathcal{V}, \mathcal{E})$ where:
+\[
+  (u, v) \in \mathcal{E} \iff \exists\, t \in \mathcal{T} : (u, v, t) \in E^T.
+\]
+In words: two nodes are connected in $G$ if and only if they were in contact at
+\textit{any} point during the observation window.
+\end{mathbox}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    event/.style={circle, draw, thick, fill=white, minimum size=8mm,
+                  font=\small\bfseries},
+    timelabel/.style={font=\footnotesize, color=gray!70!black},
+    evtarrow/.style={-{Stealth[length=2.5mm]}, thick},
+    tstamp/.style={above, font=\scriptsize, color=blue!60!black},
+    projlabel/.style={font=\small\sffamily\bfseries},
+]
+
+% -------- LEFT: Temporal Network --------
+\begin{scope}[xshift=0cm]
+  \node[projlabel] at (3.0, 5.0) {Temporal Contact Sequence $G^T$};
+
+  % Time axis
+  \draw[-{Stealth}, thick, gray!60] (-0.3, -0.2) -- (6.3, -0.2)
+        node[right, font=\footnotesize]{$t$};
+  \foreach \x/\lab in {0/1, 1.5/2, 3.0/3, 4.5/4, 6.0/5}{
+    \draw[gray!60] (\x, -0.1) -- (\x, -0.3);
+    \node[timelabel] at (\x, -0.55) {\lab};
+  }
+
+  % Nodes on y-axis
+  \foreach \y/\lbl in {0.6/D, 1.6/C, 2.6/B, 3.6/A}{
+    \node[left, font=\small\bfseries] at (-0.3, \y) {\lbl};
+    \draw[dotted, gray!30] (-0.2, \y) -- (6.2, \y);
+  }
+
+  % Events as vertical bars
+  % e1: A-B at t=1
+  \draw[blue!70!black, ultra thick] (0, 2.6) -- (0, 3.6);
+  \filldraw[blue!70!black] (0,2.6) circle (2.5pt);
+  \filldraw[blue!70!black] (0,3.6) circle (2.5pt);
+  \node[tstamp, color=blue!70!black] at (0.0, 3.8) {$e_1,t{=}1$};
+
+  % e2: B-C at t=2
+  \draw[blue!70!black, ultra thick] (1.5, 1.6) -- (1.5, 2.6);
+  \filldraw[blue!70!black] (1.5,1.6) circle (2.5pt);
+  \filldraw[blue!70!black] (1.5,2.6) circle (2.5pt);
+  \node[tstamp, color=blue!70!black] at (1.5, 2.8) {$e_2,t{=}2$};
+
+  % e3: C-D at t=3
+  \draw[gray!60!black, thick] (3.0, 0.6) -- (3.0, 1.6);
+  \filldraw[gray!60!black] (3.0,0.6) circle (2.5pt);
+  \filldraw[gray!60!black] (3.0,1.6) circle (2.5pt);
+  \node[tstamp, color=gray!50!black] at (3.0, 1.8) {$e_3,t{=}3$};
+
+  % e4: A-C at t=4  (this is the "phantom builder" in static graph)
+  \draw[orange!80!black, ultra thick] (4.5, 1.6) -- (4.5, 3.6);
+  \filldraw[orange!80!black] (4.5,1.6) circle (2.5pt);
+  \filldraw[orange!80!black] (4.5,3.6) circle (2.5pt);
+  \node[tstamp, color=orange!70!black] at (4.5, 3.8) {$e_4,t{=}4$};
+
+  % e5: D-A at t=5
+  \draw[gray!60!black, thick] (6.0, 0.6) -- (6.0, 3.6);
+  \filldraw[gray!60!black] (6.0,0.6) circle (2.5pt);
+  \filldraw[gray!60!black] (6.0,3.6) circle (2.5pt);
+  \node[tstamp, color=gray!50!black] at (6.0, 3.8) {$e_5,t{=}5$};
+
+  % Phantom path annotation
+  \node[red!70!black, font=\scriptsize, align=center] at (3.0, -1.2)
+    {\textbf{Static graph says:} $C \to B \to A$ exists.\\
+     \textbf{Temporal graph: impossible.}\\
+     $B$'s last event is $t=2$; $C$'s first outgoing is $t=3>2$.};
+\end{scope}
+
+% -------- RIGHT: Static Projection --------
+\begin{scope}[xshift=9.5cm, yshift=0.5cm]
+  \node[projlabel] at (1.0, 3.8) {Static Projection $G$};
+
+  \node[event, fill=blue!8]   (A) at (0.0, 3.0) {A};
+  \node[event, fill=blue!8]   (B) at (0.0, 1.5) {B};
+  \node[event, fill=blue!8]   (C) at (2.0, 1.5) {C};
+  \node[event, fill=blue!8]   (D) at (2.0, 3.0) {D};
+
+  \draw[thick] (A)--(B);
+  \draw[thick] (B)--(C);
+  \draw[thick] (C)--(D);
+  \draw[thick] (A)--(C);
+  \draw[thick] (D)--(A);
+
+  % Highlight the phantom path C->B->A
+  \draw[red!70!black, ultra thick, dashed, ->, bend left=30]
+    (C) to (B);
+  \draw[red!70!black, ultra thick, dashed, ->, bend left=30]
+    (B) to (A);
+
+  \node[red!70!black, font=\scriptsize, align=center] at (1.0, -0.4)
+    {Path $C{\to}B{\to}A$: exists in $G$\\but is a \textbf{phantom} in $G^T$};
+\end{scope}
+
+\end{tikzpicture}
+\caption{Left: a temporal contact sequence on four nodes with five events. Nodes are arranged
+on the $y$-axis; time runs left to right. The blue and orange events form valid forward paths.
+Right: the static projection retains all edges but loses timestamps, creating the phantom path
+$C \to B \to A$ (dashed red) which is causally impossible because B's last event ($t=2$)
+precedes C's first outgoing event ($t=3$).}
+\label{fig:static_projection}
+\end{figure}
+
+\begin{keyinsight}{Quantifying Information Loss}
+Let $\mathcal{R}^T(u)$ denote the \textbf{temporal reachability set} of node $u$ and
+$\mathcal{R}(u)$ its static reachability set. By construction $\mathcal{R}^T(u) \subseteq
+\mathcal{R}(u)$ always holds. In empirical contact networks with strong burstiness, the ratio
+$|\mathcal{R}^T(u)| / |\mathcal{R}(u)|$ can be as low as $0.1$--$0.3$: the static graph
+over-estimates causal reach by a factor of 3--10. For source detection, this means the static
+graph floods the posterior over sources with false candidates; a static GNN may assign high
+probability to nodes that could never have initiated the observed outbreak.
+\end{keyinsight}
+
+\begin{analogybox}{Collapsing a Train Timetable to a Route Map}
+A train timetable tells you that Train 42 leaves Munich at 08:15 and arrives Augsburg at 08:52,
+while Train 7 leaves Augsburg at 08:40 for Nuremberg. The route map shows
+Munich--Augsburg--Nuremberg as a connected path. But the timetable reveals the connection is
+impossible: you arrive at 08:52 and your connection left at 08:40.
+
+Collapsing a temporal network into a static graph is exactly like reducing the timetable to a
+route map: you preserve topology but destroy the information needed to reason about what is
+actually reachable.
+\end{analogybox}
+
+%=============================================================================
+\section{The Temporal Event Graph: A Forward Pointer}
+\label{sec:event_graph_pointer}
+%=============================================================================
+
+All of the path and reachability concepts developed in this chapter reach their most
+computationally powerful form in the \textbf{Temporal Event Graph (TEG)} representation due
+to Saram\"{a}ki, Kivel\"{a}, and Karsai. Rather than treating nodes as primary objects, the
+TEG elevates \textit{events} to nodes in a static directed acyclic graph (DAG), where directed
+edges encode the possibility of transmission between consecutive contacts.
+
+\begin{keyinsight}{Why the TEG Matters for GNN-Based Source Detection}
+Every concept in this chapter maps cleanly onto the TEG structure:
+\begin{itemize}[noitemsep]
+  \item \textbf{Time-respecting paths} in $G^T$ become \textbf{directed paths} in the TEG.
+  \item \textbf{$\Delta t$-constrained paths} correspond to edges with inter-event gap
+        $\leq \Delta t$ in the TEG.
+  \item \textbf{Temporal reachability} corresponds to graph reachability in the DAG.
+  \item \textbf{Asymmetric reachability} is automatic in a DAG (acyclicity guarantees it).
+\end{itemize}
+A GNN operating on the TEG therefore inherits the full causal structure of the temporal network
+without any approximation. This is the theoretical justification for the DAG-GNN architecture
+described in Chapter~10.
+\end{keyinsight}
+
+Chapter~10 covers the full TEG construction algorithm, its weighted variant (edge weights encode
+inter-event gaps), and the DAG convolutional architecture that performs backward message passing
+over it. The key forward pointer: when our DAG-GNN flips the TEG edges and runs message passing
+toward earlier events, it is precisely performing the temporal reachability computation in
+reverse --- tracing the epidemic backward toward its origin.
+
+%=============================================================================
+\section{Summary}
+\label{sec:tn_summary}
+%=============================================================================
+
+This chapter has built the complete formal toolkit for working with temporal networks. Here is
+a concise summary of every concept introduced, in the order they appeared:
+
+\begin{conceptbox}{Chapter Summary}
+\begin{itemize}
+  \item A \textbf{temporal network} $G^T = (\mathcal{V}, E^T, \mathcal{T})$ records contacts
+        as timestamped triples $(u, v, t)$. The \textbf{static projection} discards all
+        timestamps and retains only connectivity.
+  \item \textbf{Phantom paths} are paths that exist in the static projection but violate
+        causal time-ordering. They are the fundamental reason static GNNs produce incorrect
+        source posterior estimates.
+  \item A \textbf{time-respecting path} requires strictly increasing event times:
+        $t_1 < t_2 < \cdots < t_k$. This is the only type of path that can carry a pathogen.
+  \item A \textbf{$\Delta t$-constrained path} additionally requires that no gap between
+        consecutive events exceeds $\Delta t$, the maximum infectious duration. Smaller
+        $\Delta t$ prunes more paths and makes source detection harder.
+  \item \textbf{Temporal reachability} is \textit{asymmetric}: $u \leadsto v$ does not imply
+        $v \leadsto u$, even in undirected networks.
+  \item The \textbf{adjacency tensor} $A_{ij}(t)$ captures temporal contacts in three
+        dimensions. In practice, we store it as a COO event list, the direct input to
+        PyTorch Geometric's \texttt{edge\_index}.
+  \item \textbf{Temporal degree} counts total contact events per node.
+        \textbf{Temporal betweenness} counts how often a node lies on shortest
+        time-respecting paths. Both can differ substantially from their static counterparts.
+  \item \textbf{Burstiness} $B \in (-1, 1)$ quantifies whether a node's contacts are regular
+        ($B < 0$), random ($B \approx 0$), or clustered into bursts ($B > 0$). Real contact
+        networks are typically bursty, which slows epidemic spread and complicates inference.
+  \item In the codebase, the event list lives in the NetworkX graph \texttt{H} (loaded by
+        \texttt{setup/read\_network.py}), the temporal reachability is encoded in
+        \texttt{TSIRData.maximal\_outbreak}, and the observation window is controlled by
+        \texttt{cfg.nwk.t\_max}.
+\end{itemize}
+\end{conceptbox}
+
+\begin{keyinsight}{The Central Lesson for Source Detection}
+Every simplification made when moving from a temporal contact sequence to a static graph
+introduces \textit{false causal paths}: connections the static model treats as evidence for or
+against a candidate source, but which could never have been traversed by the actual pathogen.
+The further we are from the original event sequence, the noisier the posterior over sources
+becomes. Chapters~4--10 develop model architectures that progressively close this gap, from
+static GCN baselines through to DAG-GNNs that operate directly on the causal event structure.
+\end{keyinsight}

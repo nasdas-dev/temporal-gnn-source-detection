@@ -1,0 +1,152 @@
+% !TEX program = xelatex
+\documentclass[11pt,a4paper,oneside]{report}
+
+\usepackage{fontspec}
+\setmainfont{Helvetica Neue}[Scale=0.95]
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{blkarray}
+\usepackage{makecell}
+\usepackage[hidelinks,colorlinks=true,linkcolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{mdframed}
+\usepackage{caption}
+
+% ---- listings ----
+\usepackage{listings}
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{codeframe}{RGB}{200,200,200}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{gray!70}\itshape,
+  stringstyle=\color{orange!80!black},
+  numbers=left, numberstyle=\tiny\color{gray},
+  numbersep=8pt, breaklines=true,
+  showstringspaces=false,
+  frame=single, rulecolor=\color{codeframe},
+  backgroundcolor=\color{codebg},
+  captionpos=b, tabsize=4,
+  language=Python,
+  xleftmargin=12pt,
+}
+
+% ---- tcolorbox ----
+\usepackage{tcolorbox}
+\tcbuselibrary{theorems,skins,breakable,listings}
+
+\newtcolorbox{conceptbox}[2][]{
+  colback=blue!4!white, colframe=blue!55!black,
+  fonttitle=\bfseries\sffamily, title={#2}, #1, breakable,
+  left=8pt, right=8pt, top=6pt, bottom=6pt, boxrule=0.8pt, arc=4pt
+}
+\newtcolorbox{analogybox}[2][]{
+  colback=green!4!white, colframe=green!50!black,
+  fonttitle=\bfseries\sffamily, title={Analogy: #2}, #1, breakable,
+  left=8pt, right=8pt, top=6pt, bottom=6pt, boxrule=0.8pt, arc=4pt
+}
+\newtcolorbox{examplebox}[2][]{
+  colback=orange!5!white, colframe=orange!70!black,
+  fonttitle=\bfseries\sffamily, title={Example: #2}, #1, breakable,
+  left=8pt, right=8pt, top=6pt, bottom=6pt, boxrule=0.8pt, arc=4pt
+}
+\newtcolorbox{keyinsight}[2][]{
+  colback=purple!5!white, colframe=purple!60!black,
+  fonttitle=\bfseries\sffamily, title={Key Insight: #2}, #1, breakable,
+  left=8pt, right=8pt, top=6pt, bottom=6pt, boxrule=0.8pt, arc=4pt
+}
+\newtcolorbox{codewalk}[2][]{
+  colback=gray!4!white, colframe=gray!50,
+  fonttitle=\bfseries\sffamily, title={Code Walk: #2}, #1, breakable,
+  left=8pt, right=8pt, top=6pt, bottom=6pt, boxrule=0.8pt, arc=4pt
+}
+\newtcolorbox{paperbox}[2][]{
+  colback=red!4!white, colframe=red!55!black,
+  fonttitle=\bfseries\sffamily, title={Paper Spotlight: #2}, #1, breakable,
+  left=8pt, right=8pt, top=6pt, bottom=6pt, boxrule=0.8pt, arc=4pt
+}
+\newtcolorbox{mathbox}[2][]{
+  colback=yellow!5!white, colframe=yellow!60!black,
+  fonttitle=\bfseries\sffamily, title={Mathematical Formalism: #2}, #1, breakable,
+  left=8pt, right=8pt, top=6pt, bottom=6pt, boxrule=0.8pt, arc=4pt
+}
+
+% ---- TikZ ----
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes,fit,backgrounds,calc,decorations.pathreplacing}
+
+% ---- headers ----
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\sffamily\leftmark}
+\fancyhead[R]{\small\sffamily\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\sffamily}{\chaptertitlename\ \thechapter}{10pt}{\Huge}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{1.5cm}
+  {\Huge\bfseries\sffamily Epidemic Source Detection\\using Graph Neural Networks\\[0.4em]
+   \Large A Comprehensive Master's Thesis Workbook}\\[1.5em]
+  {\large\itshape An exhaustive deep-dive into the maths, algorithms, and code\\
+  behind locating Patient Zero on Temporal Contact Networks}\\[3em]
+  {\large Master's Thesis Companion Guide}\\[0.5em]
+  {\large\today}\\[4em]
+  \begin{mdframed}[backgroundcolor=blue!6,linecolor=blue!40,linewidth=1.5pt,roundcorner=5pt,innerleftmargin=15pt,innerrightmargin=15pt,innertopmargin=15pt,innerbottommargin=15pt]
+  \centering
+  \textbf{How to use this workbook}\\[0.5em]
+  \small
+  This workbook is an exhaustive companion to the master's thesis. It teaches the core literature from the ground up. Every mathematical concept is derived, and every algorithm is explained with code. Read it front-to-back to master the entire field of neural epidemic source detection.
+
+  Boxes with coloured borders signal: {\color{blue!60!black}core concepts}, {\color{green!50!black}intuitive analogies},
+  {\color{orange!70!black}worked examples}, {\color{purple!60!black}key insights},
+  {\color{gray!60}code walkthroughs}, {\color{red!55!black}paper breakdowns}, and {\color{yellow!60!black}mathematical derivations}.
+  \end{mdframed}
+\end{titlepage}
+
+\tableofcontents
+\clearpage
+
+% Part I: Foundations
+\part{Foundations}
+\include{chapters/01_foundations}
+\include{chapters/02_temporal_networks}
+\include{chapters/03_epidemic_models}
+
+% Part II: Source Detection Theory
+\part{Source Detection Theory}
+\include{chapters/04_source_detection}
+\include{chapters/05_classical_algorithms}
+
+% Part III: Deep Learning on Graphs
+\part{Deep Learning on Graphs}
+\include{chapters/06_deep_learning}
+\include{chapters/07_gnn_pytorch}
+
+% Part IV: Temporal GNN Architectures for Source Detection
+\part{Temporal GNN Architectures for Source Detection}
+\include{chapters/08_paper_saramaki}
+\include{chapters/09_paper_ru}
+\include{chapters/10_paper_qarkaxhija}
+\include{chapters/12_paper_rey_dagcn}
+
+% Part V: Experiments \& Evaluation
+\part{Experiments \& Evaluation}
+\include{chapters/11_baselines_codebase}
+% \include{chapters/12_codebase}
+
+\end{document}

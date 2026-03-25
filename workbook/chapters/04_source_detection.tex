@@ -1,0 +1,1127 @@
+% ============================================================
+%  Chapter 4 — Source Detection: Finding Patient Zero
+%  Teaching workbook chapter — builds every concept from scratch
+% ============================================================
+
+\chapter{Source Detection: Finding Patient Zero}
+\label{chap:source-detection}
+
+\textit{%
+  In the previous chapters we learned how epidemic processes spread forward
+  through a network: given a starting node, the rules of the SIR model, and a
+  contact structure, we can simulate or reason about who gets infected and when.
+  This chapter flips the question around completely. We arrive \emph{after the
+  fact}, observe who is sick or has recovered, and must reconstruct who started
+  it. This is the source detection problem, and it is the central challenge
+  this thesis addresses. We build the theory from the very beginning, using
+  concrete examples and analogies at every step.
+}
+
+% ============================================================
+\section{The Detective Analogy}
+\label{sec:detective-analogy}
+% ============================================================
+
+\begin{analogybox}{The Epidemic Detective}
+Imagine you are a detective called to investigate an outbreak. You arrive
+\emph{after the fact}: you can see who is currently sick, who has recovered,
+and who is still healthy. You have a map of who interacted with whom, and you
+know roughly how contagious the disease is. Your job: find \textbf{Patient
+Zero} — the single person who introduced the infection.
+
+You walk through the affected community and take stock:
+
+\begin{itemize}
+    \item \textbf{Green dots (Susceptible):} people who were never infected.
+    \item \textbf{Red dots (Infected):} people who are currently sick.
+    \item \textbf{Grey dots (Recovered):} people who were sick and got better.
+\end{itemize}
+
+You reason backwards. Patient Zero must have been infected before anyone else,
+so they are almost certainly in the recovered group by now. They probably had
+many contacts in the early days. The spatial pattern of infection
+radiates outward from wherever they are. You look for the ``epicenter.''
+
+This is \emph{exactly} the source detection problem. The detective's reasoning
+is formalised as a probabilistic inference task: given the observed snapshot of
+states, assign a probability to each person being Patient Zero, and report the
+most likely candidate.
+\end{analogybox}
+
+The analogy above is not merely illustrative. Every component maps directly
+onto a mathematical object:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Detective story} & \textbf{Mathematical object} \\
+\midrule
+The community of people          & Graph $G = (\mathcal{V}, \mathcal{E})$ \\
+Who talked to whom               & Edges $\mathcal{E}$ \\
+The snapshot of who is S, I, R   & Observation vector $\mathbf{X}$ \\
+Patient Zero                     & Source node $s^*$ \\
+``How likely is person $v$ the source?'' & Posterior $P(s = v \mid \mathbf{X})$ \\
+The detective's best guess       & MAP estimate $\hat{s} = \arg\max_v P(s=v \mid \mathbf{X})$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The key difficulty — which separates this from a simple puzzle — is that the
+SIR spreading process is \textbf{stochastic}. Two runs of the epidemic
+starting from the exact same Person Zero can produce different infection
+patterns just by chance. This means there is no single ``correct'' answer that
+can be deduced with certainty; we must reason probabilistically.
+
+% ============================================================
+\section{Formal Problem Statement}
+\label{sec:formal-problem}
+% ============================================================
+
+Before we can solve a problem, we must state it precisely. This section
+introduces the notation used throughout the thesis.
+
+\subsection{The Network}
+
+We model the social contact structure as an undirected graph
+$G = (\mathcal{V}, \mathcal{E})$. Here:
+
+\begin{itemize}
+    \item $\mathcal{V}$ is the set of \textbf{nodes} (people, animals, computers
+    — whatever unit can be infected). We write $N = |\mathcal{V}|$ for the
+    total number of nodes. Nodes are labelled $1, 2, \ldots, N$.
+    \item $\mathcal{E}$ is the set of \textbf{edges}. An edge $(i, j) \in
+    \mathcal{E}$ means nodes $i$ and $j$ were in close enough contact that
+    disease transmission is possible.
+\end{itemize}
+
+\subsection{The Observation}
+
+After the epidemic has been running for some time, we stop and record the
+state of every node. This produces an \textbf{observation vector}:
+\[
+    \mathbf{X} = (X_1, X_2, \ldots, X_N)
+    \quad \text{where each } X_i \in \{S, I, R\}.
+\]
+$X_i = S$ means node $i$ was never infected (Susceptible). $X_i = I$ means
+node $i$ is currently infectious. $X_i = R$ means node $i$ was infected and
+has since recovered.
+
+\begin{examplebox}{A Small Observation Vector}
+Suppose our network has $N = 6$ nodes and we observe:
+\[
+    \mathbf{X} = (R,\; R,\; I,\; S,\; R,\; S)
+\]
+This tells us: nodes 1, 2, 5 have recovered; node 3 is currently sick; nodes
+4, 6 were never infected. The infected set (ever infected) is
+$\mathcal{I} = \{1, 2, 3, 5\}$. The source must be somewhere in
+$\mathcal{I}$ — a node that was never infected cannot have started the
+epidemic.
+\end{examplebox}
+
+\subsection{The Goal}
+
+\begin{mathbox}{The Source Detection Problem}
+\textbf{Given:} A network $G = (\mathcal{V}, \mathcal{E})$, epidemic
+parameters $(\beta, \mu)$, and an observation
+$\mathbf{X} = (X_1, \ldots, X_N)$ where $X_i \in \{S, I, R\}$.
+
+\textbf{Find:} The node $v^*$ most likely to be the source of the epidemic:
+\begin{equation}
+    v^* = \arg\max_{v \in \mathcal{V}} \; P\bigl(\text{source} = v \;\big|\; \mathbf{X}\bigr).
+    \label{eq:map-estimate}
+\end{equation}
+
+Optionally, compute the full \textbf{posterior distribution}
+$P(\text{source} = v \mid \mathbf{X})$ for every node $v$, which tells
+us how confident we are about each candidate.
+\end{mathbox}
+
+The quantity $P(\text{source} = v \mid \mathbf{X})$ is called the
+\textbf{posterior probability} of node $v$ being the source, given the
+observation. Computing or approximating it is the central technical challenge
+of this field.
+
+% ============================================================
+\section{Bayes' Theorem: The Mathematical Framework}
+\label{sec:bayes}
+% ============================================================
+
+The natural tool for this kind of reasoning — updating our belief about an
+unknown variable (the source) based on evidence (the observation) — is
+\textbf{Bayes' theorem}. If you have not seen it before, here is the full
+explanation from first principles.
+
+\subsection{What Bayes' Theorem Says}
+
+Suppose we want to know the probability that event $A$ happened, given that
+we observed event $B$. Bayes' theorem states:
+
+\begin{equation}
+    P(A \mid B) = \frac{P(B \mid A) \cdot P(A)}{P(B)}
+    \label{eq:bayes-general}
+\end{equation}
+
+Each term has a name and a meaning:
+
+\begin{conceptbox}{The Four Terms of Bayes' Theorem}
+\begin{itemize}
+    \item $P(A \mid B)$ — the \textbf{posterior}: the probability of $A$
+    \emph{after} we have seen evidence $B$. This is what we want.
+
+    \item $P(B \mid A)$ — the \textbf{likelihood}: how probable is the
+    evidence $B$ if $A$ were true? This encodes our model of how $B$ is
+    generated.
+
+    \item $P(A)$ — the \textbf{prior}: our belief about $A$ before seeing
+    any evidence.
+
+    \item $P(B)$ — the \textbf{evidence}: how probable is the observation
+    $B$ overall? It acts as a normalisation constant to make sure the
+    posterior sums to 1.
+\end{itemize}
+\end{conceptbox}
+
+\subsection{Applying Bayes to Source Detection}
+
+In our setting, $A$ is ``node $v$ is the source'' and $B$ is the observation
+$\mathbf{X}$. Substituting into Eq.~(\ref{eq:bayes-general}):
+
+\begin{equation}
+    \underbrace{P(\text{source}=v \mid \mathbf{X})}_{\text{posterior}}
+    \;=\;
+    \frac{
+        \overbrace{P(\mathbf{X} \mid \text{source}=v)}^{\text{likelihood}}
+        \;\times\;
+        \overbrace{P(\text{source}=v)}^{\text{prior}}
+    }{
+        \underbrace{P(\mathbf{X})}_{\text{evidence (normaliser)}}
+    }
+    \label{eq:bayes-source}
+\end{equation}
+
+\textbf{The likelihood} $P(\mathbf{X} \mid \text{source}=v)$ answers:
+``If $v$ was the source, how probable is it that we would observe exactly
+$\mathbf{X}$?'' This requires us to reason through all the ways the epidemic
+could have spread from $v$ to produce $\mathbf{X}$.
+
+\textbf{The prior} $P(\text{source}=v)$ encodes what we believed before
+seeing the data. In most cases, we have no reason to suspect one person over
+another, so we use a \textbf{uniform prior}:
+\[
+    P(\text{source}=v) = \frac{1}{N} \quad \text{for all } v \in \mathcal{V}.
+\]
+This means every node is equally likely a priori. The prior cancels out in
+the comparison between candidates, and the MAP estimate simplifies to
+\textbf{Maximum Likelihood Estimation (MLE)}:
+\[
+    v^* = \arg\max_{v \in \mathcal{V}} P(\mathbf{X} \mid \text{source}=v).
+\]
+
+\textbf{The evidence} $P(\mathbf{X}) = \sum_{v} P(\mathbf{X} \mid
+\text{source}=v) \cdot P(\text{source}=v)$ is just a constant that ensures
+all posteriors sum to 1. Since we are only comparing nodes (not computing
+absolute probabilities), we can ignore it:
+\[
+    P(\text{source}=v \mid \mathbf{X})
+    \;\propto\;
+    P(\mathbf{X} \mid \text{source}=v).
+\]
+
+\begin{keyinsight}{The Core Simplification}
+With a uniform prior, finding the most likely source is equivalent to finding
+the node $v$ from which an epidemic is most likely to produce the
+observation $\mathbf{X}$. All our effort therefore goes into computing or
+approximating the likelihood $P(\mathbf{X} \mid \text{source}=v)$.
+\end{keyinsight}
+
+\subsection{Non-Uniform Priors}
+
+The uniform prior is not always appropriate. If we have additional information
+— for example, that the outbreak started at an airport (high-degree hub), or
+that there is a known infected traveller — we can use a non-uniform prior to
+encode this. In this thesis we restrict ourselves to the uniform prior as the
+default, and discuss non-uniform priors only in the context of degree-based
+heuristics (Section~\ref{sec:classical-heuristics}).
+
+% ============================================================
+\section{Maximum Likelihood Estimation via Simulation}
+\label{sec:mle-simulation}
+% ============================================================
+
+We have established that the key quantity is the likelihood
+$P(\mathbf{X} \mid \text{source}=v)$. But how do we compute it?
+
+\subsection{The Exact Computation is Intractable}
+
+The exact formula for the likelihood requires summing over every possible
+way the epidemic could have unfolded from $v$ to produce $\mathbf{X}$.
+For a network of $N$ nodes where $k$ got infected, the number of possible
+infection sequences (``infection trees'') is proportional to $k^{k-2}$
+by Cayley's formula for labelled trees. For $k = 100$, this is already
+$100^{98}$ — a number larger than the number of atoms in the observable
+universe. Exact computation is hopeless.
+
+\subsection{Monte Carlo Estimation: The Simulation Approach}
+
+Instead, we approximate the likelihood using simulation. The key idea is
+elegant:
+
+\begin{conceptbox}{Likelihood by Counting}
+If we run $n_{\text{runs}}$ independent SIR simulations starting from
+candidate source $v$, and a fraction $f_v$ of them produce an outcome that
+``matches'' the observed $\mathbf{X}$, then:
+\[
+    P(\mathbf{X} \mid \text{source}=v) \approx f_v.
+\]
+The more simulations we run, the more accurate the estimate.
+\end{conceptbox}
+
+This is the \textbf{Monte Carlo maximum likelihood estimator}. It powers the
+Soft Margin Estimator (SME), one of the baseline methods in this thesis.
+
+\subsection{A Worked Example: MLE on a 4-Node Network}
+
+\begin{examplebox}{MLE by Simulation on a Small Network}
+Consider a network with $N = 4$ nodes arranged as a path:
+$1 - 2 - 3 - 4$. The observed state is:
+\[
+    \mathbf{X}_{\text{obs}} = (R,\; R,\; I,\; S)
+\]
+Nodes 1 and 2 have recovered, node 3 is still infected, node 4 was never
+infected. We want to estimate the likelihood of each candidate source.
+
+We run $n_{\text{runs}} = 5$ simulations from each candidate and record the
+outcome (simplified to show just whether each node is in $\{S, I, R\}$):
+
+\bigskip
+\textbf{Simulations from $v = 1$:}
+\begin{center}
+\begin{tabular}{cccccc}
+\toprule
+\textbf{Run} & \textbf{Node 1} & \textbf{Node 2} & \textbf{Node 3} & \textbf{Node 4} & \textbf{Match?} \\
+\midrule
+1 & R & R & I & S & \checkmark match \\
+2 & R & S & S & S & $\times$ \\
+3 & R & R & R & I & $\times$ \\
+4 & R & R & I & S & \checkmark match \\
+5 & R & R & S & S & $\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+2 out of 5 runs match $\mathbf{X}_{\text{obs}}$.
+Estimated likelihood: $\hat{P}(\mathbf{X}_{\text{obs}} \mid v=1) = 2/5 = 0.40$.
+
+\bigskip
+\textbf{Simulations from $v = 4$:}
+Node 4 ends up in state $S$ in $\mathbf{X}_{\text{obs}}$. A source node
+\emph{always} starts as Infected and transitions to Recovered — it can never
+be Susceptible at observation time. So \emph{every} simulation from $v = 4$
+will have node 4 in state $R$ or $I$, never $S$. No simulation can match.
+Estimated likelihood: $\hat{P}(\mathbf{X}_{\text{obs}} \mid v=4) = 0/5 = 0$.
+
+\bigskip
+This illustrates the important \textbf{candidate filtering} rule we formalise
+later: nodes that are Susceptible in $\mathbf{X}_{\text{obs}}$ can be
+immediately eliminated as candidates.
+\end{examplebox}
+
+\subsection{The Computational Cost of Brute-Force MLE}
+
+This simulation approach is correct and unbiased, but its cost grows rapidly
+with network size. We examine the scaling in detail in
+Section~\ref{sec:computational-challenge}. For now, note that for each of the
+$N$ candidate sources we must run $n_{\text{runs}}$ full epidemic simulations.
+If each simulation takes time $t_{\text{sim}}$, the total cost is:
+\[
+    \text{Total time} = N \times n_{\text{runs}} \times t_{\text{sim}}.
+\]
+This is the motivation for every faster method in the remainder of the thesis.
+
+% ============================================================
+\section{The Soft Matching Problem}
+\label{sec:soft-matching}
+% ============================================================
+
+The MLE approach above used \textbf{exact matching}: a simulation counts as a
+``match'' only if every single node's state agrees with $\mathbf{X}_{\text{obs}}$.
+This is a natural choice but can be too strict in practice.
+
+\subsection{Why Exact Matching Fails}
+
+Consider an epidemic on a network with $N = 1000$ nodes. A single simulated
+run produces an outcome that agrees with the observation on 998 out of 1000
+nodes — extremely close! — but the two disagreeing nodes push it into the
+``no match'' category, contributing nothing to the likelihood estimate.
+
+More fundamentally:
+
+\begin{itemize}
+    \item \textbf{Observation noise:} In practice, disease states are
+    self-reported or imperfectly tested. Some observed states may be wrong.
+    Requiring exact agreement with a noisy observation is counter-productive.
+    \item \textbf{Stochastic near-misses:} A simulation from the true source
+    has a high probability of being \emph{close} to the observation, but exact
+    agreement may be rare even when the source is correct.
+    \item \textbf{Variance reduction:} By quantifying the \emph{degree} of
+    agreement rather than demanding binary match, we extract more signal from
+    each simulation run.
+\end{itemize}
+
+\subsection{Soft Matching with Overlap Metrics}
+
+Instead of a binary match, we measure how similar the simulated outcome is to
+the observation. A natural measure is the \textbf{Jaccard similarity} between
+the two infected sets.
+
+Let $\mathcal{I}_{\text{obs}}$ be the set of nodes that are infected or
+recovered in the observation, and let $\mathcal{I}_{\text{sim}}$ be the
+corresponding set from a single simulation run. The Jaccard similarity is:
+
+\begin{mathbox}{Jaccard Similarity}
+\begin{equation}
+    J(\mathcal{I}_{\text{obs}},\, \mathcal{I}_{\text{sim}})
+    = \frac{|\mathcal{I}_{\text{obs}} \cap \mathcal{I}_{\text{sim}}|}
+           {|\mathcal{I}_{\text{obs}} \cup \mathcal{I}_{\text{sim}}|}
+    \label{eq:jaccard}
+\end{equation}
+This equals 1 if the two sets are identical, 0 if they share no elements,
+and takes values in $(0, 1)$ otherwise. It penalises both false positives
+(nodes in $\mathcal{I}_{\text{sim}}$ not in $\mathcal{I}_{\text{obs}}$) and
+false negatives (nodes in $\mathcal{I}_{\text{obs}}$ not in
+$\mathcal{I}_{\text{sim}}$).
+\end{mathbox}
+
+\begin{examplebox}{Jaccard Similarity — Numerical Computation}
+Let the observation infect nodes $\mathcal{I}_{\text{obs}} = \{1, 2, 3\}$
+and a simulation produce $\mathcal{I}_{\text{sim}} = \{2, 3, 4\}$.
+
+\begin{itemize}
+    \item Intersection: $\mathcal{I}_{\text{obs}} \cap \mathcal{I}_{\text{sim}}
+    = \{2, 3\}$, so $|\cdot| = 2$.
+    \item Union: $\mathcal{I}_{\text{obs}} \cup \mathcal{I}_{\text{sim}}
+    = \{1, 2, 3, 4\}$, so $|\cdot| = 4$.
+    \item Jaccard similarity: $J = 2 / 4 = 0.5$.
+\end{itemize}
+
+This means 50\% overlap between the two infected sets. Contrast with a
+simulation giving $\mathcal{I}_{\text{sim}} = \{1, 2, 3\}$: then
+$J = 3/3 = 1.0$ (perfect match), or
+$\mathcal{I}_{\text{sim}} = \{5, 6, 7\}$: then $J = 0/6 = 0$ (no overlap).
+\end{examplebox}
+
+\subsection{The Soft Margin Estimator (SME)}
+
+The Soft Margin Estimator, which serves as a strong baseline in this
+thesis, uses soft matching as a proxy likelihood:
+
+\[
+    \hat{P}_{\text{soft}}(\mathbf{X}_{\text{obs}} \mid \text{source}=v)
+    \;\approx\; \frac{1}{n_{\text{runs}}}
+    \sum_{r=1}^{n_{\text{runs}}} J\!\bigl(\mathcal{I}_{\text{obs}},\;
+    \mathcal{I}^{(r)}_v\bigr)
+\]
+
+where $\mathcal{I}^{(r)}_v$ is the infected set in simulation run $r$ from
+candidate source $v$. This averages the Jaccard similarity over all runs,
+giving a continuous score in $[0,1]$ that varies smoothly with source
+quality.
+
+\begin{keyinsight}{Soft vs.\ Hard Matching}
+Exact matching is the theoretically correct likelihood estimator (under a
+perfect observation model), but it has very high variance: most simulations
+produce zero contribution. Soft matching introduces a small bias (it is no
+longer an exact likelihood) but drastically reduces variance, making it
+practical even with a modest number of simulation runs.
+\end{keyinsight}
+
+% ============================================================
+\section{Challenges in Source Detection}
+\label{sec:challenges}
+% ============================================================
+
+Armed with the Bayesian framework and the simulation-based estimator, we can
+now examine why source detection is hard in practice. Each challenge below
+is a fundamental reason why simple methods fail, and each motivates a design
+choice in the GNN architectures developed later in this thesis.
+
+\subsection{Challenge 1: Partial Observation}
+
+\begin{conceptbox}{Challenge: We Cannot See Everyone}
+In the idealized setting, we observe the state of \emph{every} node in the
+network. In practice, this is rarely possible:
+\begin{itemize}
+    \item In a disease outbreak, only symptomatic patients seek care. Mild or
+    asymptomatic cases are invisible.
+    \item In a computer network intrusion, only monitored nodes generate logs.
+    \item In a social network rumour spread, only users who engage publicly
+    are visible.
+\end{itemize}
+\textbf{Why it makes things harder:} Suppose the true source $s^*$ infected
+an intermediate node $u$ early on, and $u$ infected three others. If node
+$u$ is unobserved, we lose the connection between $s^*$ and the observed
+infected nodes. Another candidate might explain the observed infected nodes
+just as well, even if it required an improbable transmission path.
+
+\textbf{Analogy:} The detective's crime scene has missing evidence — some
+crucial footprints have been walked over. The reconstruction becomes much
+less certain.
+\end{conceptbox}
+
+\begin{examplebox}{Partial Observation Makes Multiple Sources Plausible}
+Network: $A - B - C - D - E$. True source: $A$.
+
+\textbf{Full observation:} $\mathbf{X} = (R, R, R, I, S)$.
+Node $A$ is the only candidate geometrically consistent with a wave of
+infection spreading left-to-right.
+
+\textbf{Partial observation} (only nodes $C$, $D$, $E$ visible):
+$\mathbf{X}_{\text{partial}} = (?, ?, R, I, S)$.
+Now both $A$ and $B$ appear equally plausible as sources from the visible
+evidence, because $A$ and $B$ are both ``upstream'' of $C$.
+\end{examplebox}
+
+\subsection{Challenge 2: Late Observation}
+
+\begin{conceptbox}{Challenge: The Signal Fades with Time}
+If we observe the epidemic long after it started, the infected region has
+spread far from the source. The source is now deeply embedded in a large
+recovered region, and the boundary of the infected set carries less
+information about the origin.
+
+\textbf{Analogy:} Consider a drop of ink in a glass of water. Just after the
+drop falls, the dark spot pinpoints where it landed. One minute later, the
+ink has diffused evenly and there is no way to tell where it entered.
+
+\textbf{Why it matters for our methods:} Most classical methods (like the
+Jordan center) work well early, when the infected set is small and
+geographically concentrated. As $T$ grows, the infection expands nearly
+uniformly in all directions and any node deep inside the recovered region is
+equally plausible. The posterior becomes flat.
+
+\textbf{How GNNs help:} A GNN trained on epidemic trajectories can learn
+subtler signatures of the source — not just ``is this node central?'' but
+``does this node's local neighbourhood pattern match what the source's
+neighbourhood typically looks like?''
+\end{conceptbox}
+
+\subsection{Challenge 3: Network Heterogeneity}
+
+Real networks are not uniform. A social network has a few people with
+hundreds of contacts (hubs) and many people with only a handful. Consider
+two scenarios:
+
+\begin{examplebox}{Hub vs.\ Leaf as Source}
+Suppose Node $H$ is a hub with degree 50, and Node $L$ is a leaf with
+degree 1. Both are infected.
+
+\textbf{If $H$ is the true source:} The epidemic spreads rapidly outward from
+$H$ in all directions. The resulting infected set looks like a large,
+roughly symmetric ball centred at $H$. This pattern is \emph{distinctive} —
+it is hard to reproduce from a leaf node. $H$ is easy to detect.
+
+\textbf{If $L$ is the true source:} The epidemic enters through $L$'s single
+edge to its neighbour, and then fans out from there. The infected set looks
+as if it started from $L$'s one neighbour, not $L$ itself. The posterior
+over $L$ vs.\ its neighbour is nearly flat.
+
+\textbf{Consequence:} Detection accuracy varies systematically with the
+source's degree. High-degree sources are easier to detect; low-degree
+sources blend in with their neighbours.
+\end{examplebox}
+
+\subsection{Challenge 4: Temporal Ambiguity}
+
+In a static network, two different source nodes may produce
+statistically identical observation distributions. This is especially true
+on homogeneous networks like regular grids or random regular graphs, where
+every node has the same local structure.
+
+\begin{examplebox}{Symmetric Networks Kill Identifiability}
+Consider a 4-cycle: $1 - 2 - 3 - 4 - 1$. Every node is structurally
+identical (same degree, same local neighbourhood). If the observation is
+$(R, I, S, R)$, both node 1 and node 4 are equally plausible sources by
+symmetry — the network has a reflection symmetry that maps each scenario
+onto the other. No method can distinguish them better than 50:50 on such
+a symmetric graph.
+
+\textbf{Temporal networks break this symmetry.} If the actual timing of
+contacts is recorded, the two scenarios may differ: perhaps the edge
+$(4, 1)$ was active at $t=1$ and the edge $(1, 2)$ at $t=3$, making it
+causally possible for 4 to infect 1 first, but not the reverse. Temporal
+information restores identifiability.
+\end{examplebox}
+
+\begin{keyinsight}{Why Temporal Information Matters}
+Adding contact timestamps to the network model can transform an ambiguous
+inference problem into a near-certain one. This is the central motivation
+for temporal GNN architectures: they explicitly model the temporal
+ordering of contacts, dramatically reducing the set of causally plausible
+source candidates. Chapter~2 introduced causal walks; later chapters show
+how GNNs learn to exploit them.
+\end{keyinsight}
+
+% ============================================================
+\section{Evaluation Metrics}
+\label{sec:evaluation-metrics}
+% ============================================================
+
+How do we know whether a source detection method is good? We need metrics
+that capture performance across many test cases, handle varying network
+sizes, and measure whether the method's top predictions include the true
+source. This section defines every metric used in the codebase, with full
+worked examples.
+
+\subsection{Setup: Scores and Ranks}
+
+After running a source detection method on a test case, we obtain a
+\textbf{score vector} $\mathbf{p} = (p_1, p_2, \ldots, p_N)$ where $p_v$
+is the method's predicted probability (or proxy score) for node $v$ being
+the source. Higher $p_v$ means the method considers $v$ more likely.
+
+We then \textbf{rank} the nodes from most likely to least likely. If we sort
+in descending order of $p_v$, the node with the highest score gets rank 1,
+the second highest gets rank 2, and so on.
+
+\begin{examplebox}{From Scores to Ranks}
+Suppose $N = 5$ and the method outputs scores:
+\[
+    \mathbf{p} = (0.05,\; 0.60,\; 0.25,\; 0.08,\; 0.02)
+\]
+Sorted in descending order: node 2 ($0.60$), node 3 ($0.25$), node 4
+($0.08$), node 1 ($0.05$), node 5 ($0.02$).
+
+Ranks: node 1 gets rank 4, node 2 gets rank 1, node 3 gets rank 2, node 4
+gets rank 3, node 5 gets rank 5.
+
+If the true source is node 3, then the true source has \textbf{rank 2} in
+this prediction.
+\end{examplebox}
+
+\subsection{Rank Score}
+
+The \textbf{rank score} measures where the true source appears in the sorted
+prediction list, normalised by the network size.
+
+\begin{mathbox}{Rank Score}
+Let $r_{s^*}$ be the rank of the true source $s^*$ in the method's sorted
+predictions (rank 1 = most likely). The rank score for a single test case is:
+\begin{equation}
+    \text{RankScore} = \frac{r_{s^*}}{N}
+    \label{eq:rank-score}
+\end{equation}
+\begin{itemize}
+    \item \textbf{Best possible:} $r_{s^*} = 1 \Rightarrow
+    \text{RankScore} = 1/N \approx 0$ (true source ranked first).
+    \item \textbf{Worst possible:} $r_{s^*} = N \Rightarrow
+    \text{RankScore} = 1$ (true source ranked last).
+    \item \textbf{Random baseline:} Expected rank of a random guess is
+    $(N+1)/2$, giving expected RankScore $\approx 0.5$.
+\end{itemize}
+\textbf{Lower is better.}
+\end{mathbox}
+
+\begin{examplebox}{Rank Score — Worked Computation}
+Suppose $N = 100$ and the true source ends up ranked 5th out of 100.
+\[
+    \text{RankScore} = \frac{5}{100} = 0.05.
+\]
+This is excellent: the method placed the true source in the top 5\% of
+candidates. Compare to a random method which would give
+$\text{RankScore} \approx 0.5$ on average.
+
+In the codebase (\texttt{eval/scores.py}), this is computed slightly
+differently to allow for a configurable offset parameter:
+\begin{center}
+\texttt{rank\_score(ranks, sel, offset=0)} $=$ \texttt{mean((1 + offset) / (ranks[sel] + offset))}
+\end{center}
+With \texttt{offset=0} this gives $1/r_{s^*}$, the \textbf{reciprocal rank}.
+Note: reciprocal rank is also common in information retrieval — higher is
+better (range $[1/N, 1]$). Whether you use rank/$N$ (lower is better) or
+$1/\text{rank}$ (higher is better) is a matter of convention; the codebase
+uses the reciprocal rank formulation.
+\end{examplebox}
+
+\begin{codewalk}{Rank Score in \texttt{eval/scores.py}}
+\begin{lstlisting}[language=Python]
+def rank_score(ranks, sel, offset=0):
+    """
+    ranks : array of shape (n_sources * n_runs,)
+            rank of the true source in each test case.
+    sel   : boolean mask selecting which test cases to include
+            (e.g. only cases with maximal_outbreak==True).
+    offset: optional smoothing term (default 0).
+
+    Returns the mean reciprocal rank over selected cases.
+    With offset=0: mean(1 / ranks[sel])
+    """
+    return np.mean((1 + offset) / (ranks[sel] + offset))
+\end{lstlisting}
+
+The \texttt{sel} mask is crucial: it restricts evaluation to the subset of
+test cases we consider valid (see Section~\ref{sec:candidate-filtering}).
+The \texttt{ranks} array holds the rank of the true source node for each
+test case; a rank of 1 means the true source was the top prediction.
+\end{codewalk}
+
+\subsection{Top-$k$ Score}
+
+The \textbf{top-$k$ score} is a binary metric that asks: ``Is the true
+source within the top $k$ predictions?''
+
+\begin{mathbox}{Top-$k$ Score}
+\begin{equation}
+    \text{Top-}k\text{Score} = \mathbf{1}\bigl[r_{s^*} \leq k\bigr]
+    \in \{0, 1\}
+    \label{eq:topk-score}
+\end{equation}
+where $\mathbf{1}[\cdot]$ is the indicator function (1 if true, 0 if false).
+
+Over many test cases, the \textbf{mean top-$k$ score} is the fraction of
+test cases where the true source appeared in the top $k$ predictions. This
+is analogous to ``recall at $k$'' in information retrieval.
+
+\textbf{Higher is better.} A perfect method has mean top-$k$ score of 1.0.
+A random method has mean top-$k$ score of $k/N$.
+\end{mathbox}
+
+\begin{examplebox}{Top-$k$ Score — Worked Example}
+Suppose $N = 100$, $k = 5$, and we have 4 test cases:
+
+\begin{center}
+\begin{tabular}{ccc}
+\toprule
+\textbf{Test case} & \textbf{True source rank} & \textbf{Top-5 score} \\
+\midrule
+1 & 3  & 1 \\
+2 & 12 & 0 \\
+3 & 1  & 1 \\
+4 & 5  & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Mean top-5 score $= (1 + 0 + 1 + 1)/4 = 0.75$.
+
+The method places the true source in the top 5 in 3 out of 4 cases. Compare
+to random: expected score $= 5/100 = 0.05$.
+\end{examplebox}
+
+\begin{codewalk}{Top-$k$ Score in \texttt{eval/scores.py}}
+\begin{lstlisting}[language=Python]
+def top_k_score(ranks, sel, k=5):
+    """
+    Returns the fraction of selected test cases where
+    the true source is ranked <= k (i.e., in the top-k).
+
+    ranks[sel] <= k  produces a boolean array;
+    np.mean() over booleans gives the fraction of True values.
+    """
+    return np.mean(ranks[sel] <= k)
+\end{lstlisting}
+
+Notice the elegant simplicity: \texttt{ranks[sel] <= k} is a boolean array,
+and \texttt{np.mean} over booleans equals the fraction that are \texttt{True}.
+\end{codewalk}
+
+\subsection{Mean Rank Score}
+
+In practice, we evaluate a method on many test cases (many different epidemic
+realisations, each with a known true source) and report the
+\textbf{mean rank score} — the average of the rank score across all test
+cases in the evaluation set.
+
+\begin{mathbox}{Mean Rank Score}
+Given $M$ test cases with true source ranks $r_1, r_2, \ldots, r_M$:
+\begin{equation}
+    \overline{\text{MRR}}
+    = \frac{1}{M} \sum_{m=1}^{M} \frac{1}{r_m}
+    \label{eq:mean-rr}
+\end{equation}
+(using the reciprocal rank convention from the codebase). A method achieving
+$\overline{\text{MRR}} = 1.0$ always ranks the true source first.
+A random baseline achieves $\overline{\text{MRR}} = \frac{2}{N+1} \approx
+2/N$ for large $N$.
+\end{mathbox}
+
+\subsection{Additional Metrics in the Codebase}
+
+The codebase (\texttt{eval/scores.py}) also implements several additional
+metrics for richer evaluation:
+
+\begin{conceptbox}{Additional Evaluation Metrics}
+\textbf{Normalised Brier Score.} Measures the squared error between the
+predicted probability vector $\mathbf{p}$ and the one-hot true label vector.
+It penalises both wrong predictions and miscalibrated confidence. Lower is
+better. Normalised by the expected Brier score of a uniform predictor
+($2/N$), so a score of 1.0 means the method is no better than uniform.
+
+\textbf{Normalised Entropy.} Measures how spread out (uncertain) the
+method's predicted distribution is. A method that concentrates probability
+on few nodes has low entropy (high confidence). Normalised by the entropy of
+the uniform distribution ($\log N$), so a score of 1.0 means maximum
+uncertainty. Useful for quantifying confidence rather than accuracy.
+
+\textbf{Credible Set Coverage.} Computes the smallest set of nodes that
+together contain at least probability mass $p$ (e.g., $p = 0.9$), and checks
+whether the true source is in this ``credible set.'' A small credible set
+that contains the true source is ideal. This metric penalises methods that
+need to hedge across many nodes.
+\end{conceptbox}
+
+% ============================================================
+\section{Candidate Source Filtering}
+\label{sec:candidate-filtering}
+% ============================================================
+
+Before ranking all $N$ nodes, we can immediately eliminate many candidates
+using logical constraints. This section explains the two main filters used
+in the codebase.
+
+\subsection{The ``Possible'' Filter}
+
+\begin{conceptbox}{Who Can Be Patient Zero?}
+A node can only be the epidemic source if it was \emph{at some point
+infected}. A node that is Susceptible at observation time — meaning it was
+never infected during the entire epidemic — cannot possibly be the source,
+because the source is always the first infected node.
+
+\textbf{Formally:} Node $v$ is a \textbf{possible} candidate source in a
+specific epidemic realisation if and only if $v \in \mathcal{I}_{\text{obs}}$,
+i.e., $X_v \in \{I, R\}$ at observation time.
+\end{conceptbox}
+
+In the codebase, this is encoded in the \texttt{possible} array loaded by
+\texttt{setup/data\_loader.py}:
+\begin{itemize}
+    \item Shape: \texttt{(n\_nodes, n\_runs, n\_nodes)}. For each true source
+    $s$ (first axis), each run (second axis), and each candidate node $v$
+    (third axis), \texttt{possible[s, run, v] = 1} if $v$ was infected at
+    some point in this run.
+    \item A candidate node $v$ that is never infected has
+    \texttt{possible[s, run, v] = 0} and should be masked out before ranking.
+\end{itemize}
+
+\begin{codewalk}{Candidate Filtering in \texttt{setup/data\_loader.py}}
+\begin{lstlisting}[language=Python]
+# possible[s, run, v] == 1 if node v was infected in run 'run'
+# when the true source was 's'
+possible = np.fromfile(
+    f"data/{tsir_run_id}/possible_sources.bin",
+    dtype=np.int8
+).reshape(n_nodes, n_runs, n_nodes)
+
+# lik_possible is used to mask out impossible candidates from
+# log-likelihoods: 0 for possible nodes, +inf for impossible
+# (adding +inf to a log-likelihood makes it -inf after negation,
+#  ensuring impossible nodes are never ranked first)
+lik_possible = np.where(possible == 1, 0, np.inf)
+\end{lstlisting}
+
+The \texttt{lik\_possible} trick is elegant: adding this to a log-likelihood
+score sets impossible candidates to $-\infty$ log-probability, ensuring they
+appear last in the ranking regardless of the raw model score.
+\end{codewalk}
+
+\begin{examplebox}{Effect of the Possible Filter}
+Suppose $N = 10$ and the observation has nodes $\{3, 5, 7, 9\}$ infected or
+recovered. The remaining 6 nodes are Susceptible.
+
+\textbf{Without filtering:} We rank all 10 nodes. Even if the model correctly
+scores node 3 highest, a bad method might accidentally score a Susceptible
+node higher, wasting prediction budget.
+
+\textbf{With filtering:} Only nodes $\{3, 5, 7, 9\}$ are candidates. The
+effective problem size drops from 10 to 4. All scores for Susceptible nodes
+are set to $-\infty$. The method cannot accidentally predict an impossible
+candidate.
+
+\textbf{Quantitative impact:} If the true source is uniformly distributed
+among the $k$ possible candidates, the random baseline rank score improves
+from $\approx N/2$ to $\approx k/2$. In a typical epidemic where 40\% of
+nodes are infected, this cuts the effective search space by 60\%.
+\end{examplebox}
+
+\subsection{The ``Maximal Outbreak'' Filter}
+
+Not all epidemic realisations are equally informative for evaluation. If the
+epidemic barely spreads (e.g., only 2 nodes get infected in a 1000-node
+network), the observation carries almost no information about the source:
+the source and its immediate neighbour both look identical. Including such
+trivial cases would artificially inflate performance metrics.
+
+\begin{conceptbox}{The Maximal Outbreak Filter}
+The \textbf{maximal outbreak} filter restricts evaluation to epidemic
+realisations where the epidemic spread significantly — typically defined as
+infecting at least some threshold fraction of the network (e.g., $\geq 10\%$
+of nodes).
+
+\textbf{Why filter?} Trivial outbreaks do not test the method's ability to
+distinguish between candidates; they are essentially random. Including them
+makes all methods look equally bad (or equally good) and obscures the
+differences between methods on informative cases.
+
+In the codebase, \texttt{maximal\_outbreak} is a boolean mask of shape
+\texttt{(n\_sources, n\_nodes)} that is \texttt{True} for
+source--realisation pairs where the epidemic reached a significant fraction
+of the network. The scoring functions receive a \texttt{sel} parameter
+(selection mask) that combines the maximal outbreak filter with any other
+desired restrictions.
+\end{conceptbox}
+
+\begin{codewalk}{Maximal Outbreak Mask in \texttt{setup/data\_loader.py}}
+\begin{lstlisting}[language=Python]
+# maximal_outbreak[s, v] = 1 if the epidemic starting from source s
+# infected a significant fraction of the network in a maximal run.
+# Shape: (n_nodes, n_nodes)
+maximal_outbreak = (
+    1 - np.fromfile(
+        f"data/{tsir_run_id}/maximal_outbreak_S.bin",
+        dtype=np.int8
+    ).reshape(n_nodes, n_nodes)
+)
+# The file stores whether node v is Susceptible in the maximal run;
+# subtracting from 1 flips it to "was node v infected?".
+# maximal_outbreak[s, v] = 1 means node v was infected in the
+# maximal run from source s, i.e., the epidemic was large enough.
+\end{lstlisting}
+\end{codewalk}
+
+The following pseudocode shows how the two filters combine in practice:
+
+\begin{codewalk}{Applying Both Filters Before Scoring}
+\begin{lstlisting}[language=Python]
+# Suppose we have:
+#   scores: array (n_sources, n_runs, n_nodes) -- raw model output
+#   possible: (n_sources, n_runs, n_nodes)     -- possible mask
+#   maximal_outbreak: (n_sources, n_nodes)     -- outbreak mask
+
+# Step 1: mask out impossible candidates per run
+# (set their scores to -inf so they rank last)
+scores_filtered = scores - data.lik_possible   # lik_possible = 0 or +inf
+
+# Step 2: rank nodes within each run (descending by score)
+ranks = np.argsort(-scores_filtered, axis=-1)  # shape: (n_sources, n_runs, n_nodes)
+# find rank of true source in each run
+true_source_ranks = ...   # find where true source sits in ranking
+
+# Step 3: select valid test cases (maximal outbreak only)
+sel = data.maximal_outbreak.flatten()  # boolean selection mask
+
+# Step 4: compute metrics on selected cases
+mrr  = rank_score(true_source_ranks.flatten(), sel)
+top5 = top_k_score(true_source_ranks.flatten(), sel, k=5)
+\end{lstlisting}
+\end{codewalk}
+
+% ============================================================
+\section{The Computational Challenge}
+\label{sec:computational-challenge}
+% ============================================================
+
+We have established the correct approach (MLE via simulation) and the
+metrics to evaluate it. Now let us be precise about \emph{why} this
+approach cannot scale to real-world networks without clever approximations.
+
+\subsection{Back-of-the-Envelope Calculation}
+
+\begin{examplebox}{Scaling Analysis: How Long Does Brute-Force MLE Take?}
+Let us parametrize the cost. Suppose:
+\begin{itemize}
+    \item $N$ = number of nodes (network size)
+    \item $n_{\text{runs}}$ = number of simulation runs per candidate
+    \item $t_{\text{sim}}$ = time to run one epidemic simulation
+\end{itemize}
+
+Total cost = $N \times n_{\text{runs}} \times t_{\text{sim}}$.
+
+\bigskip
+\textbf{Realistic values:}
+A modern event-driven SIR simulator (like the C implementation in
+\texttt{tsir/}) can simulate one epidemic in roughly $1\,\text{ms}$ for
+$N = 1000$ nodes. For accuracy, we need at least $n_{\text{runs}} = 100$
+simulations per candidate.
+
+\medskip
+\begin{center}
+\begin{tabular}{rrrr}
+\toprule
+\textbf{Network size $N$} & \textbf{Simulations} & \textbf{Time/sim} & \textbf{Total time} \\
+\midrule
+100     & $100 \times 100 = 10{,}000$       & $0.1\,\text{ms}$ & $1\,\text{second}$    \\
+1,000   & $1000 \times 100 = 100{,}000$     & $1\,\text{ms}$   & $100\,\text{seconds}$ \\
+10,000  & $10{,}000 \times 100 = 1{,}000{,}000$ & $10\,\text{ms}$ & $\approx 2.8\,\text{hours}$ \\
+100,000 & $10^7$                            & $100\,\text{ms}$ & $\approx 115\,\text{days}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+For $N = 1000$ nodes, brute-force MLE takes about 100 seconds — feasible
+for occasional research use but far too slow for real-time outbreak response.
+For $N = 10{,}000$ it is almost 3 hours. For $N = 100{,}000$ (the size of a
+small city's contact network), it would take nearly 4 months.
+\end{examplebox}
+
+\subsection{Why We Need Faster Methods}
+
+The scaling analysis above makes clear that brute-force MLE is impractical
+for any real application. This motivates two alternative strategies, both
+of which are developed in this thesis:
+
+\begin{conceptbox}{Two Routes to Scalable Source Detection}
+\textbf{1. Classical heuristics (Chapter~5).} Replace the expensive
+simulation-based likelihood with a cheap proxy that can be computed in
+polynomial time. Examples: the Jordan center computes eccentricities in
+$\mathcal{O}(N^2)$ time; rumor centrality runs in $\mathcal{O}(N)$ on trees.
+These methods are fast but limited: they rely on strong structural
+assumptions (tree topology, SI dynamics) that rarely hold in practice.
+
+\textbf{2. Learning-based methods (Chapters~6--11).} Train a graph neural
+network on thousands of simulated epidemics (generated offline). At
+inference time, the trained model evaluates each new epidemic observation
+in a \emph{single forward pass} of the neural network, requiring only
+$\mathcal{O}(|E| + N)$ operations — no simulation needed at test time.
+The training cost is paid once; the inference cost is negligible.
+\end{conceptbox}
+
+The key insight is that the GNN is \textbf{amortising} the simulation cost:
+instead of running 100 simulations per candidate for each new epidemic, we
+run millions of simulations \emph{once} during training, and the network
+learns to extract the relevant patterns. At test time, a single forward pass
+— typically taking milliseconds — replaces the hours of brute-force computation.
+
+\begin{keyinsight}{Why GNNs Are the Right Tool}
+Source detection on a graph has a natural structure that GNNs are designed
+to exploit:
+\begin{enumerate}
+    \item The observation $\mathbf{X}$ assigns features to each node
+    ($S$, $I$, or $R$) — exactly the input format for a node classification
+    GNN.
+    \item The posterior $P(\text{source}=v \mid \mathbf{X})$ is a
+    probability assigned to each node — exactly the output format for a
+    node-level prediction task.
+    \item The relevant information is \emph{local}: a node's probability of
+    being the source depends primarily on the states of its neighbours and
+    the topology of its local neighbourhood, not on distant parts of the
+    graph. GNN message passing naturally aggregates this local information.
+    \item With temporal networks, edge timestamps provide additional causal
+    constraints that temporal GNN architectures can learn to exploit.
+\end{enumerate}
+\end{keyinsight}
+
+% ============================================================
+\section{The Inverse Problem: A Structural View}
+\label{sec:structural-view}
+% ============================================================
+
+Before closing this chapter, it is worth stepping back to understand the
+structure of the problem from a higher level.
+
+\subsection{The Forward and Inverse Directions}
+
+\begin{center}
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=4pt, minimum width=3cm,
+              minimum height=1cm, font=\small, fill=blue!6, thick,
+              align=center},
+  arr/.style={-{Stealth[length=3mm]}, thick},
+  darr/.style={-{Stealth[length=3mm]}, thick, dashed, gray!70}
+]
+
+\node[box] (source) at (0,0)   {Source node $s^*$ \\ \small(unknown)};
+\node[box] (process) at (4.5,0) {SIR spreading \\ \small on network $G$};
+\node[box] (obs)    at (9,0)   {Observation $\mathbf{X}$ \\ \small(known)};
+
+\draw[arr] (source) -- node[above, font=\footnotesize]{forward / easy} (process);
+\draw[arr] (process) -- node[above, font=\footnotesize]{stochastic} (obs);
+
+\draw[darr, bend right=30] (obs) to
+  node[below, font=\footnotesize, align=center]{inverse / hard \\ (source detection)} (source);
+
+\end{tikzpicture}
+\end{center}
+
+The \textbf{forward direction} (left to right) is tractable: given $s^*$ and
+$G$, we simulate the SIR process to generate $\mathbf{X}$. This is what the
+TSIR engine does.
+
+The \textbf{inverse direction} (right to left) is what we solve in this
+thesis: given $\mathbf{X}$ and $G$, recover $s^*$. The arrow is dashed
+because the mapping is not a function — the same $\mathbf{X}$ can arise from
+multiple different sources, and the same source can produce many different
+$\mathbf{X}$ values. The inverse is a probability distribution, not a
+deterministic map.
+
+\subsection{What Makes a Source Detectable?}
+
+The following table summarises the structural conditions that make source
+detection easier or harder. Each row represents a variable that we
+manipulate in the experimental evaluation of Chapter~6.
+
+\begin{conceptbox}{Structural Determinants of Detection Difficulty}
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{lll}
+\toprule
+\textbf{Property} & \textbf{Easier detection} & \textbf{Harder detection} \\
+\midrule
+Network structure     & Tree-like (few cycles)       & Dense (many cycles)        \\
+Degree distribution   & Heterogeneous (scale-free)   & Homogeneous (regular, ER)  \\
+Observation time $T$  & Early (small $T$)            & Late (large $T$)           \\
+Observation coverage  & Full (all nodes)             & Partial (sensor subset)    \\
+Temporal resolution   & High (fine timestamps)       & Low (aggregated/static)    \\
+Epidemic size $k/N$   & Intermediate                 & Very small or very large   \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{conceptbox}
+
+Each row of this table is a research question. Our experimental setup in
+Chapter~6 varies these conditions systematically to understand when and why
+different methods succeed or fail.
+
+% ============================================================
+\section{Chapter Summary}
+\label{sec:source-detection-summary}
+% ============================================================
+
+This chapter introduced the source detection problem from the ground up. We
+started with the detective analogy and built toward a rigorous mathematical
+framework. The key takeaways are:
+
+\begin{enumerate}
+    \item \textbf{Source detection is a Bayesian inverse problem.} The
+    posterior $P(\text{source}=v \mid \mathbf{X}) \propto
+    P(\mathbf{X} \mid \text{source}=v)$ (under a uniform prior) assigns a
+    probability to each candidate node.
+
+    \item \textbf{The likelihood is intractable exactly but approximable by
+    simulation.} Running $n_{\text{runs}}$ epidemics from each candidate and
+    counting matches (exact or soft via Jaccard similarity) gives an unbiased
+    estimate.
+
+    \item \textbf{Real observations are noisy and partial.} Soft matching
+    and appropriate handling of partial observations are essential for
+    robust methods.
+
+    \item \textbf{Four core challenges.} Partial observation, late
+    observation, network heterogeneity, and temporal ambiguity each degrade
+    detection performance in distinct ways.
+
+    \item \textbf{Evaluation uses rank score and top-$k$ score.} Both
+    metrics are normalised to be network-size-independent and are computed
+    only on valid test cases via the \texttt{possible} and
+    \texttt{maximal\_outbreak} filters.
+
+    \item \textbf{Brute-force MLE is computationally infeasible} for
+    networks beyond a few hundred nodes, motivating both classical heuristics
+    (Chapter~5) and GNN-based learning methods (Chapters~6--11).
+\end{enumerate}
+
+\begin{keyinsight}{The Thesis in One Sentence}
+Source detection is a hard inverse problem over a stochastic spreading
+process; Graph Neural Networks trained on simulated epidemic data can learn
+to approximate the posterior efficiently in a single forward pass, exploiting
+both the graph structure and — in temporal architectures — the causal
+constraints imposed by contact timestamps.
+\end{keyinsight}

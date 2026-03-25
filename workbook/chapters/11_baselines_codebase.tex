@@ -1,0 +1,908 @@
+\chapter{Experiments, Baselines, and Evaluation}
+\label{ch:experiments}
+
+% ============================================================
+% CHAPTER INTRODUCTION
+% ============================================================
+
+So far we have studied the problem of epidemic source detection and built GNN models to solve it. But how do we know whether a model is \emph{good}? How do we compare two different methods fairly? And how do we actually run the whole pipeline from raw network data to a final number that summarises performance?
+
+This chapter answers all three questions. We begin with the big picture: a tour of the four-stage experiment pipeline. Then we carefully define the evaluation metrics used in this project --- not just their formulas, but their meaning. We examine the \texttt{TSIRData} dataclass that glues everything together, walk through every classical baseline method line by line, and end with practical guidance on running experiments and reading the results.
+
+By the end of this chapter you will be able to:
+\begin{itemize}
+    \item Run a complete experiment end to end from the command line.
+    \item Explain what rank score and top-$k$ score measure, and compute them by hand on a toy example.
+    \item Describe what every field in \texttt{TSIRData} stores and why it is shaped the way it is.
+    \item Explain why the uniform, degree, and Jordan-center baselines behave the way they do.
+    \item Read an experiment results plot and say whether a method is performing well or poorly.
+\end{itemize}
+
+% ============================================================
+\section{The Experiment Pipeline: Big Picture}
+\label{sec:pipeline}
+% ============================================================
+
+\begin{conceptbox}{What is a Pipeline?}
+A \textbf{pipeline} is a sequence of steps where the output of each step becomes the input to the next. In software engineering, pipelines are used when a computation is too large or too complex to run as a single monolithic script. Each step can be debugged, rerun, and compared independently.
+
+Our experiment pipeline has four stages:
+\begin{enumerate}
+    \item \textbf{Simulate} --- generate epidemic data using the SIR model on a network.
+    \item \textbf{Infer} --- run inference methods (GNN or classical baseline) to identify the source.
+    \item \textbf{Evaluate} --- score every method using standardised metrics.
+    \item \textbf{Visualise} --- produce plots to understand the results.
+\end{enumerate}
+\end{conceptbox}
+
+\subsection{Pipeline Diagram}
+
+The following diagram illustrates the full data flow from raw network files to final plots.
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[
+    node distance = 1.5cm and 2.5cm,
+    box/.style     = {rectangle, rounded corners, draw=black!60, fill=white,
+                      minimum width=3.2cm, minimum height=1.0cm,
+                      font=\small, align=center, thick},
+    artifact/.style= {rectangle, draw=blue!60, fill=blue!8,
+                      minimum width=3.2cm, minimum height=0.8cm,
+                      font=\small\itshape, align=center},
+    arrow/.style   = {->, >=stealth, thick},
+    label/.style   = {font=\scriptsize\ttfamily, align=center}
+]
+
+% Stage 1
+\node[box, fill=green!10]  (tsir)   {\textbf{Stage 1}\\
+                                      \texttt{main\_tsir.py}\\
+                                      SIR Simulation};
+\node[artifact, below=0.8cm of tsir] (art1) {W\&B Artifact\\
+                                               \texttt{tsir-data:v0}};
+
+% Stage 2a
+\node[box, fill=orange!10, right=2.5cm of tsir] (gnn)  {\textbf{Stage 2a}\\
+                                                          \texttt{main\_gnn.py}\\
+                                                          GNN Inference};
+
+% Stage 2b
+\node[box, fill=orange!10, below=1.6cm of gnn]  (eval) {\textbf{Stage 2b}\\
+                                                          \texttt{main\_eval.py}\\
+                                                          Baseline Eval};
+
+% Stage 3
+\node[box, fill=purple!10, right=2.5cm of gnn] (viz)  {\textbf{Stage 3}\\
+                                                         \texttt{viz/}\\
+                                                         Visualisation};
+
+% YAML configs
+\node[artifact, above=0.8cm of tsir]  (cfg1) {YAML Config\\
+                                               \texttt{exp/.../tsir.yml}};
+\node[artifact, above=0.8cm of gnn]   (cfg2) {YAML Config\\
+                                               \texttt{exp/.../gnn.yml}};
+\node[artifact, above=0.8cm of viz]   (cfg3) {W\&B Logs\\
+                                               \texttt{source-detection}};
+
+% Arrows
+\draw[arrow] (cfg1) -- (tsir);
+\draw[arrow] (tsir) -- (art1);
+\draw[arrow] (art1.east) -| (gnn.south);
+\draw[arrow] (art1.east) -| (eval.south);
+\draw[arrow] (cfg2) -- (gnn);
+\draw[arrow] (gnn)  -- (viz);
+\draw[arrow] (eval) -| (viz.south);
+\draw[arrow] (viz)  -- (cfg3);
+
+\end{tikzpicture}
+\caption{The four-stage experiment pipeline. Stage 1 produces a versioned data artifact; Stages 2a and 2b both consume it independently; Stage 3 collects all results from W\&B and produces comparison plots.}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{Stage 1: Generating Ground-Truth Data (\texttt{main\_tsir.py})}
+
+The first stage runs SIR simulations on a temporal network and saves everything to disk. It produces three types of data:
+
+\begin{itemize}
+    \item \textbf{Ground-truth simulations} (\texttt{ground\_truth\_\{S,I,R\}.bin}): For every possible source node $v_0 \in \{0, \ldots, N-1\}$, we run the SIR model $n\_\text{runs}$ times. The final state of every node (Susceptible, Infected, or Recovered) is recorded. This is the labelled dataset used for evaluation.
+
+    \item \textbf{Monte Carlo simulations} (\texttt{monte\_carlo\_\{S,I,R\}.bin}): Also from every source, but $mc\_\text{runs}$ independent realisations. This data is given to the GNN as \emph{training features} --- the model can look at Monte Carlo simulations to understand what outbreaks from a given source tend to look like.
+
+    \item \textbf{Maximal-outbreak simulations} (\texttt{maximal\_outbreak\_S.bin}): Run with $\beta=1$, $\mu=0$, so the infection spreads deterministically to every reachable node. This maps out the \emph{maximum possible spread} from each source, used to build the \texttt{possible} mask (see Section~\ref{sec:tsirdata}).
+\end{itemize}
+
+\begin{codewalk}{Reading \texttt{main\_tsir.py} Step by Step}
+\begin{lstlisting}[language=Python]
+# Step 1: Load config and set up W&B tracking
+cfg = setup_tsir_run(args.cfg)
+local_folder = f"data/{wandb.run.id}"
+
+# Step 2: Load the temporal network from file
+H = load_network(cfg)
+n_nodes = H.number_of_nodes()
+
+# Step 3: Convert network to a C-readable format
+H_cread = make_c_readable_from_networkx(H, t_max=cfg.nwk.t_max)
+
+# Step 4: Run ground-truth SIR (n_nodes sources x n_runs each)
+truth_S, truth_I, truth_R = sir_ground_truth(cfg, H_cread, n_nodes)
+
+# Step 5: Run Monte Carlo SIR (training data for GNN)
+sir_monte_carlo(cfg, H_cread, n_nodes, local_folder)
+
+# Step 6: Maximal outbreak (beta=1, mu=0) for the 'possible' mask
+sir_maximal_outbreak(cfg, H_cread, n_nodes, local_folder)
+
+# Step 7: Build and save the 'possible' mask
+# possible[s, r, v] = 1 iff node v was NOT susceptible in run r from source s
+truth_S_3d = truth_S.reshape(n_nodes, cfg.sir.n_runs, n_nodes)
+possible   = (1 - truth_S_3d).astype(np.int8)
+
+# Step 8: Log everything as a versioned W&B artifact
+artifact = wandb.Artifact(name=args.data, type="tsir-data")
+artifact.add_dir(local_folder)
+wandb.log_artifact(artifact)
+\end{lstlisting}
+\textbf{Key idea:} The \texttt{possible} mask is built from the ground-truth runs. A node that stayed Susceptible in \emph{every} run from source $s$ is very unlikely to be the true source --- it was never infected. The mask eliminates such impossible candidates, which makes inference much more tractable.
+\end{codewalk}
+
+\subsection{Stage 2a: GNN Inference (\texttt{main\_gnn.py})}
+
+The GNN training script loads the W\&B artifact produced in Stage 1, builds the Monte Carlo data into input feature tensors $X$, trains a \texttt{StaticGNN}, and records evaluation scores. We cover the GNN architecture in detail in earlier chapters; here we focus on the evaluation interface.
+
+After training, the script runs inference on the \emph{ground-truth} observations (not the Monte Carlo training data) and calls the same scoring functions as the baseline evaluator:
+
+\begin{lstlisting}[language=Python]
+gnn_log_lik = results.cpu().numpy() - lik_possible
+gnn_ranks   = compute_ranks(gnn_log_lik, n_nodes=data.n_nodes, n_runs=n_truth)
+top_k_score(gnn_ranks, sel, k)
+rank_score(gnn_ranks, sel, offset)
+\end{lstlisting}
+
+\subsection{Stage 2b: Classical Baseline Evaluation (\texttt{main\_eval.py})}
+
+This script evaluates all non-learning baselines on the same artifact. It uses the exact same scoring functions, ensuring a fair, apples-to-apples comparison. The baselines available are:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Baseline}     & \textbf{Signal Used}                   & \textbf{Cost}    \\
+\midrule
+\texttt{uniform}      & None (equal probability to all nodes)  & $O(N)$           \\
+\texttt{random}       & None (random pick from possible set)   & $O(N)$           \\
+\texttt{degree}       & Degree in infected subgraph            & $O(N + E)$       \\
+\texttt{closeness}    & Closeness centrality in infected subgraph & $O(N^2)$      \\
+\texttt{betweenness}  & Betweenness centrality in infected subgraph & $O(N^3)$    \\
+\texttt{jordan\_center} & Minimum eccentricity in infected subgraph & $O(N^2)$    \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Stage 3: Visualisation (\texttt{viz/})}
+
+The visualisation scripts query the W\&B API to collect metric summaries from all completed runs (both GNN runs and baseline runs) and produce comparison plots. Results for different methods are identified by the W\&B tags and job types attached to each run.
+
+% ============================================================
+\section{Evaluation Metrics: From Scratch}
+\label{sec:metrics}
+% ============================================================
+
+\begin{conceptbox}{The Core Question}
+Every evaluation metric in this project ultimately answers one question: \textbf{how quickly can a method lead us to the true source?}
+
+Think of it like a police investigation. We have $N$ suspects. After running our inference method, we sort all suspects from most likely to least likely. We then check how far down the list the true culprit appears.
+\begin{itemize}
+    \item If the true source is \textbf{rank 1} (top of the list) --- perfect. We found them immediately.
+    \item If the true source is \textbf{rank $N$} (bottom of the list) --- the method is actively misleading.
+    \item A \textbf{random guesser} would, on average, place the true source at rank $N/2$.
+\end{itemize}
+Every metric below is a different way to summarise this rank.
+\end{conceptbox}
+
+\subsection{Computing the Rank}
+
+Before defining any metric, we need to define what a ``rank'' is. The code in \texttt{eval/ranks.py} computes it as follows.
+
+\begin{codewalk}{Computing Ranks (\texttt{eval/ranks.py})}
+\begin{lstlisting}[language=Python]
+def compute_ranks(values, n_nodes, n_runs):
+    # 'values' is a matrix of shape [n_nodes * n_runs, n_nodes]
+    # values[i, j] = score assigned to node j as source for observation i
+
+    # Step 1: for each observation i, find the score assigned to the TRUE source
+    # The true source for observation i = (i // n_runs)
+    source_values = values[
+        np.arange(n_nodes * n_runs),
+        np.repeat(np.arange(n_nodes), n_runs)
+    ]
+
+    # Step 2: rank = number of nodes with a HIGHER score than the true source
+    # rank=0 means the true source has the highest score (it is #1)
+    rank = np.sum(values > source_values[:, None], axis=1)
+
+    # Step 3: handle ties by breaking them randomly
+    ties = np.sum(values == source_values[:, None], axis=1)
+    rank = rank + np.random.randint(ties) + 1
+
+    return rank  # rank[i] is in {1, 2, ..., N}
+\end{lstlisting}
+\textbf{Note on indexing:} The matrix \texttt{values} has $N \times n\_\text{runs}$ rows, one for each (source, run) pair. The true source for row $i$ is $\lfloor i / n\_\text{runs} \rfloor$. The code uses \texttt{np.repeat} to build this index array efficiently.
+\end{codewalk}
+
+\begin{examplebox}{Rank Computation by Hand}
+Suppose $N = 5$ nodes and we are evaluating one observation (source = node 2). The method assigns these scores:
+
+\begin{center}
+\begin{tabular}{ccccc}
+\toprule
+Node 0 & Node 1 & \textbf{Node 2 (true)} & Node 3 & Node 4 \\
+\midrule
+0.10   & 0.05   & \textbf{0.60}           & 0.20   & 0.05   \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+How many nodes have a score \emph{strictly greater} than 0.60? None. So $\text{rank} = 0 + 1 = 1$.
+
+Now a bad case: the true source (node 2) gets score 0.01, and all others get higher scores. Then rank $= 4 + 1 = 5$.
+
+A random baseline: each node gets roughly the same score, so the true source ends up at rank $\approx N/2 \approx 2.5$ on average.
+\end{examplebox}
+
+\subsection{Rank Score}
+
+\begin{mathbox}{Rank Score Definition}
+For a single observation with true source rank $r$ out of $N$ nodes, the \textbf{rank score} is:
+
+\[
+\text{RS}(r) = \frac{1+\delta}{r+\delta}
+\]
+
+where $\delta \geq 0$ is an offset parameter (called \texttt{inverse\_rank\_offset} in the config). When $\delta = 0$, this simplifies to $1/r$.
+
+For $\delta = 0$:
+\begin{itemize}
+    \item If rank = 1 (perfect): $\text{RS} = 1/1 = 1.0$
+    \item If rank = 2: $\text{RS} = 1/2 = 0.5$
+    \item If rank = $N$ (worst): $\text{RS} = 1/N \approx 0$
+\end{itemize}
+
+The \textbf{mean rank score} over a dataset of $Q$ test cases is:
+\[
+\overline{\text{RS}} = \frac{1}{Q} \sum_{q=1}^{Q} \frac{1+\delta}{r_q + \delta}
+\]
+
+A random baseline achieves $\overline{\text{RS}} \approx \frac{2}{N+1}$ in expectation. A perfect method achieves $\overline{\text{RS}} = 1.0$.
+\end{mathbox}
+
+\begin{codewalk}{Rank Score in Code (\texttt{eval/scores.py})}
+\begin{lstlisting}[language=Python]
+def rank_score(ranks, sel, offset=0):
+    # ranks: array of rank values for each (source, run) pair
+    # sel:   boolean mask --- only count "valid" outbreaks
+    # offset: the delta parameter above
+    return np.mean((1 + offset) / (ranks[sel] + offset))
+\end{lstlisting}
+The \texttt{sel} mask filters out degenerate outbreaks where too few nodes were infected (controlled by \texttt{min\_outbreak} in the eval config). Evaluating on tiny outbreaks would be unfair because even random methods might get lucky.
+\end{codewalk}
+
+\begin{analogybox}{Why Use $1/r$ Instead of $r/N$?}
+You might expect the metric to be $r/N$ (normalised rank), where lower is better. The project uses $1/r$ (reciprocal rank), where \textbf{higher is better}. Why?
+
+The reciprocal rank rewards being ``close to the top'' much more generously. Consider two methods:
+\begin{itemize}
+    \item Method A: True source is always at rank 1. Score = 1.0. Perfect.
+    \item Method B: True source is always at rank 2. Score = 0.5. Still quite good.
+    \item Method C: True source is always at rank 50 (out of 100). Score = 0.02. Poor.
+\end{itemize}
+
+With normalised rank $r/N$, Methods B and C look equidistant from Method A. With reciprocal rank, Method B is recognised as much better than C. This matches the epidemiological use case: getting the source in the top 3 is operationally useful; getting it at rank 50 is not.
+\end{analogybox}
+
+\subsection{Top-$k$ Score}
+
+\begin{mathbox}{Top-$k$ Score Definition}
+The \textbf{top-$k$ score} is a binary metric. For each test case, it asks: is the true source among the $k$ highest-ranked nodes?
+
+\[
+\text{Top}_k(r) = \mathbf{1}[r \leq k]
+\]
+
+The mean top-$k$ score over $Q$ test cases is:
+\[
+\overline{\text{Top}_k} = \frac{1}{Q} \sum_{q=1}^{Q} \mathbf{1}[r_q \leq k]
+\]
+
+This is simply the fraction of test cases where the source is in the top-$k$ predictions.
+\end{mathbox}
+
+\begin{codewalk}{Top-$k$ Score in Code (\texttt{eval/scores.py})}
+\begin{lstlisting}[language=Python]
+def top_k_score(ranks, sel, k=5):
+    # Returns the fraction of valid outbreaks where the true source
+    # was ranked in the top k
+    return np.mean(ranks[sel] <= k)
+\end{lstlisting}
+\end{codewalk}
+
+\begin{examplebox}{Top-$k$ Score Concrete Example}
+Network has $N = 100$ nodes. We evaluate over 1000 test cases. A method produces:
+\begin{itemize}
+    \item 420 cases where the true source is rank 1 (top-1 = 42\%)
+    \item 180 more cases where it is rank 2, 3, 4, or 5
+    \item Total: 600 cases where the source is in the top 5 (top-5 = 60\%)
+\end{itemize}
+
+For a \textbf{random baseline} on $N=100$ nodes:
+\begin{itemize}
+    \item Expected top-1 score: $1/100 = 1\%$
+    \item Expected top-5 score: $5/100 = 5\%$
+\end{itemize}
+
+So a method that achieves 60\% top-5 is \emph{twelve times better} than random at finding the source within 5 guesses. This is a dramatic improvement and corresponds to real operational utility.
+\end{examplebox}
+
+\subsection{The \texttt{sel} Mask: Filtering Valid Outbreaks}
+
+Not every simulation is worth evaluating. If only one or two nodes get infected, the source detection problem is trivially easy (or trivially ambiguous). The \texttt{min\_outbreak} threshold filters these out:
+
+\begin{lstlisting}[language=Python]
+# sel[i] = True if observation i has at least min_outbreak non-susceptible nodes
+sel = (1 - truth_S_flat).sum(axis=1) >= eval_cfg["min_outbreak"]
+\end{lstlisting}
+
+In the toy Holme network config, \texttt{min\_outbreak: 2} means we only evaluate outbreaks where at least 2 nodes were infected or recovered.
+
+\subsection{Other Metrics in the Codebase}
+
+The \texttt{eval/scores.py} module also defines several additional metrics that may be used for deeper analysis:
+
+\begin{itemize}
+    \item \textbf{Normalised Brier Score}: Measures the calibration of the predicted probability distribution. A well-calibrated method not only ranks the true source highly, but also assigns realistic confidence values. Defined as:
+    \[
+    \text{NBS} = \frac{1}{Q} \sum_{q} \frac{\sum_v (x_v^* - \hat{p}_v)^2}{2/N}
+    \]
+    where $x_v^* \in \{0,1\}$ is the true source indicator and $\hat{p}_v$ is the predicted probability. Normalised by $2/N$ (the score of a uniform predictor).
+
+    \item \textbf{Normalised Entropy}: Measures how ``spread out'' the predicted distribution is. A sharp, confident prediction has low entropy. A confused, nearly-uniform prediction has high entropy close to 1.
+
+    \item \textbf{Credible Set Coverage}: The smallest set of top-ranked nodes that captures at least probability mass $p$. Reports whether the true source falls within this credible set.
+\end{itemize}
+
+% ============================================================
+\section{The \texttt{TSIRData} Dataclass}
+\label{sec:tsirdata}
+% ============================================================
+
+\begin{conceptbox}{Why a Dataclass?}
+Loading the simulation data from binary files involves many steps: resolving the W\&B artifact, reading flat binary arrays, reshaping them to the correct 3D tensors, and building derived quantities like the \texttt{possible} mask. Wrapping all of this in a single \texttt{dataclass} means every subsequent script (GNN training, baseline evaluation, visualisation) gets the same clean interface regardless of where the data lives.
+\end{conceptbox}
+
+\subsection{Fields and Shapes}
+
+\begin{codewalk}{\texttt{TSIRData} Dataclass (\texttt{setup/data\_loader.py})}
+\begin{lstlisting}[language=Python]
+@dataclass
+class TSIRData:
+    config:           dict          # original YAML config from the TSIR run
+    n_nodes:          int           # N = number of nodes in the network
+    n_runs:           int           # number of ground-truth runs per source
+    mc_runs:          int           # number of Monte Carlo runs per source
+    mc_S:             np.ndarray    # shape: (N, mc_runs, N)
+    mc_I:             np.ndarray    # shape: (N, mc_runs, N)
+    mc_R:             np.ndarray    # shape: (N, mc_runs, N)
+    truth_S:          np.ndarray    # shape: (N, n_runs, N)
+    truth_I:          np.ndarray    # shape: (N, n_runs, N)
+    truth_R:          np.ndarray    # shape: (N, n_runs, N)
+    maximal_outbreak: np.ndarray    # shape: (N, N) -- fraction ever infected
+    possible:         np.ndarray    # shape: (N, n_runs, N) -- int8 mask
+    lik_possible:     np.ndarray    # shape: (N, n_runs, N) -- log-prior mask
+\end{lstlisting}
+\end{codewalk}
+
+\subsection{Understanding the 3D Tensor Shape}
+
+The shape \texttt{(N, n\_runs, N)} appears repeatedly and deserves careful explanation.
+
+\begin{examplebox}{Decoding the Shape \texttt{(N, n\_runs, N)}}
+Let $N = 100$ nodes and $n\_\text{runs} = 5000$. The array \texttt{truth\_I} has shape \texttt{(100, 5000, 100)}.
+
+The three axes are:
+\begin{enumerate}
+    \item \textbf{Axis 0 --- source node} ($s \in \{0, \ldots, 99\}$): Which node was the epidemic source?
+    \item \textbf{Axis 1 --- run index} ($r \in \{0, \ldots, 4999\}$): Which of the 5000 independent realisations?
+    \item \textbf{Axis 2 --- observation node} ($v \in \{0, \ldots, 99\}$): What was the state of node $v$?
+\end{enumerate}
+
+So \texttt{truth\_I[5, 2, 8] = 1} means:
+\begin{quote}
+``In the epidemic that started at node 5, in the 3rd realisation (0-indexed), node 8 was \textbf{Infected} at the observation time.''
+\end{quote}
+
+Similarly, \texttt{truth\_S[5, 2, 8] = 1} means node 8 was \textbf{Susceptible} (never infected), and \texttt{truth\_R[5, 2, 8] = 1} means node 8 had \textbf{Recovered}.
+
+Note: exactly one of \texttt{truth\_S}, \texttt{truth\_I}, \texttt{truth\_R} equals 1 for any given \texttt{(s, r, v)} triple. They form a one-hot encoding of the SIR state.
+\end{examplebox}
+
+\subsection{The \texttt{possible} Mask}
+
+\begin{conceptbox}{Why Do We Need a \texttt{possible} Mask?}
+Not every node is a plausible epidemic source for every observation. If node 42 was never infected in any of the observed runs, it is extremely unlikely to have been the origin. Including it as a candidate would only dilute the probability mass assigned to genuinely plausible sources.
+
+The \texttt{possible} mask is a binary array:
+\[
+\texttt{possible}[s, r, v] = \begin{cases}
+1 & \text{if node } v \text{ was Infected or Recovered in run } r \text{ from source } s \\
+0 & \text{if node } v \text{ was Susceptible throughout}
+\end{cases}
+\]
+
+In source-detection terms: ``For observation $(s, r)$, which nodes are feasible source candidates?'' Only infected or recovered nodes can have been the source --- a Susceptible node provably was not infected, so it could not have started the outbreak.
+\end{conceptbox}
+
+\begin{codewalk}{How \texttt{possible} is Built (\texttt{main\_tsir.py})}
+\begin{lstlisting}[language=Python]
+truth_S_3d = truth_S.reshape(n_nodes, cfg.sir.n_runs, n_nodes)
+# possible[s, r, v] = 1 if node v was NOT Susceptible in run r from source s
+possible = (1 - truth_S_3d).astype(np.int8)
+possible.tofile(f"{local_folder}/possible_sources.bin")
+\end{lstlisting}
+\textbf{Key arithmetic:} The SIR state is stored as three separate arrays. \texttt{truth\_S[s, r, v] = 1} means Susceptible. Subtracting from 1 flips this: \texttt{(1 - truth\_S)[s, r, v] = 1} means ``was infected or recovered at some point,'' i.e., is a valid candidate.
+\end{codewalk}
+
+\subsection{The \texttt{lik\_possible} Log-Prior}
+
+\begin{mathbox}{Log-Prior for Impossible Nodes}
+When we compute log-likelihoods to rank source candidates, we need to ensure that impossible candidates are assigned probability zero. The \texttt{lik\_possible} field achieves this via an additive correction in log-space:
+
+\[
+\texttt{lik\_possible}[s, r, v] = \begin{cases}
+0 & \text{if node } v \text{ is a possible source for } (s, r) \\
++\infty & \text{if node } v \text{ is impossible}
+\end{cases}
+\]
+
+Adding this to a log-likelihood vector (with sign convention log-lik $-$ lik\_possible) sets impossible nodes to $-\infty$, driving their softmax probability to zero.
+
+In the code:
+\begin{lstlisting}[language=Python]
+lik_possible = np.where(possible == 1, 0, np.inf)
+\end{lstlisting}
+Then in inference:
+\begin{lstlisting}[language=Python]
+log_probs_corrected = model_log_probs - lik_possible
+# Impossible nodes now have -inf log-probability
+\end{lstlisting}
+\end{mathbox}
+
+\subsection{The \texttt{maximal\_outbreak} Array}
+
+The \texttt{maximal\_outbreak} array records, for each source node, the set of nodes that \emph{could ever} be reached if $\beta = 1$ and $\mu = 0$ (infection spreads to every contact, recovery never happens). This gives the upper bound on the set of infected nodes.
+
+Shape: \texttt{(N, N)}. Entry \texttt{maximal\_outbreak[s, v] = 1} means node $v$ is reachable from source $s$ through the temporal contact sequence.
+
+% ============================================================
+\section{Classical Baselines: Code Walkthroughs}
+\label{sec:baselines}
+% ============================================================
+
+Classical baselines are methods that do not require any training. They use simple heuristics --- either ignoring the network structure entirely or using only the static graph topology --- to rank candidate source nodes. They are valuable for two reasons:
+
+\begin{enumerate}
+    \item \textbf{Lower bounds on performance}: Any serious inference method must beat these.
+    \item \textbf{Insight into what information matters}: A baseline that does surprisingly well tells us that the corresponding signal (e.g., node degree) is informative for source detection.
+\end{enumerate}
+
+\subsection{Uniform Baseline}
+
+\begin{conceptbox}{Uniform Baseline: The ``Know Nothing'' Estimator}
+The uniform baseline assigns equal probability to every possible source candidate. It uses zero information from the observed epidemic.
+\end{conceptbox}
+
+\begin{codewalk}{Uniform Baseline (\texttt{main\_eval.py})}
+\begin{lstlisting}[language=Python]
+if baseline == "uniform":
+    u = poss.astype(np.float32)   # 1 for possible sources, 0 otherwise
+    s = u.sum()                    # total number of possible sources
+    probs[flat_idx] = u / s if s > 0 else np.ones(n_nodes) / n_nodes
+    continue
+\end{lstlisting}
+\textbf{Line by line:}
+\begin{itemize}
+    \item \texttt{poss} is the binary \texttt{possible} vector for this specific observation.
+    \item We convert it to float and normalise: each possible node gets probability $1 / |\mathcal{P}|$ where $\mathcal{P}$ is the set of possible nodes.
+    \item The fallback (\texttt{else} branch) handles the pathological case where no node was infected at all.
+\end{itemize}
+\textbf{Expected performance:} The expected rank of the true source is $|\mathcal{P}|/2$. Since $|\mathcal{P}| \approx N$ for large outbreaks, the expected rank score is approximately $2/(N+1) \approx 2/N$ for large $N$.
+\end{codewalk}
+
+\subsection{Random Baseline}
+
+\begin{codewalk}{Random Baseline (\texttt{main\_eval.py})}
+\begin{lstlisting}[language=Python]
+if baseline == "random":
+    u = poss.astype(np.float32)
+    s = u.sum()
+    p = u / s if s > 0 else np.ones(n_nodes) / n_nodes
+    chosen = int(np.random.choice(n_nodes, p=p))
+    probs[flat_idx, chosen] = 1.0   # put ALL probability on one random node
+    continue
+\end{lstlisting}
+Unlike the uniform baseline (which spreads probability uniformly), the random baseline \emph{commits} to a single random guess. The entire probability mass 1.0 goes to one randomly-chosen node.
+
+\textbf{When are they different?} For rank score, uniform and random baselines have the same expected performance (both are random). For top-1 accuracy, uniform gives $1/|\mathcal{P}|$ while random gives the same. They differ in Brier score: uniform has lower Brier score because it doesn't waste all mass on a single wrong guess.
+\end{codewalk}
+
+\subsection{Degree Baseline}
+
+\begin{conceptbox}{Degree Baseline: The ``Super-Spreader'' Heuristic}
+The degree baseline uses the intuition that highly connected nodes are more likely to be epidemic sources because they can infect more neighbours and thus cause larger outbreaks.
+
+Importantly, it computes degree within the \emph{infected subgraph} --- only considering edges among nodes that were observed to be infected or recovered. This avoids confusing global network hubs with local epidemic centres.
+\end{conceptbox}
+
+\begin{codewalk}{Degree Baseline (\texttt{main\_eval.py})}
+\begin{lstlisting}[language=Python]
+# First, build the infected subgraph from the static network
+def _infected_subgraph(H_static, I_snap, R_snap):
+    # Find all nodes that were Infected OR Recovered
+    infected_nodes = list(np.where((I_snap + R_snap) > 0)[0])
+    if not infected_nodes:
+        return nx.Graph()
+    # Return only the subgraph induced by these nodes
+    return H_static.subgraph(infected_nodes).copy()
+
+# Then, for the degree baseline:
+G_sub = _infected_subgraph(H_static, I_snap, R_snap)
+
+if baseline == "degree":
+    # Degree of each node within the infected subgraph
+    scores_dict = {n: float(d) for n, d in G_sub.degree()}
+\end{lstlisting}
+\textbf{Key insight:} Using the infected subgraph is critical. The source node is by definition part of the infected subgraph, and its local neighbourhood within that subgraph reflects how the epidemic actually spread. A node at the ``hub'' of the infected region is geometrically central.
+
+\textbf{Limitation:} This heuristic works well in networks where sources tend to be high-degree nodes (e.g., Barab{\'a}si-Albert scale-free networks). In random networks where all nodes have similar degrees, it provides little signal.
+\end{codewalk}
+
+\subsection{Jordan Center Baseline}
+
+\begin{conceptbox}{Jordan Center: The Geometric Centre of the Epidemic}
+The Jordan center of a graph is the node that minimises its \emph{eccentricity} --- the maximum shortest-path distance to any other node in the graph.
+
+Intuitively: if an epidemic spreads outward from a source at roughly uniform speed in all topological directions, the infected region will look like a ``ball'' centred on the source node. The Jordan center is the algorithm's best guess for the centre of this ball.
+\end{conceptbox}
+
+\begin{mathbox}{Eccentricity and Jordan Center}
+Let $G_I = (\mathcal{V}_I, \mathcal{E}_I)$ be the infected subgraph. For each node $v \in \mathcal{V}_I$, define its \textbf{eccentricity}:
+
+\[
+\varepsilon(v) = \max_{u \in \mathcal{V}_I} d(v, u)
+\]
+
+where $d(v, u)$ is the shortest-path distance between $v$ and $u$ in $G_I$.
+
+The \textbf{Jordan center} is:
+\[
+v^* = \arg\min_{v \in \mathcal{V}_I} \varepsilon(v)
+\]
+
+The scoring converts eccentricity into a score (so that higher score = more likely source):
+\[
+\text{score}(v) = \varepsilon_{\max} + 1 - \varepsilon(v)
+\]
+
+where $\varepsilon_{\max} = \max_v \varepsilon(v)$ is the maximum eccentricity in the subgraph.
+\end{mathbox}
+
+\begin{codewalk}{Jordan Center Baseline (\texttt{main\_eval.py})}
+\begin{lstlisting}[language=Python]
+elif baseline == "jordan_center":
+    # Handle disconnected infected subgraph: use only the largest component
+    if not nx.is_connected(G_sub):
+        G_cc = G_sub.subgraph(
+            max(nx.connected_components(G_sub), key=len)
+        ).copy()
+    else:
+        G_cc = G_sub
+
+    # Compute eccentricity for every node in the component
+    ecc = nx.eccentricity(G_cc)
+
+    # Convert to score: lower eccentricity -> higher score
+    max_ecc = max(ecc.values()) + 1
+    scores_dict = {n: float(max_ecc - e) for n, e in ecc.items()}
+\end{lstlisting}
+\textbf{The disconnected-component handling} is important. In practice, the infected subgraph may not be connected: perhaps two separate clusters were infected in the same observation window, or the network itself has bridge nodes. Eccentricity is only well-defined within a connected graph, so we take the largest connected component.
+
+\textbf{When Jordan Center fails:} The method assumes spatially uniform spread speed. In temporal networks, a contact that happens early in time can ``teleport'' the infection to a distant node. The Jordan center in the static topology may be far from the temporal propagation centre.
+\end{codewalk}
+
+\subsection{From Scores to Probabilities: The \texttt{\_scores\_to\_probs} Function}
+
+All topology-based baselines produce a dictionary of \texttt{\{node: score\}} pairs covering only the infected subgraph. The helper function \texttt{\_scores\_to\_probs} converts this into a full probability vector over all $N$ nodes, respecting the \texttt{possible} mask:
+
+\begin{codewalk}{Score-to-Probability Conversion (\texttt{main\_eval.py})}
+\begin{lstlisting}[language=Python]
+def _scores_to_probs(scores, n_nodes, poss):
+    # Step 1: fill in scores for nodes in the infected subgraph
+    vec = np.zeros(n_nodes, dtype=np.float64)
+    for node, score in scores.items():
+        if 0 <= node < n_nodes:
+            vec[node] = max(0.0, score)
+
+    # Step 2: zero out impossible nodes (those outside 'possible' mask)
+    vec = vec * poss.astype(np.float64)
+
+    # Step 3: normalise to a valid probability distribution
+    total = vec.sum()
+    if total > 0:
+        return (vec / total).astype(np.float32)
+
+    # Fallback: uniform over possible nodes
+    u = poss.astype(np.float64)
+    s = u.sum()
+    return (u / s if s > 0 else np.ones(n_nodes) / n_nodes).astype(np.float32)
+\end{lstlisting}
+\end{codewalk}
+
+\begin{keyinsight}{Why Multiply by \texttt{possible}?}
+The \texttt{possible} mask ensures that nodes which were never infected in the observation are assigned zero probability mass. Even if the degree baseline assigns a high score to a node that happened to be Susceptible in this particular run, that score is discarded. This is the correct Bayesian thing to do: if we \emph{observe} that node $v$ was Susceptible throughout, then $v$ provably was not the source.
+\end{keyinsight}
+
+% ============================================================
+\section{Running an Experiment End to End}
+\label{sec:running}
+% ============================================================
+
+\subsection{The YAML Configuration System}
+
+Every experiment is controlled by YAML files in the \texttt{exp/} directory. Each experiment has its own subdirectory containing separate configs for the data generation, GNN, and evaluation stages.
+
+\begin{codewalk}{Example TSIR Config (\texttt{exp/toy\_holme/tsir.yml})}
+\begin{lstlisting}[language={}]
+nwk:
+  type: empirical          # load from empirical contact data
+  name: toy_holme          # dataset identifier
+  t_max: 7                 # use all 7 time steps of the network
+
+sir:
+  beta: 0.30               # transmission probability per contact
+  mu:   0.20               # recovery probability per time step
+  start_t: 0               # observation window start
+  end_t:   7               # observation window end
+  n_runs:  5000            # ground-truth runs per source node
+  mc_runs: 500             # Monte Carlo runs per source (for GNN features)
+\end{lstlisting}
+\end{codewalk}
+
+\begin{codewalk}{Example Eval Config (\texttt{exp/toy\_holme/eval.yml})}
+\begin{lstlisting}[language={}]
+eval:
+  min_outbreak: 2          # skip observations with fewer infected nodes
+  top_k: [1, 3]            # compute top-1 and top-3 scores
+  inverse_rank_offset: [0] # offset=0 means standard 1/r metric
+  n_truth: 1000            # evaluate on 1000 ground-truth runs per source
+
+baselines:
+  - uniform
+  - random
+  - degree
+  - closeness
+  - betweenness
+  - jordan_center
+\end{lstlisting}
+\end{codewalk}
+
+\subsection{Full Command Sequence}
+
+Running a complete experiment requires three commands executed in order. Each command must finish before the next begins, because each stage depends on the output of the previous.
+
+\begin{codewalk}{Full Command Sequence}
+\begin{lstlisting}[language=bash]
+# ---------------------------------------------------------------
+# Stage 1: Generate SIR simulations
+# Output: versioned W&B artifact 'toy_holme:v0'
+# ---------------------------------------------------------------
+python main_tsir.py \
+    --cfg  exp/toy_holme/tsir.yml \
+    --data toy_holme
+
+# ---------------------------------------------------------------
+# Stage 2a: Train GNN and run inference
+# Input: artifact 'toy_holme:latest' (referenced in wandb config)
+# Output: W&B run with eval metrics logged
+# ---------------------------------------------------------------
+python main_gnn.py  # config read from W&B sweep or hardcoded yml
+
+# ---------------------------------------------------------------
+# Stage 2b: Evaluate classical baselines
+# Input: same artifact 'toy_holme:latest'
+# Output: W&B run with baseline metrics logged
+# ---------------------------------------------------------------
+python main_eval.py \
+    --cfg  exp/toy_holme/eval.yml \
+    --data toy_holme:latest
+
+# ---------------------------------------------------------------
+# Stage 3: Plot results
+# Input: W&B API (queries all completed runs)
+# Output: PNG/PDF figures in viz/figures/
+# ---------------------------------------------------------------
+python viz/plot_vary_n.py
+\end{lstlisting}
+\end{codewalk}
+
+\subsection{What Gets Logged to W\&B}
+
+Weights \& Biases (W\&B) is the experiment tracking platform used throughout this project. Every run logs:
+
+\begin{itemize}
+    \item \textbf{Config}: The full YAML configuration, stored as W\&B config fields. This makes every run self-documenting.
+    \item \textbf{Summary metrics}: Top-$k$ scores and rank scores for each method, stored as W\&B summary values for easy comparison.
+    \item \textbf{Comparison table}: A W\&B \texttt{Table} object with all baselines compared side by side.
+    \item \textbf{Data artifacts}: The binary simulation files are stored as versioned artifacts. The name (e.g., \texttt{toy\_holme:v0}) acts as a permanent, reproducible reference.
+    \item \textbf{Tags}: Each run is tagged with the dataset name and job type (\texttt{eval}, \texttt{gnn}), making it easy to filter runs in the W\&B UI.
+\end{itemize}
+
+\begin{codewalk}{W\&B Logging in \texttt{main\_eval.py}}
+\begin{lstlisting}[language=Python]
+# After computing metrics for each baseline:
+wandb.log({
+    **{k: v for k, v in metrics.items() if k != "model"},
+    "baseline": baseline,
+})
+
+# Log summary table across all baselines
+table = wandb.Table(columns=["baseline", "top_1", "top_3", "rank_score"])
+for row in summary_rows:
+    table.add_data(row["model"], ...)
+wandb.log({"baselines_comparison": table})
+
+# Store metadata in run summary
+wandb.summary["n_valid_outbreaks"] = int(sel.sum())
+wandb.summary["n_total"] = len(sel)
+\end{lstlisting}
+\end{codewalk}
+
+% ============================================================
+\section{Erdős–Rényi Networks as Benchmarks}
+\label{sec:erdos_renyi}
+% ============================================================
+
+\begin{conceptbox}{What is an Erdős–Rényi Graph?}
+An Erdős–Rényi random graph $G(N, p)$ is constructed as follows:
+\begin{enumerate}
+    \item Start with $N$ isolated nodes.
+    \item For every pair of nodes $(i, j)$ where $i < j$, independently flip a biased coin that lands heads with probability $p$.
+    \item If heads: add an edge $(i, j)$.
+\end{enumerate}
+
+The total number of edges has expected value $\binom{N}{2} p \approx N^2 p / 2$. Each node has an expected degree of $(N-1) p \approx Np$ for large $N$.
+\end{conceptbox}
+
+\begin{mathbox}{Expected Degree in $G(N, p)$}
+For a given node $v$, it can potentially form edges with $N-1$ other nodes. Each edge exists independently with probability $p$. Therefore:
+
+\[
+\mathbb{E}[\deg(v)] = (N-1) \cdot p
+\]
+
+For $N = 100, p = 0.05$:
+\[
+\mathbb{E}[\deg(v)] = 99 \times 0.05 \approx 4.95 \approx 5
+\]
+
+This means on average, each node is connected to about 5 others. The network is sparse (far fewer edges than a complete graph) but well connected enough for epidemics to spread.
+
+For $N = 500, p = 0.01$:
+\[
+\mathbb{E}[\deg(v)] = 499 \times 0.01 \approx 5
+\]
+
+We can keep the expected degree constant while increasing $N$ by setting $p = c/N$ for some constant $c$. This is the \emph{sparse regime} studied in the scaling experiment.
+\end{mathbox}
+
+\begin{analogybox}{Why Random Graphs as Benchmarks?}
+Erdős–Rényi graphs are the ``hydrogen atom'' of network science: analytically tractable, well-studied, and free from the structural biases of real-world networks (no community structure, no heavy-tailed degree distribution, no spatial embedding).
+
+By benchmarking on $G(N, p)$, we isolate the effect of \emph{network size} on source detection difficulty, without confounding it with structural complexity. This lets us answer the clean question: ``As the problem gets bigger, how does each method scale?''
+
+Real-world experiments on empirical networks (hospital wards, school contact networks) then tell us how methods perform when the structural assumptions break down.
+\end{analogybox}
+
+\subsection{The Giant Component and Epidemic Spread}
+
+A critical property of Erdős–Rényi graphs is the phase transition at $p = 1/N$. Below this threshold, the graph consists mostly of small isolated components. Above it, a \emph{giant component} emerges that contains $\Theta(N)$ nodes.
+
+For epidemic source detection, this matters because:
+\begin{itemize}
+    \item If $p < 1/N$: most epidemic sources will only infect a small local cluster. The problem is trivially easy.
+    \item If $p > 1/N$: the epidemic can spread through most of the network. The problem is non-trivially hard.
+\end{itemize}
+
+In practice, experiments use $p$ values in the range $[0.05, 0.2]$ to ensure well-connected networks where source detection is genuinely challenging.
+
+% ============================================================
+\section{Scaling Analysis: The \texttt{exp\_1\_vary\_n} Experiment}
+\label{sec:scaling}
+% ============================================================
+
+\begin{conceptbox}{What Does ``Vary $N$'' Mean?}
+The \texttt{exp\_1\_vary\_n} experiment runs the complete pipeline for multiple values of $N$ (network size). By plotting evaluation metrics as a function of $N$, we can answer: \textbf{how does source detection get harder as the network grows?}
+
+This is the most fundamental scaling question. It tells us whether a method is practically useful at scale or only works for small toy networks.
+\end{conceptbox}
+
+\subsection{Expected Scaling Behaviour}
+
+\begin{keyinsight}{Why Source Detection Gets Harder at Scale}
+Imagine trying to find who started a rumour in a school of 50 students versus a university of 5000 students. In the small school, after interviewing just 5 people you have explored 10\% of the network. In the university, 5 interviews cover only 0.1\%.
+
+For a \textbf{random baseline}, the expected rank of the true source is $N/2$. As $N$ grows, the rank score $\approx 2/N$ falls to zero. The problem becomes a harder needle-in-haystack search.
+
+For methods that use \textbf{topological heuristics} (degree, Jordan center), performance also degrades. As $N$ grows, more nodes share similar structural positions, and the true source becomes harder to distinguish.
+
+For \textbf{GNNs}, the situation is more nuanced. A GNN can potentially \emph{learn} that certain patterns in the epidemic observation (e.g., the gradient of infection density around a region) are informative regardless of network size. If the model generalises well, its rank score may degrade more slowly than classical methods.
+\end{keyinsight}
+
+\subsection{Interpreting a Results Plot}
+
+A typical experiment result is a line chart with $N$ on the horizontal axis and rank score on the vertical axis, with one line per method.
+
+\begin{itemize}
+    \item \textbf{A method performs well} if its line is \emph{high} (close to 1.0) and remains high as $N$ grows.
+    \item \textbf{A method fails} if its line is low (near $2/N$, i.e., barely above the random baseline) or drops sharply as $N$ increases.
+    \item \textbf{GNNs should outperform classicals} because they can learn the complex spatiotemporal patterns in the epidemic observation that simple geometric heuristics ignore.
+\end{itemize}
+
+\begin{examplebox}{Reading a Hypothetical Results Table}
+Consider a hypothetical experiment with $N \in \{20, 50, 100, 200\}$ nodes. Results (mean rank score, higher is better):
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method}      & $N=20$ & $N=50$ & $N=100$ & $N=200$ \\
+\midrule
+Random (baseline)    & 0.10   & 0.04   & 0.02    & 0.01    \\
+Uniform              & 0.10   & 0.04   & 0.02    & 0.01    \\
+Degree               & 0.22   & 0.14   & 0.09    & 0.05    \\
+Jordan Center        & 0.35   & 0.21   & 0.13    & 0.07    \\
+GNN (StaticGNN)      & 0.62   & 0.55   & 0.48    & 0.40    \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Reading this table:}
+\begin{itemize}
+    \item The random/uniform baselines degrade exactly as $2/N$, confirming the theory.
+    \item Degree and Jordan Center improve over random, but their advantage shrinks at large $N$.
+    \item The GNN degrades more slowly: at $N=200$ it is 40$\times$ better than random, while Jordan Center is only 7$\times$ better.
+    \item All methods degrade with $N$ --- source detection is genuinely harder at scale --- but the GNN maintains a much larger lead over the random baseline.
+\end{itemize}
+\end{examplebox}
+
+\subsection{Why GNNs Should (in Principle) Scale Better}
+
+Classical methods use only the \emph{structure} of the infected subgraph, ignoring the \emph{dynamics} that produced it. The Jordan center, for instance, treats every edge as equivalent regardless of when contacts happened or how quickly the infection traversed them.
+
+A GNN, given Monte Carlo training data from multiple sources, can in principle learn:
+\begin{itemize}
+    \item That outbreaks from peripheral nodes look different from outbreaks from central nodes.
+    \item That the gradient of infection density in the subgraph points toward the source.
+    \item That nodes with high local clustering tend to cause dense ``pockets'' of infection near the source.
+\end{itemize}
+
+These patterns exist at any network size, provided the training data is generated on networks of the same size as the test network. This is why, in the scaling experiment, GNNs are retrained from scratch for each value of $N$ --- the learned patterns are not directly transferable across scales.
+
+\begin{keyinsight}{Conclusion: What This Chapter Established}
+We have built the complete scaffolding for fair, reproducible experiments:
+
+\begin{enumerate}
+    \item A four-stage pipeline (simulate $\to$ infer $\to$ evaluate $\to$ visualise) with clear interfaces between stages.
+    \item Standardised metrics (rank score, top-$k$ score) that measure operational utility.
+    \item A \texttt{TSIRData} dataclass that encapsulates all data access behind a clean interface.
+    \item Classical baselines (uniform, degree, Jordan center) that establish lower bounds on performance.
+    \item A scaling experiment design (\texttt{exp\_1\_vary\_n}) that tests whether methods remain useful as the problem grows.
+\end{enumerate}
+
+With this infrastructure in place, the next step is to run the experiments and analyse where GNNs succeed, where they fail, and what the results reveal about the structure of the source detection problem.
+\end{keyinsight}

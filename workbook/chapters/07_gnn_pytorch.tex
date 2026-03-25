@@ -1,0 +1,905 @@
+\chapter{Graph Neural Networks and PyTorch Geometric}
+
+This chapter is the technical centrepiece of the workbook. Everything before it---network science, SIR dynamics, classical source detection---described the \emph{problem}. Everything after it uses the tools developed here to attack that problem with machine learning. We therefore take our time. Every concept is introduced from scratch, illustrated with a running three-node example, and grounded in the codebase.
+
+By the end of this chapter you will be able to:
+\begin{itemize}
+    \item Explain why standard neural networks are fundamentally unsuited for graph-structured data.
+    \item Write down and trace through the update rule for GCN, GraphSAGE, GAT, and GIN from memory.
+    \item Identify the over-smoothing phenomenon and describe three mitigation strategies.
+    \item Read and understand the PyTorch Geometric \texttt{edge\_index} format and the \texttt{MessagePassing} class hierarchy.
+    \item Walk through the complete forward pass of the \texttt{StaticGNN} implemented in \texttt{gnn/static\_gnn.py}.
+\end{itemize}
+
+% =============================================================================
+\section{Why Regular Neural Networks Fail on Graphs}
+% =============================================================================
+
+Before we can understand what makes Graph Neural Networks (GNNs) special, we need to be precise about what makes graphs \emph{hard} for the neural architectures that work so well elsewhere.
+
+\subsection{Multi-Layer Perceptrons Require Fixed-Size Inputs}
+
+A Multi-Layer Perceptron (MLP) is a function $f_\theta: \mathbb{R}^d \to \mathbb{R}^k$. Its first weight matrix $\mathbf{W}^{(1)} \in \mathbb{R}^{d_1 \times d}$ has exactly $d$ columns---one per input feature. This architecture is baked in at construction time. If you train an MLP on a network with 100 nodes and then feed it a network with 150 nodes, the matrix multiplication $\mathbf{W}^{(1)}\mathbf{x}$ fails immediately because the dimensions do not match.
+
+Epidemic contact networks come in wildly different sizes. The school network used for our synthetic experiments has hundreds of nodes; the hospital network has thousands. A fixed-size MLP is simply the wrong function class for this data.
+
+\subsection{MLPs Ignore Graph Structure Entirely}
+
+Even if we fix the size problem---say, by zero-padding all graphs to the same maximum size---the MLP would still be blind to the edges. An MLP receives a feature vector per node and processes each node \emph{independently}. It has no mechanism to aggregate information from neighbours.
+
+In epidemic source detection, the crucial signal is relational: the source node infected its neighbours, who infected their neighbours, and so on. A model that cannot see the edges cannot trace this chain of contagion.
+
+\subsection{Convolutional Neural Networks Work Only on Grids}
+
+CNNs generalize MLPs by using locally-connected, weight-sharing filters. A $3 \times 3$ convolutional filter exploits the fact that image pixels have a regular grid structure: every pixel has exactly eight neighbours at fixed relative positions (up, down, left, right, and diagonals). The filter's nine weights are reused at every spatial position because the geometry is translation-invariant.
+
+Graphs have \emph{irregular} connectivity. Node $v$ might have 2 neighbours; node $w$ might have 47. The neighbours of a node have no canonical ordering. There is no analogue of ``the pixel to the upper-left'' in a graph. Trying to apply a CNN directly to a graph's adjacency matrix fails for two reasons: first, there is no fixed spatial relationship between entries; second, the adjacency matrix is permutation-variant (reorder the nodes and the matrix changes, even though the graph is the same).
+
+\begin{analogybox}{A Single Person Reading a List vs.\ a Group Sharing Notes}
+A regular neural network is like a single person who receives a list of facts about each person in a social network---their age, whether they are sick, how many contacts they have---and tries to guess who started the outbreak by reading the list in isolation. The list has no structure; it could be in any order; the reader has no way to know who knows whom.
+
+A GNN is like a group of people, one per node, who can pass written notes to their immediate neighbours. Each person reads their own facts, receives notes from their neighbours, summarises everything into an updated note, and passes it on. After several rounds, every person has gathered information from a wide neighbourhood of the network. The \emph{structure} of the network shapes the information flow. The person who was the epidemic source will receive a distinctive pattern of notes from their infected neighbours---and that pattern can be learned.
+\end{analogybox}
+
+\begin{conceptbox}{The Two Core Requirements of a GNN}
+A well-designed GNN must satisfy:
+\begin{enumerate}[noitemsep]
+    \item \textbf{Permutation equivariance}: if the nodes are renumbered (permuted), the output node embeddings are renumbered in the same way. The model's predictions do not depend on the arbitrary indexing of nodes.
+    \item \textbf{Inductive handling of variable-size graphs}: the same learned weights should be applicable to graphs of any size, because the computation is defined locally (each node looks at its neighbourhood) and the weights are shared across all nodes.
+\end{enumerate}
+Both requirements are naturally satisfied by the Message Passing framework defined in the next section.
+\end{conceptbox}
+
+% =============================================================================
+\section{The Message Passing Framework (MPNN)}
+% =============================================================================
+
+The modern unified view of GNNs was formalized by Gilmer et al.\ (2017) as the \textbf{Message Passing Neural Network (MPNN)} framework. It describes a local computation that each node performs, layer by layer, to progressively integrate information from its neighbourhood.
+
+\subsection{Intuition}
+
+Think of each node as maintaining a \emph{state vector} (also called an embedding or hidden representation). At the beginning, this vector is just the raw node features---for us, whether a node was observed as Susceptible, Infected, or Recovered. After each GNN layer, every node updates its state by:
+\begin{enumerate}[noitemsep]
+    \item Collecting messages from its neighbours (message generation).
+    \item Combining all those messages into a single summary (aggregation).
+    \item Using that summary together with its own current state to compute a new state (update).
+\end{enumerate}
+After $L$ layers, node $v$'s state encodes information from all nodes within $L$ hops of $v$ in the graph.
+
+\begin{mathbox}{The MPNN Equations}
+Let $\mathbf{h}_v^{(l)} \in \mathbb{R}^{d_l}$ denote the hidden state (embedding) of node $v$ at layer $l$. Let $\mathcal{N}(v)$ denote the set of neighbours of $v$. The computation from layer $l$ to layer $l+1$ is:
+
+\textbf{Step 1 --- Message generation.} Each neighbour $u \in \mathcal{N}(v)$ sends a message:
+\begin{equation}
+    \mathbf{m}_{uv}^{(l)} = \phi^{(l)}\!\left(\mathbf{h}_u^{(l)},\; \mathbf{h}_v^{(l)},\; \mathbf{e}_{uv}\right)
+    \label{eq:mpnn_message}
+\end{equation}
+where $\phi^{(l)}$ is a learnable function (e.g., a linear layer) and $\mathbf{e}_{uv}$ are optional edge features.
+
+\textbf{Step 2 --- Aggregation.} Node $v$ aggregates all incoming messages using a \emph{permutation-invariant} function $\bigoplus$:
+\begin{equation}
+    \mathbf{m}_v^{(l)} = \bigoplus_{u \in \mathcal{N}(v)} \mathbf{m}_{uv}^{(l)}
+    \label{eq:mpnn_agg}
+\end{equation}
+Common choices for $\bigoplus$: sum, mean, max.
+
+\textbf{Step 3 --- Update.} Node $v$ combines the aggregated message with its current state:
+\begin{equation}
+    \mathbf{h}_v^{(l+1)} = \gamma^{(l)}\!\left(\mathbf{h}_v^{(l)},\; \mathbf{m}_v^{(l)}\right)
+    \label{eq:mpnn_update}
+\end{equation}
+where $\gamma^{(l)}$ is another learnable function, typically a linear layer followed by a non-linearity.
+\end{mathbox}
+
+\subsection{Notation Guide}
+
+Every symbol in the MPNN equations earns its place. Let us fix the notation precisely before diving into specific architectures:
+
+\begin{itemize}
+    \item $v, u, w$ denote \textbf{node indices}. We always use $v$ for the target node and $u$ for a neighbour.
+    \item $\mathbf{h}_v^{(l)} \in \mathbb{R}^{d_l}$: the \textbf{embedding} of node $v$ at layer $l$. At layer 0, $\mathbf{h}_v^{(0)} = \mathbf{x}_v$ (raw input features).
+    \item $\mathcal{N}(v)$: the \textbf{neighbourhood} of $v$---the set of all nodes directly connected to $v$ by an edge.
+    \item $d_l$: the \textbf{embedding dimension} at layer $l$. This is a hyperparameter (e.g., 64 or 128).
+    \item $\mathbf{W}^{(l)} \in \mathbb{R}^{d_{l+1} \times d_l}$: a \textbf{learnable weight matrix} at layer $l$. This is what the model learns during training.
+    \item $\sigma$: an \textbf{activation function} such as ReLU or PReLU.
+    \item $\mathbf{A} \in \{0,1\}^{N \times N}$: the \textbf{adjacency matrix}, where $A_{ij} = 1$ if nodes $i$ and $j$ are connected.
+\end{itemize}
+
+\subsection{The Running Example: A Three-Node Path Graph}
+
+To make every computation concrete, we will use the same small graph throughout this chapter.
+
+\begin{examplebox}{The Three-Node Path Graph A--B--C}
+Consider a path graph with three nodes: $A$, $B$, $C$. There is an edge between $A$ and $B$, and an edge between $B$ and $C$. There is no direct edge between $A$ and $C$.
+
+\begin{center}
+\begin{tikzpicture}[
+    node/.style={circle, draw=blue!60!black, fill=blue!8, thick, minimum size=1.0cm, font=\bfseries},
+    arr/.style={-, thick, gray!70}
+]
+    \node[node] (A) at (0,0) {$A$};
+    \node[node] (B) at (3,0) {$B$};
+    \node[node] (C) at (6,0) {$C$};
+    \draw[arr] (A) -- (B);
+    \draw[arr] (B) -- (C);
+    \node[font=\small, below=0.3cm of A] {$\mathbf{h}_A^{(0)} = [1,0]$};
+    \node[font=\small, below=0.3cm of B] {$\mathbf{h}_B^{(0)} = [0,1]$};
+    \node[font=\small, below=0.3cm of C] {$\mathbf{h}_C^{(0)} = [1,1]$};
+\end{tikzpicture}
+\end{center}
+
+The adjacency matrix is:
+\[
+\mathbf{A} = \begin{pmatrix} 0 & 1 & 0 \\ 1 & 0 & 1 \\ 0 & 1 & 0 \end{pmatrix}
+\quad
+(A=0,\; B=1,\; C=2 \text{ in 0-indexed notation})
+\]
+
+The neighbourhoods are: $\mathcal{N}(A) = \{B\}$, $\mathcal{N}(B) = \{A, C\}$, $\mathcal{N}(C) = \{B\}$.
+
+We interpret the two-dimensional feature vector as $[\text{infected-flag},\; \text{recovered-flag}]$:
+\begin{itemize}[noitemsep]
+    \item Node $A$: observed as Infected ($\mathbf{h}_A^{(0)} = [1,0]$).
+    \item Node $B$: observed as Recovered ($\mathbf{h}_B^{(0)} = [0,1]$).
+    \item Node $C$: observed as both Infected and Recovered (think of a summary feature; $\mathbf{h}_C^{(0)} = [1,1]$).
+\end{itemize}
+\end{examplebox}
+
+\subsection{Aggregation Function Comparison}
+
+The choice of $\bigoplus$ is a design decision with real consequences:
+
+\begin{itemize}
+    \item \textbf{Mean aggregation}: $\mathbf{m}_v = \frac{1}{|\mathcal{N}(v)|}\sum_{u \in \mathcal{N}(v)} \mathbf{h}_u$. Captures the \emph{average} feature in the neighbourhood. Degree-invariant: a hub node and a leaf node that share the same single neighbour feature will produce the same aggregate. Useful when the relative proportion of feature types matters.
+    \item \textbf{Sum aggregation}: $\mathbf{m}_v = \sum_{u \in \mathcal{N}(v)} \mathbf{h}_u$. Preserves the exact count of each feature type. A hub node with 10 infected neighbours aggregates to a much larger value than a leaf node with 1 infected neighbour. More expressive than mean (as proven by the GIN paper; see Section~\ref{sec:gin}).
+    \item \textbf{Max aggregation}: $\mathbf{m}_v = \max_{u \in \mathcal{N}(v)} \mathbf{h}_u$ (element-wise). Captures the \emph{presence} of the most salient feature, but is blind to multiplicity. Useful for detecting whether \emph{any} neighbour has a specific property.
+\end{itemize}
+
+% =============================================================================
+\section{Graph Convolutional Networks (GCN)}
+% =============================================================================
+
+The Graph Convolutional Network (GCN), introduced by Kipf \& Welling (2017), is the canonical starting point for graph deep learning. It provides an elegant, symmetric normalization of the message-passing operation.
+
+\subsection{The GCN Update Rule}
+
+\begin{mathbox}{GCN Layer}
+The GCN layer computes:
+\begin{equation}
+    \mathbf{H}^{(l+1)} = \sigma\!\left(\tilde{\mathbf{D}}^{-1/2}\, \tilde{\mathbf{A}}\, \tilde{\mathbf{D}}^{-1/2}\, \mathbf{H}^{(l)}\, \mathbf{W}^{(l)}\right)
+    \label{eq:gcn}
+\end{equation}
+where:
+\begin{itemize}[noitemsep]
+    \item $\mathbf{H}^{(l)} \in \mathbb{R}^{N \times d_l}$: the matrix of all $N$ node embeddings at layer $l$, stacked row-wise.
+    \item $\tilde{\mathbf{A}} = \mathbf{A} + \mathbf{I}$: the adjacency matrix with \textbf{self-loops added}. Adding the identity matrix $\mathbf{I}$ ensures that each node includes its own features in its aggregation (otherwise, the update step only aggregates neighbours, forgetting the node's own current state).
+    \item $\tilde{\mathbf{D}}$: the degree matrix of $\tilde{\mathbf{A}}$. $\tilde{D}_{vv} = \sum_j \tilde{A}_{vj}$ is the degree of node $v$ in $\tilde{\mathbf{A}}$ (i.e., its original degree plus 1 for the self-loop).
+    \item $\tilde{\mathbf{D}}^{-1/2}$: the matrix whose diagonal entries are $\tilde{D}_{vv}^{-1/2} = 1/\sqrt{\tilde{D}_{vv}}$.
+    \item $\mathbf{W}^{(l)} \in \mathbb{R}^{d_l \times d_{l+1}}$: a learnable weight matrix that projects the embedding from dimension $d_l$ to dimension $d_{l+1}$.
+    \item $\sigma$: an element-wise non-linear activation (ReLU, PReLU, etc.).
+\end{itemize}
+\end{mathbox}
+
+\subsection{Why the Symmetric Normalization $\tilde{\mathbf{D}}^{-1/2} \tilde{\mathbf{A}} \tilde{\mathbf{D}}^{-1/2}$?}
+
+The raw sum $\tilde{\mathbf{A}} \mathbf{H}$ is problematic: high-degree nodes aggregate far more information than low-degree nodes, so their embeddings will have much larger magnitudes. This creates numerical instability and makes the network sensitive to the degree distribution.
+
+The symmetric normalization $\hat{\mathbf{A}} = \tilde{\mathbf{D}}^{-1/2} \tilde{\mathbf{A}} \tilde{\mathbf{D}}^{-1/2}$ scales each entry $\tilde{A}_{uv}$ by $\frac{1}{\sqrt{\tilde{d}_u} \cdot \sqrt{\tilde{d}_v}}$, where $\tilde{d}_v$ is the degree of node $v$ in $\tilde{\mathbf{A}}$. This means:
+\begin{itemize}[noitemsep]
+    \item A message from a high-degree neighbour is down-weighted (large $\tilde{d}_u$ shrinks the coefficient).
+    \item A high-degree target node also down-weights all incoming messages (large $\tilde{d}_v$ shrinks its received signals).
+\end{itemize}
+The result is a \emph{balanced} aggregation where no single high-degree node dominates the representation.
+
+\begin{examplebox}{GCN Computation on the A--B--C Graph}
+We compute $\hat{\mathbf{A}} = \tilde{\mathbf{D}}^{-1/2} \tilde{\mathbf{A}} \tilde{\mathbf{D}}^{-1/2}$ step by step.
+
+\textbf{Step 1: Add self-loops.}
+\[
+\tilde{\mathbf{A}} = \mathbf{A} + \mathbf{I} =
+\begin{pmatrix} 0 & 1 & 0 \\ 1 & 0 & 1 \\ 0 & 1 & 0 \end{pmatrix}
++
+\begin{pmatrix} 1 & 0 & 0 \\ 0 & 1 & 0 \\ 0 & 0 & 1 \end{pmatrix}
+=
+\begin{pmatrix} 1 & 1 & 0 \\ 1 & 1 & 1 \\ 0 & 1 & 1 \end{pmatrix}
+\]
+
+\textbf{Step 2: Compute degree matrix $\tilde{\mathbf{D}}$.}
+Row sums of $\tilde{\mathbf{A}}$: $\tilde{d}_A = 1+1+0 = 2$, $\tilde{d}_B = 1+1+1 = 3$, $\tilde{d}_C = 0+1+1 = 2$.
+\[
+\tilde{\mathbf{D}} = \begin{pmatrix} 2 & 0 & 0 \\ 0 & 3 & 0 \\ 0 & 0 & 2 \end{pmatrix}
+\]
+
+\textbf{Step 3: Compute $\tilde{\mathbf{D}}^{-1/2}$.}
+\[
+\tilde{\mathbf{D}}^{-1/2} = \begin{pmatrix} 1/\sqrt{2} & 0 & 0 \\ 0 & 1/\sqrt{3} & 0 \\ 0 & 0 & 1/\sqrt{2} \end{pmatrix}
+\approx \begin{pmatrix} 0.707 & 0 & 0 \\ 0 & 0.577 & 0 \\ 0 & 0 & 0.707 \end{pmatrix}
+\]
+
+\textbf{Step 4: Compute $\hat{\mathbf{A}} = \tilde{\mathbf{D}}^{-1/2} \tilde{\mathbf{A}} \tilde{\mathbf{D}}^{-1/2}$.}
+The entry $\hat{A}_{ij} = \frac{\tilde{A}_{ij}}{\sqrt{\tilde{d}_i} \cdot \sqrt{\tilde{d}_j}}$.
+
+\medskip
+\begin{center}
+\renewcommand{\arraystretch}{1.5}
+\begin{tabular}{c|ccc}
+    & $A$ & $B$ & $C$ \\
+\hline
+$A$ & $\frac{1}{\sqrt{2}\cdot\sqrt{2}} = 0.500$ & $\frac{1}{\sqrt{2}\cdot\sqrt{3}} \approx 0.408$ & $\frac{0}{\cdots} = 0.000$ \\
+$B$ & $\frac{1}{\sqrt{3}\cdot\sqrt{2}} \approx 0.408$ & $\frac{1}{\sqrt{3}\cdot\sqrt{3}} \approx 0.333$ & $\frac{1}{\sqrt{3}\cdot\sqrt{2}} \approx 0.408$ \\
+$C$ & $\frac{0}{\cdots} = 0.000$ & $\frac{1}{\sqrt{2}\cdot\sqrt{3}} \approx 0.408$ & $\frac{1}{\sqrt{2}\cdot\sqrt{2}} = 0.500$ \\
+\end{tabular}
+\end{center}
+
+\[
+\hat{\mathbf{A}} \approx \begin{pmatrix} 0.500 & 0.408 & 0.000 \\ 0.408 & 0.333 & 0.408 \\ 0.000 & 0.408 & 0.500 \end{pmatrix}
+\]
+
+\textbf{Step 5: Multiply by feature matrix $\mathbf{H}^{(0)}$.}
+\[
+\mathbf{H}^{(0)} = \begin{pmatrix} 1 & 0 \\ 0 & 1 \\ 1 & 1 \end{pmatrix}
+\]
+\[
+\hat{\mathbf{A}} \mathbf{H}^{(0)} \approx
+\begin{pmatrix}
+0.500 \cdot 1 + 0.408 \cdot 0 + 0.000 \cdot 1 & 0.500 \cdot 0 + 0.408 \cdot 1 + 0.000 \cdot 1 \\
+0.408 \cdot 1 + 0.333 \cdot 0 + 0.408 \cdot 1 & 0.408 \cdot 0 + 0.333 \cdot 1 + 0.408 \cdot 1 \\
+0.000 \cdot 1 + 0.408 \cdot 0 + 0.500 \cdot 1 & 0.000 \cdot 0 + 0.408 \cdot 1 + 0.500 \cdot 1
+\end{pmatrix}
+=
+\begin{pmatrix} 0.500 & 0.408 \\ 0.816 & 0.741 \\ 0.500 & 0.908 \end{pmatrix}
+\]
+
+This intermediate result (before applying $\mathbf{W}^{(l)}$ and $\sigma$) shows what the normalized aggregation produces. Node $B$ now holds a larger signal because it received contributions from both $A$ and $C$ in addition to itself.
+\end{examplebox}
+
+\begin{keyinsight}{GCN as Spectral Graph Theory}
+Kipf \& Welling derived the GCN update rule not from the message-passing intuition above, but from the spectral graph theory perspective. They showed that $\hat{\mathbf{A}} = \tilde{\mathbf{D}}^{-1/2} \tilde{\mathbf{A}} \tilde{\mathbf{D}}^{-1/2}$ is a first-order approximation of spectral graph convolution using the normalized graph Laplacian. This elegant connection means that GCN is implicitly performing a kind of smoothing on the graph signal---averaging each node's features with its neighbours, weighted by the inverse square root of their degrees.
+\end{keyinsight}
+
+% =============================================================================
+\section{GraphSAGE: Sampling and Aggregating}
+% =============================================================================
+
+GCN has a serious scalability limitation: to compute the embedding of a single node, it must gather information from \emph{all} nodes in its $L$-hop neighbourhood. In a power-law social network, a hub node at layer 2 might require messages from millions of nodes. GraphSAGE (Hamilton, Ying \& Leskovec, 2017) addresses this with neighbourhood sampling.
+
+\subsection{The Core Idea}
+
+Instead of aggregating over the full neighbourhood $\mathcal{N}(v)$, GraphSAGE samples a fixed number $k$ of neighbours uniformly at random. This bounds the computational cost per node at each layer, regardless of degree.
+
+More importantly, GraphSAGE introduces a key architectural change: instead of replacing the node's own embedding with the aggregated neighbour information, it \emph{concatenates} the two. This means the node always retains a direct memory of its own previous state.
+
+\begin{mathbox}{GraphSAGE Update Rule}
+At each layer $l$, GraphSAGE computes:
+\begin{enumerate}[noitemsep]
+    \item Sample a subset $\mathcal{S}(v) \subseteq \mathcal{N}(v)$ with $|\mathcal{S}(v)| = k$.
+    \item Aggregate the sampled neighbours:
+    \[
+        \mathbf{m}_v^{(l)} = \text{MEAN}\!\left(\left\{\mathbf{h}_u^{(l-1)} : u \in \mathcal{S}(v)\right\}\right)
+    \]
+    \item Concatenate and apply a linear transformation with activation:
+    \begin{equation}
+        \mathbf{h}_v^{(l)} = \sigma\!\left(\mathbf{W}^{(l)} \cdot \left[\mathbf{h}_v^{(l-1)}\; \big\|\; \mathbf{m}_v^{(l)}\right]\right)
+        \label{eq:sage}
+    \end{equation}
+\end{enumerate}
+Here $\|$ denotes vector concatenation. The weight matrix $\mathbf{W}^{(l)}$ projects the concatenated vector $[\mathbf{h}_v^{(l-1)} \| \mathbf{m}_v^{(l)}] \in \mathbb{R}^{2d_{l-1}}$ to the output dimension $d_l$.
+\end{mathbox}
+
+\subsection{Why Concatenation Matters}
+
+In GCN, the update $\mathbf{h}_v^{(l+1)} = \sigma(\hat{\mathbf{A}}_v \mathbf{H}^{(l)} \mathbf{W}^{(l)})$ implicitly mixes the node's own features with its neighbours' features through the self-loop (the $\mathbf{I}$ in $\tilde{\mathbf{A}}$). GraphSAGE makes this mixing explicit and asymmetric: the weight matrix sees both the node's own features and the neighbour aggregate as separate, independent inputs. This gives the model more freedom to decide how much to trust its own current state versus the neighbourhood signal.
+
+In epidemic source detection, this is meaningful: the node's own observed state (Infected or Recovered) is direct evidence about its role in the outbreak. The neighbour aggregate provides indirect contextual evidence. Concatenating them lets the model weigh these two types of evidence independently.
+
+\begin{examplebox}{GraphSAGE on A--B--C (Full Neighbourhood, No Sampling)}
+For this small graph, sampling with $k=2$ is equivalent to using the full neighbourhood. Using $\mathbf{h}^{(0)} = \{[1,0], [0,1], [1,1]\}$ for $A, B, C$.
+
+\medskip
+\textbf{Node A:} $\mathcal{N}(A) = \{B\}$
+\[
+\mathbf{m}_A = \text{MEAN}\!\left(\{[0,1]\}\right) = [0.000,\, 1.000]
+\]
+\[
+\left[\mathbf{h}_A^{(0)} \| \mathbf{m}_A\right] = [1.000,\; 0.000,\; 0.000,\; 1.000]
+\]
+
+\textbf{Node B:} $\mathcal{N}(B) = \{A, C\}$
+\[
+\mathbf{m}_B = \text{MEAN}\!\left(\{[1,0],\; [1,1]\}\right) = \left[\frac{1+1}{2},\; \frac{0+1}{2}\right] = [1.000,\; 0.500]
+\]
+\[
+\left[\mathbf{h}_B^{(0)} \| \mathbf{m}_B\right] = [0.000,\; 1.000,\; 1.000,\; 0.500]
+\]
+
+\textbf{Node C:} $\mathcal{N}(C) = \{B\}$
+\[
+\mathbf{m}_C = \text{MEAN}\!\left(\{[0,1]\}\right) = [0.000,\, 1.000]
+\]
+\[
+\left[\mathbf{h}_C^{(0)} \| \mathbf{m}_C\right] = [1.000,\; 1.000,\; 0.000,\; 1.000]
+\]
+
+The final embeddings $\mathbf{h}_v^{(1)} = \sigma(\mathbf{W}^{(0)} \cdot [\mathbf{h}_v^{(0)} \| \mathbf{m}_v])$ require a weight matrix $\mathbf{W}^{(0)} \in \mathbb{R}^{d_1 \times 4}$, which is learned during training. Observe that node $B$'s input vector $[0, 1, 1, 0.5]$ is distinct from both $A$'s $[1, 0, 0, 1]$ and $C$'s $[1, 1, 0, 1]$, even though $A$ and $C$ are structurally similar (both have degree 1 in the original graph). The concatenation of the node's own features breaks this symmetry.
+\end{examplebox}
+
+% =============================================================================
+\section{Graph Attention Networks (GAT)}
+% =============================================================================
+
+GCN normalizes the aggregation by node degree---a fixed, structural quantity. GraphSAGE uses uniform mean over sampled neighbours. But not all neighbours are equally informative. In an epidemic network, if node $v$ is Susceptible and one of its neighbours $u$ is Infected while another neighbour $w$ is also Susceptible, the message from $u$ is far more diagnostic for source detection than the message from $w$.
+
+The Graph Attention Network (GAT), introduced by Veli{\v{c}}kovi{\'c} et al.\ (2018), learns to assign different \emph{attention weights} to different neighbours.
+
+\subsection{Attention Coefficient Computation}
+
+\begin{mathbox}{GAT Layer}
+Let $\mathbf{h}_v^{(l-1)} \in \mathbb{R}^{d}$ be the embedding of node $v$ before the current layer. GAT computes:
+
+\textbf{Step 1: Linear projection.} Project all node embeddings to a shared space:
+\[
+\mathbf{z}_v = \mathbf{W} \mathbf{h}_v^{(l-1)}, \quad \mathbf{z}_v \in \mathbb{R}^{d'}
+\]
+
+\textbf{Step 2: Unnormalized attention.} For each edge $(v, w)$, compute a scalar attention score using a learnable attention vector $\mathbf{a} \in \mathbb{R}^{2d'}$:
+\begin{equation}
+    e_{vw} = \text{LeakyReLU}\!\left(\mathbf{a}^\top\!\left[\mathbf{z}_v \| \mathbf{z}_w\right]\right)
+    \label{eq:gat_attn}
+\end{equation}
+The concatenation $[\mathbf{z}_v \| \mathbf{z}_w] \in \mathbb{R}^{2d'}$ captures both the sender's and receiver's current representations.
+
+\textbf{Step 3: Normalize with softmax.} Normalize the attention scores over all neighbours of $v$ to obtain coefficients that sum to 1:
+\begin{equation}
+    \alpha_{vw} = \frac{\exp(e_{vw})}{\sum_{u \in \mathcal{N}(v)} \exp(e_{vu})}
+    \label{eq:gat_softmax}
+\end{equation}
+
+\textbf{Step 4: Weighted aggregation.}
+\begin{equation}
+    \mathbf{h}_v^{(l)} = \sigma\!\left(\sum_{w \in \mathcal{N}(v)} \alpha_{vw}\, \mathbf{W} \mathbf{h}_w^{(l-1)}\right)
+    \label{eq:gat_update}
+\end{equation}
+\end{mathbox}
+
+\begin{examplebox}{GAT Attention on a Two-Node Graph}
+Consider two nodes $v$ and $w$ with scalar (1-dimensional) features $h_v = 2.0$ and $h_w = 0.5$. The graph has one edge $v \to w$ (self-loops included). Let $W = 0.5$ (scalar projection) and attention vector $\mathbf{a} = [1, 1]^\top$.
+
+\textbf{Projections:} $z_v = 0.5 \cdot 2.0 = 1.0$, $z_w = 0.5 \cdot 0.5 = 0.25$.
+
+\textbf{Unnormalized scores} (including self-loop for $v$):
+\begin{align*}
+    e_{v \leftarrow v} &= \text{LeakyReLU}([1,1]^\top [1.0, 1.0]) = \text{LeakyReLU}(2.0) = 2.0 \\
+    e_{v \leftarrow w} &= \text{LeakyReLU}([1,1]^\top [1.0, 0.25]) = \text{LeakyReLU}(1.25) = 1.25
+\end{align*}
+
+\textbf{Normalized coefficients:}
+\[
+\alpha_{v \leftarrow v} = \frac{e^{2.0}}{e^{2.0} + e^{1.25}} = \frac{7.389}{7.389 + 3.490} \approx 0.679
+\]
+\[
+\alpha_{v \leftarrow w} = \frac{e^{1.25}}{e^{2.0} + e^{1.25}} \approx \frac{3.490}{10.879} \approx 0.321
+\]
+
+\textbf{Interpretation:} Node $v$, which has a higher feature value (and hence a stronger self-projection), assigns 67.9\% of its attention to itself and 32.1\% to its neighbour $w$. A learned attention mechanism can adjust these weights based on contextual patterns across the whole training set.
+\end{examplebox}
+
+\subsection{Multi-Head Attention}
+
+A single attention head may not capture all the relevant relationships. GAT uses $K$ independent attention mechanisms (heads), each with its own parameters $\mathbf{W}_k$ and $\mathbf{a}_k$:
+
+\begin{equation}
+    \mathbf{h}_v^{(l)} = \Big\|_{k=1}^{K}\, \sigma\!\left(\sum_{w \in \mathcal{N}(v)} \alpha_{vw}^k\, \mathbf{W}_k\, \mathbf{h}_w^{(l-1)}\right)
+    \label{eq:gat_multihead}
+\end{equation}
+
+The $K$ outputs are concatenated (operator $\|$). For the final layer, they are averaged instead to keep the output dimension fixed:
+$\mathbf{h}_v^{(L)} = \sigma\!\left(\frac{1}{K}\sum_{k=1}^K \sum_{w \in \mathcal{N}(v)} \alpha_{vw}^k \mathbf{W}_k \mathbf{h}_w^{(L-1)}\right)$.
+
+\begin{keyinsight}{Why Multi-Head Attention?}
+Different heads can specialise in different structural patterns. One head might learn to up-weight infected neighbours; another might learn to down-weight high-degree hubs (which are noisy aggregators). The concatenation of all heads gives the model a richer view of the neighbourhood than any single weighting scheme. This is exactly analogous to multi-head attention in Transformers---GAT can be understood as a Transformer where the attention is restricted to the graph neighbourhood rather than the full sequence.
+\end{keyinsight}
+
+% =============================================================================
+\section{Graph Isomorphism Networks (GIN)}
+\label{sec:gin}
+% =============================================================================
+
+GCN, GraphSAGE, and GAT are all powerful in practice, but they share a theoretical weakness: there exist pairs of non-isomorphic graphs (graphs that look different but cannot be distinguished by degree-sequence counting) that all three architectures map to identical embeddings. This means they provably cannot solve certain graph classification problems.
+
+The Graph Isomorphism Network (GIN), introduced by Xu et al.\ (2019), is designed to be as expressive as theoretically possible within the MPNN class.
+
+\subsection{The Weisfeiler-Lehman Test Connection}
+
+The \emph{Weisfeiler-Lehman (WL) graph isomorphism test} is a classical algorithm that iteratively assigns colour labels to nodes based on their neighbourhood. Two graphs are declared non-isomorphic if, at any iteration, their colour histograms differ. Xu et al.\ proved that:
+
+\begin{itemize}[noitemsep]
+    \item Any MPNN is at most as powerful as the WL test at distinguishing non-isomorphic graphs.
+    \item GIN achieves this theoretical maximum---it is \emph{as powerful as the WL test} among all MPNNs.
+\end{itemize}
+
+The key insight: the WL test uses injective aggregation (each distinct multiset of neighbourhood colours maps to a distinct new colour). For an MPNN to be similarly injective, its aggregation must be injective over multisets. \textbf{Sum aggregation is injective over multisets; mean and max are not.}
+
+\subsection{The GIN Update Rule}
+
+\begin{mathbox}{GIN Layer}
+\begin{equation}
+    \mathbf{h}_v^{(l)} = \text{MLP}^{(l)}\!\left((1 + \varepsilon^{(l)})\, \mathbf{h}_v^{(l-1)} + \sum_{u \in \mathcal{N}(v)} \mathbf{h}_u^{(l-1)}\right)
+    \label{eq:gin}
+\end{equation}
+where:
+\begin{itemize}[noitemsep]
+    \item $\text{MLP}^{(l)}$ is a multi-layer perceptron (at least 2 layers, to ensure the final aggregation function is injective on the combined argument).
+    \item $\varepsilon^{(l)}$ is a scalar---either a learnable parameter or a fixed constant (e.g., 0). It controls how much the model weights its own previous embedding relative to the neighbourhood sum.
+    \item The use of \textbf{SUM} (not mean, not max) is the critical design choice.
+\end{itemize}
+\end{mathbox}
+
+\subsection{Why SUM and Not Mean?}
+
+To understand why sum is necessary, consider two cases:
+\begin{itemize}
+    \item Node $v_1$ has two neighbours, both with feature $[1]$. Neighbourhood sum $= 2$. Neighbourhood mean $= 1$.
+    \item Node $v_2$ has one neighbour with feature $[1]$. Neighbourhood sum $= 1$. Neighbourhood mean $= 1$.
+\end{itemize}
+Mean aggregation cannot distinguish $v_1$ from $v_2$. Sum aggregation distinguishes them trivially. In an epidemic context, a node with two infected neighbours is a very different situation from a node with one infected neighbour---sum aggregation preserves this critical multiplicity.
+
+\begin{examplebox}{GIN on A--B--C with $\varepsilon = 0$}
+Using $\mathbf{h}^{(0)} = \{A=[1,0],\; B=[0,1],\; C=[1,1]\}$ and $\varepsilon = 0$ for simplicity.
+
+\textbf{Node A:}
+$(1+0)\cdot[1,0] + \sum_{u \in \{B\}} [0,1] = [1,0] + [0,1] = [1,1]$
+
+\textbf{Node B:}
+$(1+0)\cdot[0,1] + \sum_{u \in \{A,C\}} ([1,0]+[1,1]) = [0,1] + [2,1] = [2,2]$
+
+\textbf{Node C:}
+$(1+0)\cdot[1,1] + \sum_{u \in \{B\}} [0,1] = [1,1] + [0,1] = [1,2]$
+
+The three pre-MLP vectors are $[1,1]$, $[2,2]$, $[1,2]$---all distinct. After applying $\text{MLP}^{(0)}$, the model can map these to any desired output embeddings. Note that the sum aggregation for node $B$ correctly reflects that it received two neighbour messages ($A$ and $C$), not just an average.
+\end{examplebox}
+
+% =============================================================================
+\section{Over-Smoothing: When Depth Becomes a Liability}
+% =============================================================================
+
+In standard deep learning, adding more layers typically improves performance up to a point. In GNNs, there is a sharp pathological threshold: stack too many layers and all node embeddings become identical. This phenomenon is called \textbf{over-smoothing}.
+
+\subsection{The Mechanism}
+
+Consider what happens to the aggregated feature matrix $\hat{\mathbf{A}}^L \mathbf{H}^{(0)}$ as $L \to \infty$. The matrix $\hat{\mathbf{A}} = \tilde{\mathbf{D}}^{-1/2} \tilde{\mathbf{A}} \tilde{\mathbf{D}}^{-1/2}$ is a real symmetric matrix with eigenvalues in $(-1, 1]$. Repeated multiplication by $\hat{\mathbf{A}}$ drives all eigencomponents except the largest toward zero. The result is that every node's representation converges to a fixed point proportional to its degree---all node embeddings in the same connected component become equal.
+
+\begin{analogybox}{Everything Becomes Gray When You Average Enough}
+Imagine a painting made of thousands of coloured tiles. If you replace each tile's colour with the average colour of it and its neighbours, then repeat this process 50 times, the painting becomes a uniform gray---all the fine structure is washed out.
+
+A GNN with too many layers does exactly the same thing to node embeddings. After enough rounds of neighbourhood averaging, every node's representation reflects the global average of all node features, and no node is distinguishable from any other.
+\end{analogybox}
+
+\subsection{Empirical Behavior Across Depths}
+
+The following table illustrates the expected decay of embedding variance (a proxy for discriminative power) as the number of GNN layers increases on a typical sparse graph:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{ccc}
+\toprule
+\textbf{Layers $L$} & \textbf{Relative Embedding Variance} & \textbf{Effective Receptive Field} \\
+\midrule
+1 & $\approx 1.00$ (high, local features) & Immediate neighbours \\
+2 & $\approx 0.72$ & 2-hop neighbourhood \\
+4 & $\approx 0.31$ & 4-hop neighbourhood \\
+8 & $\approx 0.05$ & Most of the graph (small-world) \\
+16+ & $\approx 0.00$ & Entire graph (fully smoothed) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This suggests a practical design principle: for source detection on networks with diameter $D$, we want $L \approx D/2$ to $D$ layers---enough to see the whole affected region, but not so many that all information is destroyed.
+
+\subsection{Mitigation Strategies}
+
+\begin{conceptbox}{Three Strategies Against Over-Smoothing}
+
+\textbf{1. Skip (Residual) Connections.} Borrow from ResNets: add the input to the layer's output, $\mathbf{h}_v^{(l+1)} = \mathbf{h}_v^{(l)} + \text{GNN-layer}(\mathbf{h}_v^{(l)})$. The gradient now has a direct path back to early layers, and the model can learn to \emph{not} aggregate if aggregation is harmful. Our \texttt{StaticGNN} uses a global skip connection where the raw input features $\mathbf{x}$ are concatenated directly to the final layer's input, ensuring the model retains direct access to the original observations.
+
+\textbf{2. PairNorm.} A dedicated normalization technique (Zhao \& Akoglu, 2020) that centers node embeddings and rescales them to a fixed total squared norm after each layer, explicitly preventing the collapse to a constant. It is more targeted than batch normalization for this specific problem.
+
+\textbf{3. DropEdge.} Randomly drop edges from the input graph at each training step (Rong et al., 2020). This slows information propagation, acts as data augmentation, and reduces the speed of over-smoothing. It also improves robustness to missing edges, which is directly relevant when contact network data is incomplete.
+\end{conceptbox}
+
+% =============================================================================
+\section{PyTorch Geometric: The Engineering Layer}
+% =============================================================================
+
+The mathematics of GNNs is elegant, but implementing them efficiently on modern hardware requires careful engineering. PyTorch Geometric (PyG, Fey \& Lenssen, 2019) is the standard library for this. It provides efficient sparse representations, a flexible base class for message passing, and utilities for batching variable-size graphs.
+
+\subsection{The COO Sparse Format: \texttt{edge\_index}}
+
+An adjacency matrix $\mathbf{A} \in \mathbb{R}^{N \times N}$ is $O(N^2)$ in memory. For a network with 10,000 nodes and 50,000 edges, the dense matrix would require $10^8$ entries---almost all of which are zero. PyG uses the \textbf{Coordinate (COO) format} to represent graphs.
+
+\begin{mathbox}{\texttt{edge\_index}: The COO Graph Representation}
+In COO format, the graph topology is stored as two 1D integer arrays of length $|E|$ (number of directed edges):
+\begin{itemize}[noitemsep]
+    \item \texttt{edge\_index[0]}: the \textbf{source} (sender) node index for each edge.
+    \item \texttt{edge\_index[1]}: the \textbf{destination} (receiver) node index for each edge.
+\end{itemize}
+The combined tensor has shape \texttt{[2, |E|]}. The $i$-th column $[\texttt{edge\_index[0,i]},\, \texttt{edge\_index[1,i]}]$ encodes a single directed edge.
+\end{mathbox}
+
+\begin{examplebox}{COO Encoding of the A--B--C Path Graph}
+Label $A=0$, $B=1$, $C=2$. The undirected graph has edges $\{A\text{-}B, B\text{-}C\}$. In PyG, undirected edges are stored as two directed edges each:
+
+\begin{center}
+\begin{tikzpicture}[
+    node/.style={circle, draw=blue!60!black, fill=blue!8, thick, minimum size=0.8cm, font=\footnotesize\bfseries},
+    arr/.style={-{Stealth[length=2.5mm]}, thick, gray!70}
+]
+    \node[node] (A) at (0,0) {0};
+    \node[node] (B) at (2.5,0) {1};
+    \node[node] (C) at (5,0) {2};
+    \node[font=\footnotesize, below=0.2cm of A] {$A$};
+    \node[font=\footnotesize, below=0.2cm of B] {$B$};
+    \node[font=\footnotesize, below=0.2cm of C] {$C$};
+    \draw[arr, bend left=20] (A) to (B);
+    \draw[arr, bend left=20] (B) to (A);
+    \draw[arr, bend left=20] (B) to (C);
+    \draw[arr, bend left=20] (C) to (B);
+\end{tikzpicture}
+\end{center}
+
+\begin{lstlisting}[language=Python]
+import torch
+from torch_geometric.data import Data
+
+# Edge list for path A-B-C (both directions)
+edge_index = torch.tensor([
+    [0, 1, 1, 2],  # sources:      A->B, B->A, B->C, C->B
+    [1, 0, 2, 1],  # destinations: A->B, B->A, B->C, C->B
+], dtype=torch.long)   # shape: [2, 4]
+
+# Node features: [infected_flag, recovered_flag]
+x = torch.tensor([
+    [1, 0],  # Node A: Infected
+    [0, 1],  # Node B: Recovered
+    [1, 1],  # Node C: both
+], dtype=torch.float)   # shape: [3, 2]
+
+# Ground-truth source (for supervised training)
+y = torch.tensor([0], dtype=torch.long)  # Node A is the source
+
+# Create a PyG Data object
+graph = Data(x=x, edge_index=edge_index, y=y)
+print(graph)
+# Data(x=[3, 2], edge_index=[2, 4], y=[1])
+\end{lstlisting}
+
+Why store both directions? PyG's \texttt{MessagePassing} base class propagates messages along directed edges. For an undirected aggregation (where $v$ receives from $u$ and $u$ receives from $v$), we must explicitly store both $u \to v$ and $v \to u$.
+\end{examplebox}
+
+\subsection{Edge Weights}
+
+Many graphs carry edge weights---for example, the number of times two people contacted each other in a temporal network, or the probability that a contact was infectious. PyG supports edge attributes via the \texttt{edge\_attr} field of a \texttt{Data} object, and most convolution layers (including \texttt{GraphConv} used in our codebase) accept an optional \texttt{edge\_weight} argument.
+
+\subsection{The \texttt{MessagePassing} Base Class}
+
+PyG provides the \texttt{torch\_geometric.nn.MessagePassing} abstract base class that handles the bookkeeping of COO-format message passing. To implement a custom GNN layer, you subclass it and override three methods:
+
+\begin{codewalk}{Implementing a Custom GNN Layer with MessagePassing}
+\begin{lstlisting}[language=Python]
+from torch_geometric.nn import MessagePassing
+from torch.nn import Linear
+import torch.nn.functional as F
+
+class CustomGNNLayer(MessagePassing):
+    def __init__(self, in_channels: int, out_channels: int,
+                 aggr: str = 'add'):
+        # aggr can be 'add', 'mean', or 'max'
+        super().__init__(aggr=aggr)
+        self.lin = Linear(in_channels, out_channels)
+
+    def forward(self, x, edge_index, edge_weight=None):
+        # Trigger the message-passing pipeline:
+        # 1. Call message() for each edge
+        # 2. Aggregate messages per target node
+        # 3. Call update() on each node's aggregated message
+        return self.propagate(edge_index, x=x,
+                               edge_weight=edge_weight)
+
+    def message(self, x_j, edge_weight):
+        # x_j: features of the SOURCE node for each edge
+        # Shape: [num_edges, in_channels]
+        if edge_weight is not None:
+            return edge_weight.view(-1, 1) * x_j
+        return x_j
+
+    def update(self, aggr_out):
+        # aggr_out: the aggregated message for each TARGET node
+        # Shape: [num_nodes, in_channels]
+        return F.relu(self.lin(aggr_out))
+\end{lstlisting}
+
+The \texttt{propagate()} call orchestrates the entire pipeline. PyG automatically:
+\begin{itemize}[noitemsep]
+    \item Looks up the source node features for each edge (\texttt{x\_j} in \texttt{message()}).
+    \item Routes messages to target nodes and applies the chosen \texttt{aggr} function.
+    \item Passes the result to \texttt{update()}.
+\end{itemize}
+All of this is implemented internally as vectorized scatter operations on the GPU.
+\end{codewalk}
+
+\subsection{Batching Variable-Size Graphs}
+
+One of PyG's most important engineering contributions is its batching strategy. Standard neural networks batch samples by stacking them into larger tensors (e.g., images into a $[B, C, H, W]$ tensor). Graphs cannot be stacked because they have different numbers of nodes and edges.
+
+\begin{conceptbox}{PyG Batching: The Super-Graph Trick}
+PyG batches $B$ graphs $G_1, G_2, \ldots, G_B$ by merging them into a single \textbf{disconnected super-graph}. Node indices are offset so that the $B$ sub-graphs do not share any nodes.
+
+Concretely:
+\begin{itemize}[noitemsep]
+    \item All node feature matrices $\mathbf{X}_1, \ldots, \mathbf{X}_B$ are vertically concatenated: $\mathbf{X} = [\mathbf{X}_1; \mathbf{X}_2; \ldots; \mathbf{X}_B]$, giving a matrix of shape $[(N_1 + \cdots + N_B) \times F]$.
+    \item All \texttt{edge\_index} tensors are offset and horizontally concatenated, with the edge index for graph $i$ shifted by $\sum_{j<i} N_j$.
+    \item A \texttt{batch} vector of length $\sum N_i$ records which super-graph node belongs to which original graph: $\texttt{batch}[k] = i$ if node $k$ is in graph $G_i$.
+\end{itemize}
+Message passing on the super-graph is mathematically identical to independent message passing on each sub-graph, because there are no edges between sub-graphs.
+
+\begin{lstlisting}[language=Python]
+from torch_geometric.loader import DataLoader
+
+dataset = [graph_1, graph_2, graph_3]  # list of Data objects
+loader  = DataLoader(dataset, batch_size=2, shuffle=True)
+
+for batch in loader:
+    # batch.x:          shape [N1+N2, F]  -- all node features
+    # batch.edge_index: shape [2, E1+E2]  -- all edges
+    # batch.batch:      shape [N1+N2]     -- graph membership
+    # batch.y:          shape [2]         -- one label per graph
+    print(batch.batch)  # e.g., tensor([0, 0, 0, 1, 1])
+\end{lstlisting}
+\end{conceptbox}
+
+The \texttt{batch} vector is crucial for the \textbf{readout} step, where we aggregate node-level embeddings into a single graph-level prediction. The \texttt{StaticGNN} uses it directly to reshape its final output (see the next section).
+
+% =============================================================================
+\section{Code Walkthrough: The \texttt{StaticGNN} in \texttt{gnn/static\_gnn.py}}
+% =============================================================================
+
+The \texttt{StaticGNN} is the baseline GNN model in this thesis. It treats the temporal contact network as a single static weighted graph, ignoring the temporal ordering of contacts. Understanding it in detail prepares us for the more sophisticated temporal architectures discussed in later chapters.
+
+The architecture follows a three-stage design:
+\[
+\underbrace{\text{Preprocessing MLP}}_{\text{feature embedding}} \;\longrightarrow\; \underbrace{\text{Graph Convolution Stack}}_{\text{structural aggregation}} \;\longrightarrow\; \underbrace{\text{Postprocessing MLP} + \text{Final Layer}}_{\text{source scoring}}
+\]
+
+\subsection{Constructor and Layer Initialization}
+
+\begin{codewalk}{StaticGNN: Constructor Overview}
+\begin{lstlisting}[language=Python]
+class StaticGNN(torch.nn.Module):
+    def __init__(self,
+                 num_preprocess_layers,   # int: depth of input MLP
+                 embed_dim_preprocess,    # int: width of input MLP
+                 num_postprocess_layers,  # int: depth of output MLP
+                 num_conv_layers,         # int: number of GNN layers
+                 aggr,                    # str: 'add', 'mean', or 'max'
+                 num_node_features,       # int: F (raw feature dim)
+                 hidden_channels,         # int: d (conv embedding dim)
+                 num_classes,             # int: N (number of nodes)
+                 dropout_rate,            # float: dropout probability p
+                 batch_norm,              # bool: use BatchNorm1d?
+                 skip):                   # bool: use skip connection?
+\end{lstlisting}
+Every hyperparameter is passed explicitly (no hardcoded values), and all are logged via wandb at training time. This design makes the model fully reproducible from a YAML config file.
+\end{codewalk}
+
+The constructor builds four sub-networks:
+
+\begin{codewalk}{StaticGNN: Building the Four Sub-Networks}
+\begin{lstlisting}[language=Python]
+        # --- 1. PREPROCESSING MLP ---
+        self.preprocess = torch.nn.Sequential()
+        for l in range(num_preprocess_layers):
+            in_features = (num_node_features if l == 0
+                           else embed_dim_preprocess)
+            self.preprocess.append(Linear(in_features,
+                                          embed_dim_preprocess))
+            if batch_norm:
+                self.preprocess.append(
+                    torch.nn.BatchNorm1d(embed_dim_preprocess))
+            self.preprocess.append(torch.nn.PReLU())
+            self.preprocess.append(torch.nn.Dropout(p=dropout_rate))
+
+        # --- 2. GRAPH CONVOLUTION STACK ---
+        self.convs  = torch.nn.ModuleList()
+        self.banor  = torch.nn.ModuleList()   # BN for each conv layer
+        self.activ  = torch.nn.ModuleList()   # PReLU for each conv layer
+        for l in range(num_conv_layers):
+            in_channels = (
+                num_node_features       if (num_preprocess_layers==0
+                                             and l==0)
+                else embed_dim_preprocess if (num_preprocess_layers>0
+                                               and l==0)
+                else hidden_channels
+            )
+            self.convs.append(GraphConv(in_channels,
+                                        hidden_channels, aggr=aggr))
+            if batch_norm:
+                self.banor.append(
+                    torch.nn.BatchNorm1d(hidden_channels))
+            self.activ.append(torch.nn.PReLU())
+
+        # --- 3. POSTPROCESSING MLP ---
+        self.postprocess = torch.nn.Sequential()
+        for _ in range(num_postprocess_layers):
+            self.postprocess.append(Linear(hidden_channels,
+                                           hidden_channels))
+            if batch_norm:
+                self.postprocess.append(
+                    torch.nn.BatchNorm1d(hidden_channels))
+            self.postprocess.append(torch.nn.PReLU())
+            self.postprocess.append(torch.nn.Dropout(p=dropout_rate))
+
+        # --- 4. FINAL LAYER (with optional skip connection) ---
+        in_channels = ((hidden_channels + num_node_features)
+                       if skip else hidden_channels)
+        self.final = torch.nn.Sequential()
+        self.final.append(Linear(in_channels, 1))
+        if batch_norm:
+            self.final.append(torch.nn.BatchNorm1d(1))
+        self.final.append(torch.nn.PReLU())
+\end{lstlisting}
+\end{codewalk}
+
+\subsection{Design Decisions Worth Noting}
+
+\begin{itemize}
+    \item \textbf{\texttt{GraphConv}, not \texttt{GCNConv}}: the model uses PyG's \texttt{torch\_geometric.nn.GraphConv}, which differs slightly from the original GCN. \texttt{GraphConv} computes $\mathbf{h}_v' = \mathbf{W}_1 \mathbf{h}_v + \mathbf{W}_2 \sum_{u \in \mathcal{N}(v)} e_{uv} \mathbf{h}_u$ with \emph{separate} weight matrices for the self-term and the neighbour-aggregate term, giving it more expressive power than the symmetric normalization of plain GCN. Edge weights $e_{uv}$ are passed as \texttt{edge\_weights} in the forward pass.
+    \item \textbf{\texttt{ModuleList} for conv/bn/activ}: the preprocessing and postprocessing stages use \texttt{torch.nn.Sequential} (which is convenient for fixed pipelines), but the convolution stack uses separate \texttt{ModuleList} objects for the conv layers, batch-norm layers, and activations. This is because \texttt{GraphConv} requires the \texttt{edge\_index} and \texttt{edge\_weights} arguments that \texttt{Sequential} cannot pass automatically.
+    \item \textbf{Output dimension = 1}: the final linear layer outputs a single scalar per node, \emph{before} the reshape. This scalar is a raw unnormalized score for ``is this node the source?''
+\end{itemize}
+
+\subsection{Forward Pass with Shape Annotations}
+
+\begin{codewalk}{StaticGNN: Forward Pass}
+\begin{lstlisting}[language=Python]
+    def forward(self, x, edge_index, edge_weights, batch):
+        # x:            [total_nodes, F]       raw node features
+        # edge_index:   [2, total_edges]        COO edge list
+        # edge_weights: [total_edges]           scalar per edge
+        # batch:        [total_nodes]           graph membership
+
+        # ---- Stage 1: Preprocessing MLP ----
+        x1 = self.preprocess(x)
+        # x1: [total_nodes, embed_dim_preprocess]
+
+        # ---- Stage 2: Graph Convolution Stack ----
+        for i, conv in enumerate(self.convs):
+            x1 = conv(x1, edge_index, edge_weights)
+            # x1: [total_nodes, hidden_channels]
+            if self.batch_norm:
+                x1 = self.banor[i](x1)
+            x1 = self.activ[i](x1)
+            x1 = F.dropout(x1, p=self.dropout_rate,
+                           training=self.training)
+
+        # ---- Stage 3: Postprocessing MLP ----
+        x1 = self.postprocess(x1)
+        # x1: [total_nodes, hidden_channels]
+
+        # ---- Stage 4: Final Layer + Reshape ----
+        if self.skip:
+            # Concatenate raw input features with learned embedding
+            x1 = self.final(torch.cat([x, x1], dim=-1))
+            # cat input:  [total_nodes, F + hidden_channels]
+            # final output: [total_nodes, 1]
+        else:
+            x1 = self.final(x1)
+            # x1: [total_nodes, 1]
+
+        # Reshape from super-graph format to batch format:
+        # [total_nodes, 1] --> [batch_size, num_classes]
+        # where num_classes = N (nodes per graph)
+        x1 = x1.reshape((batch.unique().shape[0], self.num_classes))
+        # x1: [batch_size, N]
+
+        # ---- Stage 5: Output Log-Probabilities ----
+        x1 = F.log_softmax(x1, dim=1)
+        # x1: [batch_size, N]  -- log-probabilities over source nodes
+        return x1
+\end{lstlisting}
+\end{codewalk}
+
+\begin{keyinsight}{The Reshape Trick and Why It Works}
+The forward pass assumes that every graph in the batch has the same number of nodes $N$. This is guaranteed by the data generation pipeline (all simulations run on the same fixed network). Given this, the super-graph node features tensor of shape \texttt{[batch\_size $\times$ N, 1]} can be safely reshaped to \texttt{[batch\_size, N]}.
+
+This allows the \texttt{log\_softmax} on \texttt{dim=1} to normalize over all $N$ nodes of each graph independently---producing, for each training example (epidemic snapshot), a proper probability distribution over which of the $N$ nodes was the source.
+
+If graphs had different sizes, this reshape would be invalid. Handling variable-size readouts requires PyG's \texttt{global\_mean\_pool} or \texttt{global\_add\_pool} functions, which use the \texttt{batch} vector for graph-level aggregation.
+\end{keyinsight}
+
+\subsection{The Skip Connection}
+
+The skip connection in \texttt{StaticGNN} is a global shortcut: the raw input features $\mathbf{x}$ (before any preprocessing or graph convolution) are concatenated to the deep embedding $\mathbf{x}_1$ just before the final classification layer.
+
+\begin{center}
+\begin{tikzpicture}[
+    box/.style={rectangle, draw=gray!60, fill=gray!5, rounded corners=3pt, thick,
+                minimum width=2.4cm, minimum height=0.7cm, font=\small},
+    arr/.style={-{Stealth[length=2.5mm]}, thick},
+    skip/.style={-{Stealth[length=2.5mm]}, thick, red!60!black, dashed}
+]
+    \node[box] (pre)    at (0, 0)    {Preprocess};
+    \node[box] (conv)   at (3.2, 0)  {Conv Stack};
+    \node[box] (post)   at (6.4, 0)  {Postprocess};
+    \node[box] (cat)    at (9.6, 0)  {Concat};
+    \node[box] (final)  at (12.8, 0) {Final Layer};
+
+    \draw[arr] (-1.5, 0) -- (pre)  node[midway, above, font=\scriptsize]{$\mathbf{x}$};
+    \draw[arr] (pre) -- (conv);
+    \draw[arr] (conv) -- (post);
+    \draw[arr] (post) -- (cat);
+    \draw[arr] (cat) -- (final);
+
+    % Skip connection
+    \draw[skip] (-1.5, 0) -- (-1.5, -1.2) -- (9.6, -1.2) -- (cat)
+        node[midway, below, font=\scriptsize, below=0.5cm]{raw $\mathbf{x}$ bypasses all layers};
+\end{tikzpicture}
+\end{center}
+
+\textbf{Why does this help?} After $L$ rounds of message passing and non-linear projection, the embedding $\mathbf{x}_1$ captures rich structural context but may have diluted the original node-level observation (whether this specific node was seen as Infected or Recovered). The skip connection forces the model to always have direct access to these raw observations, which are strong single-node evidence for or against being the source. The combined vector $[\mathbf{x} \| \mathbf{x}_1]$ lets the final linear layer perform a weighted combination of structural evidence and direct observational evidence.
+
+\subsection{YAML Configuration Mapping}
+
+The \texttt{StaticGNN} is never instantiated with hardcoded arguments. A typical experiment configuration looks like:
+
+\begin{codewalk}{YAML Configuration for StaticGNN}
+\begin{lstlisting}[language={}]
+gnn:
+  conv_type: GraphConv      # which PyG conv to use
+  hidden_dim: 64            # hidden_channels
+  n_layers: 4               # num_conv_layers
+  aggr: add                 # aggregation: 'add', 'mean', or 'max'
+  num_preprocess_layers: 2
+  embed_dim_preprocess: 64
+  num_postprocess_layers: 1
+  dropout_rate: 0.2
+  batch_norm: true
+  skip: true
+\end{lstlisting}
+With \texttt{n\_layers: 4} and a typical network diameter of 6--8, this configuration allows the model to gather evidence from approximately a 4-hop radius around each candidate source node---covering most of the observable outbreak footprint without reaching the over-smoothing regime.
+\end{codewalk}
+
+% =============================================================================
+\section{Summary and Connection to the Thesis}
+% =============================================================================
+
+This chapter has built the complete toolkit for graph-based deep learning:
+
+\begin{enumerate}
+    \item \textbf{Why graphs need special architectures}: MLPs cannot handle variable size or graph structure; CNNs require a regular grid that graphs lack.
+    \item \textbf{The MPNN framework}: a unified language for message generation, aggregation, and update that subsumes GCN, GraphSAGE, GAT, and GIN.
+    \item \textbf{GCN}: symmetric normalization by degree prevents magnitude explosion; $\tilde{\mathbf{D}}^{-1/2}\tilde{\mathbf{A}}\tilde{\mathbf{D}}^{-1/2}$ is the workhorse of the field.
+    \item \textbf{GraphSAGE}: neighbourhood sampling for scalability; concatenation for preserving node identity.
+    \item \textbf{GAT}: learned attention weights that can identify the most diagnostic neighbours; multi-head attention for robustness.
+    \item \textbf{GIN}: sum aggregation and MLP update for maximum expressiveness within the WL hierarchy.
+    \item \textbf{Over-smoothing}: depth is a double-edged sword; skip connections, PairNorm, and DropEdge are the standard mitigations.
+    \item \textbf{PyTorch Geometric}: COO format, the \texttt{MessagePassing} base class, and the super-graph batching trick.
+    \item \textbf{StaticGNN}: a configurable Preprocess $\to$ GraphConv Stack $\to$ Postprocess $\to$ Skip-augmented readout architecture, implemented in \texttt{gnn/static\_gnn.py}.
+\end{enumerate}
+
+\begin{keyinsight}{What the StaticGNN Cannot See}
+The \texttt{StaticGNN} is a strong baseline precisely because it already has all the machinery described in this chapter. Its fundamental limitation is the word ``Static'': it projects all temporal contact events onto a single aggregated network, losing the information about \emph{when} each contact occurred. Two contact sequences that produce identical aggregate networks---but where the temporal ordering implies completely different possible epidemic paths---will produce identical model inputs.
+
+This is the core motivation for the temporal architectures in subsequent chapters: the De Bruijn GNN (Chapter~10), which encodes causal walks as higher-order nodes, and the DAG-GNN on Temporal Event Graphs (Chapter~11), which preserves the arrow of time explicitly in the graph structure.
+\end{keyinsight}
+
+\begin{paperbox}{Key Papers for This Chapter}
+\begin{itemize}
+    \item \textbf{Kipf \& Welling (2017)} --- ``Semi-Supervised Classification with Graph Convolutional Networks'' (ICLR). The GCN paper; introduced the $\tilde{\mathbf{D}}^{-1/2}\tilde{\mathbf{A}}\tilde{\mathbf{D}}^{-1/2}$ normalization.
+    \item \textbf{Hamilton, Ying \& Leskovec (2017)} --- ``Inductive Representation Learning on Large Graphs'' (NeurIPS). GraphSAGE: neighbourhood sampling and concatenation.
+    \item \textbf{Veli{\v{c}}kovi{\'c} et al.\ (2018)} --- ``Graph Attention Networks'' (ICLR). Attention-weighted message passing with multi-head architecture.
+    \item \textbf{Xu et al.\ (2019)} --- ``How Powerful are Graph Neural Networks?'' (ICLR). GIN and its connection to the Weisfeiler-Lehman test; proof that sum is more expressive than mean/max.
+    \item \textbf{Gilmer et al.\ (2017)} --- ``Neural Message Passing for Quantum Chemistry'' (ICML). The MPNN unification framework.
+    \item \textbf{Fey \& Lenssen (2019)} --- ``Fast Graph Representation Learning with PyTorch Geometric'' (ICLR Workshop). The PyG library; COO format and \texttt{MessagePassing} base class.
+    \item \textbf{Li et al.\ (2018)} --- ``Deeper Insights into Graph Convolutional Networks for Semi-Supervised Classification'' (AAAI). First formal analysis of over-smoothing in GCNs.
+    \item \textbf{Rong et al.\ (2020)} --- ``DropEdge: Towards Deep Graph Convolutional Networks on Node Classification'' (ICLR). DropEdge as a mitigation for over-smoothing.
+\end{itemize}
+\end{paperbox}

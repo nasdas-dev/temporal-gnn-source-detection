@@ -1,0 +1,417 @@
+\contentsline {part}{I\hspace {1em}Foundations}{10}{part.1}%
+\contentsline {chapter}{\numberline {1}Graph Theory and Network Science}{11}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Formal Graph Definitions}{11}{section.1.1}%
+\contentsline {subsection}{\numberline {1.1.1}Undirected and Directed Graphs}{12}{subsection.1.1.1}%
+\contentsline {subsection}{\numberline {1.1.2}Weighted Graphs and Multigraphs}{13}{subsection.1.1.2}%
+\contentsline {subsection}{\numberline {1.1.3}Subgraphs and Induced Subgraphs}{13}{subsection.1.1.3}%
+\contentsline {section}{\numberline {1.2}Matrix Representations}{13}{section.1.2}%
+\contentsline {subsection}{\numberline {1.2.1}The Six-Node Running Example}{14}{subsection.1.2.1}%
+\contentsline {subsection}{\numberline {1.2.2}Adjacency Matrix}{14}{subsection.1.2.2}%
+\contentsline {subsection}{\numberline {1.2.3}Degree Matrix}{15}{subsection.1.2.3}%
+\contentsline {subsection}{\numberline {1.2.4}The Graph Laplacian}{15}{subsection.1.2.4}%
+\contentsline {subsection}{\numberline {1.2.5}Normalised Laplacians}{16}{subsection.1.2.5}%
+\contentsline {section}{\numberline {1.3}Spectral Graph Theory}{17}{section.1.3}%
+\contentsline {subsection}{\numberline {1.3.1}Eigenvalues and Eigenvectors: Starting from Scratch}{18}{subsection.1.3.1}%
+\contentsline {subsection}{\numberline {1.3.2}Algebraic Connectivity and the Fiedler Value}{18}{subsection.1.3.2}%
+\contentsline {subsection}{\numberline {1.3.3}The Graph Fourier Transform}{19}{subsection.1.3.3}%
+\contentsline {subsection}{\numberline {1.3.4}Chebyshev Polynomial Approximation}{19}{subsection.1.3.4}%
+\contentsline {section}{\numberline {1.4}Key Network Metrics}{20}{section.1.4}%
+\contentsline {subsection}{\numberline {1.4.1}Degree Distribution}{20}{subsection.1.4.1}%
+\contentsline {subsection}{\numberline {1.4.2}Clustering Coefficient}{20}{subsection.1.4.2}%
+\contentsline {subsection}{\numberline {1.4.3}Centrality Measures}{21}{subsection.1.4.3}%
+\contentsline {subsection}{\numberline {1.4.4}PageRank}{21}{subsection.1.4.4}%
+\contentsline {subsection}{\numberline {1.4.5}Worked Metrics for $G_6$}{21}{subsection.1.4.5}%
+\contentsline {section}{\numberline {1.5}Network Generation Models}{22}{section.1.5}%
+\contentsline {subsection}{\numberline {1.5.1}Erd\H {o}s-R\'{e}nyi Random Graphs}{22}{subsection.1.5.1}%
+\contentsline {subsection}{\numberline {1.5.2}Barab\'{a}si-Albert Preferential Attachment}{22}{subsection.1.5.2}%
+\contentsline {subsection}{\numberline {1.5.3}Watts-Strogatz Small-World Networks}{23}{subsection.1.5.3}%
+\contentsline {subsection}{\numberline {1.5.4}Visual Comparison and Table}{23}{subsection.1.5.4}%
+\contentsline {section}{\numberline {1.6}Comprehensive Worked Example: Building and Analysing $G_6$}{24}{section.1.6}%
+\contentsline {section}{\numberline {1.7}Chapter Summary}{25}{section.1.7}%
+\contentsline {chapter}{\numberline {2}Temporal Networks: When Time Changes Everything}{26}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Why Static Graphs Fail for Epidemics: The Phantom Path Problem}{26}{section.2.1}%
+\contentsline {subsection}{\numberline {2.1.1}A Three-Person Story}{26}{subsection.2.1.1}%
+\contentsline {subsection}{\numberline {2.1.2}A Brief History of Temporal Network Analysis}{27}{subsection.2.1.2}%
+\contentsline {section}{\numberline {2.2}Formal Definition of a Temporal Network}{27}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Distinguishing Temporal Networks from Related Concepts}{28}{subsection.2.2.1}%
+\contentsline {section}{\numberline {2.3}Time-Respecting Paths: The Causal Highways of Epidemics}{29}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}The Relay Race Analogy}{29}{subsection.2.3.1}%
+\contentsline {subsection}{\numberline {2.3.2}Formal Definition}{29}{subsection.2.3.2}%
+\contentsline {subsection}{\numberline {2.3.3}Worked Example: Five Events, Valid and Invalid Paths}{30}{subsection.2.3.3}%
+\contentsline {section}{\numberline {2.4}The $\Delta t$ Constraint: Modelling the Infectious Period}{31}{section.2.4}%
+\contentsline {subsection}{\numberline {2.4.1}Why We Need an Additional Constraint}{31}{subsection.2.4.1}%
+\contentsline {subsection}{\numberline {2.4.2}Numerical Example: Cutting Paths with $\Delta t = 2$}{31}{subsection.2.4.2}%
+\contentsline {section}{\numberline {2.5}Temporal vs.\ Static Reachability: The Numbers That Differ}{32}{section.2.5}%
+\contentsline {subsection}{\numberline {2.5.1}A Four-Node, Five-Event Example}{32}{subsection.2.5.1}%
+\contentsline {subsection}{\numberline {2.5.2}Computing Static Reachability}{33}{subsection.2.5.2}%
+\contentsline {subsection}{\numberline {2.5.3}Computing Temporal Reachability}{33}{subsection.2.5.3}%
+\contentsline {subsection}{\numberline {2.5.4}Side-by-Side Comparison}{34}{subsection.2.5.4}%
+\contentsline {section}{\numberline {2.6}Adjacency Representation of Temporal Networks}{35}{section.2.6}%
+\contentsline {subsection}{\numberline {2.6.1}The Adjacency Tensor $\mathbf {A}(t)$}{35}{subsection.2.6.1}%
+\contentsline {subsection}{\numberline {2.6.2}The COO Format: How Computers Store Sparse Temporal Graphs}{35}{subsection.2.6.2}%
+\contentsline {section}{\numberline {2.7}Temporal Centrality Metrics}{36}{section.2.7}%
+\contentsline {subsection}{\numberline {2.7.1}Temporal Degree}{37}{subsection.2.7.1}%
+\contentsline {subsection}{\numberline {2.7.2}Temporal Betweenness Centrality}{37}{subsection.2.7.2}%
+\contentsline {section}{\numberline {2.8}Inter-Event Time Distributions and Burstiness}{39}{section.2.8}%
+\contentsline {subsection}{\numberline {2.8.1}What is an Inter-Event Time?}{39}{subsection.2.8.1}%
+\contentsline {subsection}{\numberline {2.8.2}Poisson vs.\ Bursty Contact Patterns}{39}{subsection.2.8.2}%
+\contentsline {subsection}{\numberline {2.8.3}Quantifying Burstiness: The $B$ Parameter}{40}{subsection.2.8.3}%
+\contentsline {section}{\numberline {2.9}How the Codebase Represents Temporal Networks}{41}{section.2.9}%
+\contentsline {subsection}{\numberline {2.9.1}The Event List Format}{41}{subsection.2.9.1}%
+\contentsline {subsection}{\numberline {2.9.2}Loading the Network}{42}{subsection.2.9.2}%
+\contentsline {subsection}{\numberline {2.9.3}The TSIRData Dataclass}{42}{subsection.2.9.3}%
+\contentsline {section}{\numberline {2.10}Static Projection and Information Loss}{43}{section.2.10}%
+\contentsline {section}{\numberline {2.11}The Temporal Event Graph: A Forward Pointer}{44}{section.2.11}%
+\contentsline {section}{\numberline {2.12}Summary}{45}{section.2.12}%
+\contentsline {chapter}{\numberline {3}Epidemic Models: How Diseases Spread}{47}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Why We Need Models: A Motivating Story}{47}{section.3.1}%
+\contentsline {section}{\numberline {3.2}The SIR Model from First Principles}{48}{section.3.2}%
+\contentsline {subsection}{\numberline {3.2.1}Three States: What Each Person Can Be}{48}{subsection.3.2.1}%
+\contentsline {subsection}{\numberline {3.2.2}The State Machine: How People Move Between States}{48}{subsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.2.3}Two Parameters: $\beta $ and $\mu $}{49}{subsection.3.2.3}%
+\contentsline {subsection}{\numberline {3.2.4}The Differential Equations: Rate of Change of Each Compartment}{49}{subsection.3.2.4}%
+\contentsline {subsection}{\numberline {3.2.5}Numerical Simulation by Hand: Euler's Method}{50}{subsection.3.2.5}%
+\contentsline {subsection}{\numberline {3.2.6}The Basic Reproduction Number $R_0$}{52}{subsection.3.2.6}%
+\contentsline {section}{\numberline {3.3}The SIR Model on Networks (Network SIR)}{53}{section.3.3}%
+\contentsline {subsection}{\numberline {3.3.1}Why the Well-Mixed Assumption Fails}{53}{subsection.3.3.1}%
+\contentsline {subsection}{\numberline {3.3.2}Network SIR: One State per Node}{53}{subsection.3.3.2}%
+\contentsline {subsection}{\numberline {3.3.3}Per-Node Infection Probability}{53}{subsection.3.3.3}%
+\contentsline {subsection}{\numberline {3.3.4}How the Network Changes Spreading Dynamics}{54}{subsection.3.3.4}%
+\contentsline {section}{\numberline {3.4}Temporal SIR on Temporal Networks}{55}{section.3.4}%
+\contentsline {subsection}{\numberline {3.4.1}Why the Order of Contacts Matters}{55}{subsection.3.4.1}%
+\contentsline {subsection}{\numberline {3.4.2}Temporal Networks as Event Sequences}{55}{subsection.3.4.2}%
+\contentsline {subsection}{\numberline {3.4.3}Discrete-Time Temporal SIR: The Simulation Rule}{55}{subsection.3.4.3}%
+\contentsline {section}{\numberline {3.5}Stochastic Simulations (Monte Carlo)}{56}{section.3.5}%
+\contentsline {subsection}{\numberline {3.5.1}Why One Run Is Not Enough}{56}{subsection.3.5.1}%
+\contentsline {subsection}{\numberline {3.5.2}Terminology: $n\_\text {runs}$ and $\text {mc\_runs}$}{57}{subsection.3.5.2}%
+\contentsline {subsection}{\numberline {3.5.3}Pseudocode for a Single Temporal SIR Simulation}{57}{subsection.3.5.3}%
+\contentsline {subsection}{\numberline {3.5.4}The Output: Binary Arrays and Their Shape}{58}{subsection.3.5.4}%
+\contentsline {section}{\numberline {3.6}The TSIR C Implementation}{59}{section.3.6}%
+\contentsline {subsection}{\numberline {3.6.1}Why C for Simulation?}{59}{subsection.3.6.1}%
+\contentsline {subsection}{\numberline {3.6.2}The Python Wrapper: How to Call the Simulation}{59}{subsection.3.6.2}%
+\contentsline {subsection}{\numberline {3.6.3}The Ground-Truth and Monte Carlo Functions}{60}{subsection.3.6.3}%
+\contentsline {subsection}{\numberline {3.6.4}The \texttt {TSIRData} Dataclass: Centralized Data Access}{60}{subsection.3.6.4}%
+\contentsline {section}{\numberline {3.7}The Source Detection Problem: Formal Statement}{61}{section.3.7}%
+\contentsline {subsection}{\numberline {3.7.1}The Setup}{61}{subsection.3.7.1}%
+\contentsline {subsection}{\numberline {3.7.2}The Source Detection Problem}{61}{subsection.3.7.2}%
+\contentsline {subsection}{\numberline {3.7.3}Computing the Likelihood: The Simulation-Based Approach}{62}{subsection.3.7.3}%
+\contentsline {subsection}{\numberline {3.7.4}Why MLE Alone Is Too Slow}{62}{subsection.3.7.4}%
+\contentsline {section}{\numberline {3.8}The Basic Reproduction Number $R_0$: Deeper Analysis}{62}{section.3.8}%
+\contentsline {subsection}{\numberline {3.8.1}Deriving $R_0$ from the SIR Equations}{62}{subsection.3.8.1}%
+\contentsline {subsection}{\numberline {3.8.2}$R_0$ on Heterogeneous Networks: The Effect of Hubs}{63}{subsection.3.8.2}%
+\contentsline {section}{\numberline {3.9}Chapter Summary}{64}{section.3.9}%
+\contentsline {part}{II\hspace {1em}Source Detection Theory}{65}{part.2}%
+\contentsline {chapter}{\numberline {4}Source Detection: Finding Patient Zero}{66}{chapter.4}%
+\contentsline {section}{\numberline {4.1}The Detective Analogy}{66}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Formal Problem Statement}{67}{section.4.2}%
+\contentsline {subsection}{\numberline {4.2.1}The Network}{67}{subsection.4.2.1}%
+\contentsline {subsection}{\numberline {4.2.2}The Observation}{67}{subsection.4.2.2}%
+\contentsline {subsection}{\numberline {4.2.3}The Goal}{68}{subsection.4.2.3}%
+\contentsline {section}{\numberline {4.3}Bayes' Theorem: The Mathematical Framework}{68}{section.4.3}%
+\contentsline {subsection}{\numberline {4.3.1}What Bayes' Theorem Says}{68}{subsection.4.3.1}%
+\contentsline {subsection}{\numberline {4.3.2}Applying Bayes to Source Detection}{68}{subsection.4.3.2}%
+\contentsline {subsection}{\numberline {4.3.3}Non-Uniform Priors}{69}{subsection.4.3.3}%
+\contentsline {section}{\numberline {4.4}Maximum Likelihood Estimation via Simulation}{69}{section.4.4}%
+\contentsline {subsection}{\numberline {4.4.1}The Exact Computation is Intractable}{69}{subsection.4.4.1}%
+\contentsline {subsection}{\numberline {4.4.2}Monte Carlo Estimation: The Simulation Approach}{69}{subsection.4.4.2}%
+\contentsline {subsection}{\numberline {4.4.3}A Worked Example: MLE on a 4-Node Network}{70}{subsection.4.4.3}%
+\contentsline {subsection}{\numberline {4.4.4}The Computational Cost of Brute-Force MLE}{70}{subsection.4.4.4}%
+\contentsline {section}{\numberline {4.5}The Soft Matching Problem}{71}{section.4.5}%
+\contentsline {subsection}{\numberline {4.5.1}Why Exact Matching Fails}{71}{subsection.4.5.1}%
+\contentsline {subsection}{\numberline {4.5.2}Soft Matching with Overlap Metrics}{71}{subsection.4.5.2}%
+\contentsline {subsection}{\numberline {4.5.3}The Soft Margin Estimator (SME)}{71}{subsection.4.5.3}%
+\contentsline {section}{\numberline {4.6}Challenges in Source Detection}{72}{section.4.6}%
+\contentsline {subsection}{\numberline {4.6.1}Challenge 1: Partial Observation}{72}{subsection.4.6.1}%
+\contentsline {subsection}{\numberline {4.6.2}Challenge 2: Late Observation}{73}{subsection.4.6.2}%
+\contentsline {subsection}{\numberline {4.6.3}Challenge 3: Network Heterogeneity}{73}{subsection.4.6.3}%
+\contentsline {subsection}{\numberline {4.6.4}Challenge 4: Temporal Ambiguity}{73}{subsection.4.6.4}%
+\contentsline {section}{\numberline {4.7}Evaluation Metrics}{74}{section.4.7}%
+\contentsline {subsection}{\numberline {4.7.1}Setup: Scores and Ranks}{74}{subsection.4.7.1}%
+\contentsline {subsection}{\numberline {4.7.2}Rank Score}{74}{subsection.4.7.2}%
+\contentsline {subsection}{\numberline {4.7.3}Top-$k$ Score}{75}{subsection.4.7.3}%
+\contentsline {subsection}{\numberline {4.7.4}Mean Rank Score}{76}{subsection.4.7.4}%
+\contentsline {subsection}{\numberline {4.7.5}Additional Metrics in the Codebase}{76}{subsection.4.7.5}%
+\contentsline {section}{\numberline {4.8}Candidate Source Filtering}{77}{section.4.8}%
+\contentsline {subsection}{\numberline {4.8.1}The ``Possible'' Filter}{77}{subsection.4.8.1}%
+\contentsline {subsection}{\numberline {4.8.2}The ``Maximal Outbreak'' Filter}{78}{subsection.4.8.2}%
+\contentsline {section}{\numberline {4.9}The Computational Challenge}{79}{section.4.9}%
+\contentsline {subsection}{\numberline {4.9.1}Back-of-the-Envelope Calculation}{79}{subsection.4.9.1}%
+\contentsline {subsection}{\numberline {4.9.2}Why We Need Faster Methods}{80}{subsection.4.9.2}%
+\contentsline {section}{\numberline {4.10}The Inverse Problem: A Structural View}{81}{section.4.10}%
+\contentsline {subsection}{\numberline {4.10.1}The Forward and Inverse Directions}{81}{subsection.4.10.1}%
+\contentsline {subsection}{\numberline {4.10.2}What Makes a Source Detectable?}{81}{subsection.4.10.2}%
+\contentsline {section}{\numberline {4.11}Chapter Summary}{82}{section.4.11}%
+\contentsline {chapter}{\numberline {5}Classical Source Detection Algorithms}{83}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Overview: A Map of Classical Methods}{83}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Baseline 1: Uniform Random Guess}{84}{section.5.2}%
+\contentsline {subsection}{\numberline {5.2.1}The Idea}{84}{subsection.5.2.1}%
+\contentsline {subsection}{\numberline {5.2.2}The Rank Score Metric}{84}{subsection.5.2.2}%
+\contentsline {subsection}{\numberline {5.2.3}Implementation in the Codebase}{85}{subsection.5.2.3}%
+\contentsline {section}{\numberline {5.3}Baseline 2: Degree Centrality}{86}{section.5.3}%
+\contentsline {subsection}{\numberline {5.3.1}The Idea and Its Justification}{86}{subsection.5.3.1}%
+\contentsline {subsection}{\numberline {5.3.2}Worked Example on a 5-Node Graph}{86}{subsection.5.3.2}%
+\contentsline {subsection}{\numberline {5.3.3}The Critical Limitation: Blindness to the Observation}{87}{subsection.5.3.3}%
+\contentsline {section}{\numberline {5.4}Baseline 3: Jordan Center}{87}{section.5.4}%
+\contentsline {subsection}{\numberline {5.4.1}Motivation: The Source Is Near the Center}{87}{subsection.5.4.1}%
+\contentsline {subsection}{\numberline {5.4.2}Step-by-Step Example on a 6-Node Infected Subgraph}{88}{subsection.5.4.2}%
+\contentsline {subsection}{\numberline {5.4.3}Algorithm Pseudocode}{89}{subsection.5.4.3}%
+\contentsline {subsection}{\numberline {5.4.4}Why the Jordan Center Works (and When It Fails)}{90}{subsection.5.4.4}%
+\contentsline {section}{\numberline {5.5}Baseline 4: Rumor Centrality (Shah \& Zaman, 2011)}{90}{section.5.5}%
+\contentsline {subsection}{\numberline {5.5.1}Motivation: Counting Infection Orderings}{90}{subsection.5.5.1}%
+\contentsline {subsection}{\numberline {5.5.2}Formal Definition}{91}{subsection.5.5.2}%
+\contentsline {subsection}{\numberline {5.5.3}Worked Example on a 5-Node Tree}{92}{subsection.5.5.3}%
+\contentsline {subsection}{\numberline {5.5.4}Why Rumor Centrality Fails on Temporal Networks}{93}{subsection.5.5.4}%
+\contentsline {section}{\numberline {5.6}Comparing All Four Methods on a Worked Example}{93}{section.5.6}%
+\contentsline {section}{\numberline {5.7}Implementation in the Codebase}{95}{section.5.7}%
+\contentsline {subsection}{\numberline {5.7.1}How the Evaluation Pipeline Works}{95}{subsection.5.7.1}%
+\contentsline {subsection}{\numberline {5.7.2}Uniform Baseline}{96}{subsection.5.7.2}%
+\contentsline {subsection}{\numberline {5.7.3}Rank Score and Top-k Metrics}{96}{subsection.5.7.3}%
+\contentsline {subsection}{\numberline {5.7.4}Putting It Together: What to Expect from Each Baseline}{97}{subsection.5.7.4}%
+\contentsline {section}{\numberline {5.8}Chapter Summary}{98}{section.5.8}%
+\contentsline {part}{III\hspace {1em}Deep Learning on Graphs}{99}{part.3}%
+\contentsline {chapter}{\numberline {6}Deep Learning: Teaching Computers to Learn}{100}{chapter.6}%
+\contentsline {section}{\numberline {6.1}What is a Neural Network?}{100}{section.6.1}%
+\contentsline {subsection}{\numberline {6.1.1}The Biological Inspiration}{100}{subsection.6.1.1}%
+\contentsline {subsection}{\numberline {6.1.2}The Artificial Neuron: One Unit of Computation}{101}{subsection.6.1.2}%
+\contentsline {section}{\numberline {6.2}Activation Functions}{102}{section.6.2}%
+\contentsline {subsection}{\numberline {6.2.1}ReLU: The Most Widely Used Activation}{102}{subsection.6.2.1}%
+\contentsline {subsection}{\numberline {6.2.2}Sigmoid: Squashing to Probabilities}{103}{subsection.6.2.2}%
+\contentsline {subsection}{\numberline {6.2.3}Softmax: Turning Scores into a Probability Distribution}{103}{subsection.6.2.3}%
+\contentsline {subsection}{\numberline {6.2.4}Log-Softmax: Numerical Stability in Practice}{104}{subsection.6.2.4}%
+\contentsline {subsection}{\numberline {6.2.5}PReLU: A Learnable Activation}{105}{subsection.6.2.5}%
+\contentsline {section}{\numberline {6.3}Layers and the Forward Pass}{105}{section.6.3}%
+\contentsline {subsection}{\numberline {6.3.1}What is a Layer?}{105}{subsection.6.3.1}%
+\contentsline {subsection}{\numberline {6.3.2}A Two-Layer Network}{106}{subsection.6.3.2}%
+\contentsline {subsection}{\numberline {6.3.3}Deep Networks: Stacking Many Layers}{107}{subsection.6.3.3}%
+\contentsline {section}{\numberline {6.4}Loss Functions}{107}{section.6.4}%
+\contentsline {subsection}{\numberline {6.4.1}Cross-Entropy Loss for Classification}{107}{subsection.6.4.1}%
+\contentsline {subsection}{\numberline {6.4.2}NLL Loss: What the Code Uses}{108}{subsection.6.4.2}%
+\contentsline {section}{\numberline {6.5}Backpropagation --- The Chain Rule in Action}{109}{section.6.5}%
+\contentsline {subsection}{\numberline {6.5.1}The Chain Rule: Derivatives Through Compositions}{109}{subsection.6.5.1}%
+\contentsline {subsection}{\numberline {6.5.2}Gradients as Infinitesimal Sensitivity}{110}{subsection.6.5.2}%
+\contentsline {section}{\numberline {6.6}Gradient Descent and Optimizers}{111}{section.6.6}%
+\contentsline {subsection}{\numberline {6.6.1}Vanilla Gradient Descent}{111}{subsection.6.6.1}%
+\contentsline {subsection}{\numberline {6.6.2}Stochastic and Mini-Batch Gradient Descent}{112}{subsection.6.6.2}%
+\contentsline {subsection}{\numberline {6.6.3}The Adam Optimizer}{112}{subsection.6.6.3}%
+\contentsline {section}{\numberline {6.7}Batch Normalization}{113}{section.6.7}%
+\contentsline {subsection}{\numberline {6.7.1}The Problem: Shifting Input Distributions}{113}{subsection.6.7.1}%
+\contentsline {subsection}{\numberline {6.7.2}The BatchNorm Formula}{113}{subsection.6.7.2}%
+\contentsline {section}{\numberline {6.8}Dropout}{115}{section.6.8}%
+\contentsline {subsection}{\numberline {6.8.1}The Problem: Overfitting}{115}{subsection.6.8.1}%
+\contentsline {subsection}{\numberline {6.8.2}The Dropout Mechanism}{115}{subsection.6.8.2}%
+\contentsline {section}{\numberline {6.9}Deep Learning for Classification}{116}{section.6.9}%
+\contentsline {subsection}{\numberline {6.9.1}Source Detection as a Multi-Class Problem}{116}{subsection.6.9.1}%
+\contentsline {subsection}{\numberline {6.9.2}The Output Layer Architecture}{116}{subsection.6.9.2}%
+\contentsline {subsection}{\numberline {6.9.3}Why $N$ Classes Can Be 500 or More}{116}{subsection.6.9.3}%
+\contentsline {section}{\numberline {6.10}The MLP Baseline and Its Limitations}{117}{section.6.10}%
+\contentsline {subsection}{\numberline {6.10.1}A Plain MLP on Flattened Features}{117}{subsection.6.10.1}%
+\contentsline {subsection}{\numberline {6.10.2}The Fundamental Limitation of MLPs: Ignoring Graph Structure}{117}{subsection.6.10.2}%
+\contentsline {subsection}{\numberline {6.10.3}This Motivates Graph Neural Networks}{118}{subsection.6.10.3}%
+\contentsline {section}{\numberline {6.11}The Complete Training Pipeline}{118}{section.6.11}%
+\contentsline {section}{\numberline {6.12}Chapter Summary}{120}{section.6.12}%
+\contentsline {chapter}{\numberline {7}Graph Neural Networks and PyTorch Geometric}{121}{chapter.7}%
+\contentsline {section}{\numberline {7.1}Why Regular Neural Networks Fail on Graphs}{121}{section.7.1}%
+\contentsline {subsection}{\numberline {7.1.1}Multi-Layer Perceptrons Require Fixed-Size Inputs}{121}{subsection.7.1.1}%
+\contentsline {subsection}{\numberline {7.1.2}MLPs Ignore Graph Structure Entirely}{122}{subsection.7.1.2}%
+\contentsline {subsection}{\numberline {7.1.3}Convolutional Neural Networks Work Only on Grids}{122}{subsection.7.1.3}%
+\contentsline {section}{\numberline {7.2}The Message Passing Framework (MPNN)}{122}{section.7.2}%
+\contentsline {subsection}{\numberline {7.2.1}Intuition}{123}{subsection.7.2.1}%
+\contentsline {subsection}{\numberline {7.2.2}Notation Guide}{123}{subsection.7.2.2}%
+\contentsline {subsection}{\numberline {7.2.3}The Running Example: A Three-Node Path Graph}{123}{subsection.7.2.3}%
+\contentsline {subsection}{\numberline {7.2.4}Aggregation Function Comparison}{124}{subsection.7.2.4}%
+\contentsline {section}{\numberline {7.3}Graph Convolutional Networks (GCN)}{124}{section.7.3}%
+\contentsline {subsection}{\numberline {7.3.1}The GCN Update Rule}{125}{subsection.7.3.1}%
+\contentsline {subsection}{\numberline {7.3.2}Why the Symmetric Normalization $\tilde {\mathbf {D}}^{-1/2} \tilde {\mathbf {A}} \tilde {\mathbf {D}}^{-1/2}$?}{125}{subsection.7.3.2}%
+\contentsline {section}{\numberline {7.4}GraphSAGE: Sampling and Aggregating}{126}{section.7.4}%
+\contentsline {subsection}{\numberline {7.4.1}The Core Idea}{127}{subsection.7.4.1}%
+\contentsline {subsection}{\numberline {7.4.2}Why Concatenation Matters}{127}{subsection.7.4.2}%
+\contentsline {section}{\numberline {7.5}Graph Attention Networks (GAT)}{128}{section.7.5}%
+\contentsline {subsection}{\numberline {7.5.1}Attention Coefficient Computation}{128}{subsection.7.5.1}%
+\contentsline {subsection}{\numberline {7.5.2}Multi-Head Attention}{129}{subsection.7.5.2}%
+\contentsline {section}{\numberline {7.6}Graph Isomorphism Networks (GIN)}{129}{section.7.6}%
+\contentsline {subsection}{\numberline {7.6.1}The Weisfeiler-Lehman Test Connection}{130}{subsection.7.6.1}%
+\contentsline {subsection}{\numberline {7.6.2}The GIN Update Rule}{130}{subsection.7.6.2}%
+\contentsline {subsection}{\numberline {7.6.3}Why SUM and Not Mean?}{130}{subsection.7.6.3}%
+\contentsline {section}{\numberline {7.7}Over-Smoothing: When Depth Becomes a Liability}{131}{section.7.7}%
+\contentsline {subsection}{\numberline {7.7.1}The Mechanism}{131}{subsection.7.7.1}%
+\contentsline {subsection}{\numberline {7.7.2}Empirical Behavior Across Depths}{131}{subsection.7.7.2}%
+\contentsline {subsection}{\numberline {7.7.3}Mitigation Strategies}{131}{subsection.7.7.3}%
+\contentsline {section}{\numberline {7.8}PyTorch Geometric: The Engineering Layer}{132}{section.7.8}%
+\contentsline {subsection}{\numberline {7.8.1}The COO Sparse Format: \texttt {edge\_index}}{132}{subsection.7.8.1}%
+\contentsline {subsection}{\numberline {7.8.2}Edge Weights}{133}{subsection.7.8.2}%
+\contentsline {subsection}{\numberline {7.8.3}The \texttt {MessagePassing} Base Class}{133}{subsection.7.8.3}%
+\contentsline {subsection}{\numberline {7.8.4}Batching Variable-Size Graphs}{134}{subsection.7.8.4}%
+\contentsline {section}{\numberline {7.9}Code Walkthrough: The \texttt {StaticGNN} in \texttt {gnn/static\_gnn.py}}{134}{section.7.9}%
+\contentsline {subsection}{\numberline {7.9.1}Constructor and Layer Initialization}{135}{subsection.7.9.1}%
+\contentsline {subsection}{\numberline {7.9.2}Design Decisions Worth Noting}{136}{subsection.7.9.2}%
+\contentsline {subsection}{\numberline {7.9.3}Forward Pass with Shape Annotations}{136}{subsection.7.9.3}%
+\contentsline {subsection}{\numberline {7.9.4}The Skip Connection}{137}{subsection.7.9.4}%
+\contentsline {subsection}{\numberline {7.9.5}YAML Configuration Mapping}{138}{subsection.7.9.5}%
+\contentsline {section}{\numberline {7.10}Summary and Connection to the Thesis}{138}{section.7.10}%
+\contentsline {part}{IV\hspace {1em}Temporal GNN Architectures for Source Detection}{140}{part.4}%
+\contentsline {chapter}{\numberline {8}Weighted Temporal Event Graphs: Preserving Causal Paths}{141}{chapter.8}%
+\contentsline {section}{\numberline {8.1}Why Static Graphs Fail: A Four-Person Story}{141}{section.8.1}%
+\contentsline {subsection}{\numberline {8.1.1}Setting the Scene}{141}{subsection.8.1.1}%
+\contentsline {subsection}{\numberline {8.1.2}What a Static Graph Sees}{142}{subsection.8.1.2}%
+\contentsline {section}{\numberline {8.2}The Saram\"{a}ki Insight: Make Events the Nodes}{142}{section.8.2}%
+\contentsline {subsection}{\numberline {8.2.1}Why This Solves the Problem}{143}{subsection.8.2.1}%
+\contentsline {subsection}{\numberline {8.2.2}Our Four Events as Nodes}{143}{subsection.8.2.2}%
+\contentsline {section}{\numberline {8.3}Formal Construction of the Temporal Event Graph}{143}{section.8.3}%
+\contentsline {subsection}{\numberline {8.3.1}Why This Graph is Always a DAG}{144}{subsection.8.3.1}%
+\contentsline {subsection}{\numberline {8.3.2}Explaining Each Condition with Concrete Examples}{144}{subsection.8.3.2}%
+\contentsline {paragraph}{Condition 1: Shared person.}{144}{subsection.8.3.2}%
+\contentsline {paragraph}{Condition 2: Strict chronological order.}{144}{subsection.8.3.2}%
+\contentsline {paragraph}{Condition 3: Infectious window.}{144}{subsection.8.3.2}%
+\contentsline {section}{\numberline {8.4}Full Worked Example: Building the TEG Step by Step}{145}{section.8.4}%
+\contentsline {subsection}{\numberline {8.4.1}Checking All Ordered Pairs}{145}{subsection.8.4.1}%
+\contentsline {subsection}{\numberline {8.4.2}The Resulting TEG: A TikZ Diagram}{145}{subsection.8.4.2}%
+\contentsline {subsection}{\numberline {8.4.3}Reading the TEG}{146}{subsection.8.4.3}%
+\contentsline {section}{\numberline {8.5}The $\Delta t$ Constraint: Modelling the Infectious Period}{146}{section.8.5}%
+\contentsline {subsection}{\numberline {8.5.1}Recomputing with $\Delta t = 1$}{146}{subsection.8.5.1}%
+\contentsline {subsection}{\numberline {8.5.2}The Effect of $\Delta t$ on Graph Density}{147}{subsection.8.5.2}%
+\contentsline {section}{\numberline {8.6}Why a DAG is Perfect for Source Detection with GNNs}{147}{section.8.6}%
+\contentsline {subsection}{\numberline {8.6.1}The Source Detection Problem on the TEG}{147}{subsection.8.6.1}%
+\contentsline {subsection}{\numberline {8.6.2}Visualising the Reversed DAG}{148}{subsection.8.6.2}%
+\contentsline {subsection}{\numberline {8.6.3}From Event Scores Back to Person Scores}{148}{subsection.8.6.3}%
+\contentsline {section}{\numberline {8.7}Code Walkthrough: The \texttt {DAGGNN} Architecture}{148}{section.8.7}%
+\contentsline {subsection}{\numberline {8.7.1}Putting It All Together: The Full Forward Pass}{152}{subsection.8.7.1}%
+\contentsline {section}{\numberline {8.8}The Graph Bloat Problem}{152}{section.8.8}%
+\contentsline {subsection}{\numberline {8.8.1}Worst-Case Edge Count}{152}{subsection.8.8.1}%
+\contentsline {subsection}{\numberline {8.8.2}How $\Delta t$ Mitigates Bloat}{153}{subsection.8.8.2}%
+\contentsline {section}{\numberline {8.9}Summary: What the Saram\"{a}ki TEG Gives Us}{153}{section.8.9}%
+\contentsline {chapter}{\numberline {9}The Backtracking Network: Temporal Information on Edges}{155}{chapter.9}%
+\contentsline {section}{\numberline {9.1}The Core Idea: Two Philosophies of Temporal Encoding}{155}{section.9.1}%
+\contentsline {section}{\numberline {9.2}Step 1: Representing the World in Numbers}{156}{section.9.2}%
+\contentsline {subsection}{\numberline {9.2.1}Node Features: One-Hot SIR States}{156}{subsection.9.2.1}%
+\contentsline {subsection}{\numberline {9.2.2}Edge Features: Binary Activation Histories}{157}{subsection.9.2.2}%
+\contentsline {section}{\numberline {9.3}Step 2: Initial Projections}{158}{section.9.3}%
+\contentsline {section}{\numberline {9.4}Step 3: The BN Convolution Layer}{158}{section.9.4}%
+\contentsline {subsection}{\numberline {9.4.1}Edge Update (Equation 3)}{158}{subsection.9.4.1}%
+\contentsline {subsection}{\numberline {9.4.2}Node Update (Equation 4)}{159}{subsection.9.4.2}%
+\contentsline {section}{\numberline {9.5}Step 4: Readout and Expert Knowledge Masking}{160}{section.9.5}%
+\contentsline {section}{\numberline {9.6}Training with Cross-Entropy Loss}{161}{section.9.6}%
+\contentsline {section}{\numberline {9.7}A Complete Worked Example: 5 Nodes, 5 Time Steps}{161}{section.9.7}%
+\contentsline {section}{\numberline {9.8}Code Walkthrough}{162}{section.9.8}%
+\contentsline {section}{\numberline {9.9}Limitations and Path Forward}{164}{section.9.9}%
+\contentsline {section}{\numberline {9.10}Chapter Summary}{164}{section.9.10}%
+\contentsline {chapter}{\numberline {10}Higher-Order De Bruijn GNNs for Temporal Networks}{165}{chapter.10}%
+\contentsline {section}{\numberline {10.1}Where We Stand: Three Approaches to the Same Problem}{165}{section.10.1}%
+\contentsline {section}{\numberline {10.2}The Markovian Problem: A Concrete Failure Mode}{165}{section.10.2}%
+\contentsline {section}{\numberline {10.3}What Is a De Bruijn Graph? From DNA to Sequences}{167}{section.10.3}%
+\contentsline {subsection}{\numberline {10.3.1}De Bruijn Graphs for DNA Sequences}{167}{subsection.10.3.1}%
+\contentsline {subsection}{\numberline {10.3.2}Adapting the Concept to Temporal Networks}{167}{subsection.10.3.2}%
+\contentsline {section}{\numberline {10.4}Constructing De Bruijn Graphs for Temporal Networks}{168}{section.10.4}%
+\contentsline {subsection}{\numberline {10.4.1}The $k$-th Order De Bruijn Graph}{168}{subsection.10.4.1}%
+\contentsline {subsection}{\numberline {10.4.2}Our Implementation: First-Order De Bruijn Graph ($k=1$)}{169}{subsection.10.4.2}%
+\contentsline {section}{\numberline {10.5}Worked Example: Building the De Bruijn Graph Step by Step}{169}{section.10.5}%
+\contentsline {subsection}{\numberline {10.5.1}The Input Temporal Network}{169}{subsection.10.5.1}%
+\contentsline {subsection}{\numberline {10.5.2}Step 1: Enumerate De Bruijn Nodes}{169}{subsection.10.5.2}%
+\contentsline {subsection}{\numberline {10.5.3}Step 2: Draw De Bruijn Edges}{169}{subsection.10.5.3}%
+\contentsline {subsection}{\numberline {10.5.4}Step 3: Visualise the Result}{170}{subsection.10.5.4}%
+\contentsline {section}{\numberline {10.6}Why Higher-Order Graphs Capture Non-Markovian Dynamics}{171}{section.10.6}%
+\contentsline {subsection}{\numberline {10.6.1}First-Order versus Second-Order: An Epidemic Illustration}{171}{subsection.10.6.1}%
+\contentsline {subsection}{\numberline {10.6.2}Mathematical Statement: Non-Markovian Message Passing}{171}{subsection.10.6.2}%
+\contentsline {section}{\numberline {10.7}The Sentinel Node: Mapping Back to People}{172}{section.10.7}%
+\contentsline {subsection}{\numberline {10.7.1}Formal Definition of Sentinel Nodes}{172}{subsection.10.7.1}%
+\contentsline {section}{\numberline {10.8}The DBGNN Architecture: Putting It All Together}{173}{section.10.8}%
+\contentsline {subsection}{\numberline {10.8.1}Stage 1: Feature Initialisation}{173}{subsection.10.8.1}%
+\contentsline {subsection}{\numberline {10.8.2}Stage 2: De Bruijn Message Passing}{173}{subsection.10.8.2}%
+\contentsline {subsection}{\numberline {10.8.3}Stage 3: Sentinel Readout}{174}{subsection.10.8.3}%
+\contentsline {subsection}{\numberline {10.8.4}Stage 4: Score Projection and Log-Softmax}{174}{subsection.10.8.4}%
+\contentsline {section}{\numberline {10.9}Code Walkthrough: \texttt {gnn/dbgnn.py} and \texttt {gnn/graph\_builder.py}}{174}{section.10.9}%
+\contentsline {subsection}{\numberline {10.9.1}Graph Construction: \texttt {utils/make\_de\_bruijn\_graph.py}}{174}{subsection.10.9.1}%
+\contentsline {subsection}{\numberline {10.9.2}Tensor Preparation: \texttt {gnn/graph\_builder.py}}{175}{subsection.10.9.2}%
+\contentsline {subsection}{\numberline {10.9.3}The DBGNN Model: \texttt {gnn/dbgnn.py}}{176}{subsection.10.9.3}%
+\contentsline {section}{\numberline {10.10}Model Selection: Choosing the Right Order $k$}{177}{section.10.10}%
+\contentsline {section}{\numberline {10.11}Comparison of the Three Temporal GNN Architectures}{179}{section.10.11}%
+\contentsline {section}{\numberline {10.12}Empirical Results from Qarkaxhija et al.}{180}{section.10.12}%
+\contentsline {section}{\numberline {10.13}Limitations and Open Questions}{180}{section.10.13}%
+\contentsline {section}{\numberline {10.14}Chapter Summary}{181}{section.10.14}%
+\contentsline {chapter}{\numberline {11}Directed Acyclic Graph Convolutional Networks: Learning Causal Signals}{182}{chapter.11}%
+\contentsline {section}{\numberline {11.1}Why Standard GNNs Cannot Learn on DAGs}{182}{section.11.1}%
+\contentsline {subsection}{\numberline {11.1.1}The Standard Filterbank GNN}{182}{subsection.11.1.1}%
+\contentsline {subsection}{\numberline {11.1.2}Failure Mode 1: The Nilpotent Spectrum}{183}{subsection.11.1.2}%
+\contentsline {subsection}{\numberline {11.1.3}Failure Mode 2: Ignoring the Partial Order}{183}{subsection.11.1.3}%
+\contentsline {paragraph}{Worked example: phantom backward flow.}{184}{subsection.11.1.3}%
+\contentsline {section}{\numberline {11.2}DAGs, Partial Orders, and What ``Comes Before'' Means}{184}{section.11.2}%
+\contentsline {subsection}{\numberline {11.2.1}From Directed Edges to a Partial Order}{184}{subsection.11.2.1}%
+\contentsline {subsection}{\numberline {11.2.2}Topological Ordering}{185}{subsection.11.2.2}%
+\contentsline {section}{\numberline {11.3}The Transitive Closure --- The DAG's Memory}{186}{section.11.3}%
+\contentsline {subsection}{\numberline {11.3.1}Motivation: Why Direct Edges Are Not Enough}{186}{subsection.11.3.1}%
+\contentsline {subsection}{\numberline {11.3.2}Definition and Computation}{186}{subsection.11.3.2}%
+\contentsline {subsection}{\numberline {11.3.3}Step-by-Step Computation for the Gene Network}{187}{subsection.11.3.3}%
+\contentsline {subsection}{\numberline {11.3.4}The Linear Structural Equation Model}{188}{subsection.11.3.4}%
+\contentsline {section}{\numberline {11.4}Causal Graph Shift Operators --- Projecting onto Causal Channels}{189}{section.11.4}%
+\contentsline {subsection}{\numberline {11.4.1}Intuition: Causal Channels}{189}{subsection.11.4.1}%
+\contentsline {subsection}{\numberline {11.4.2}Formal Definition}{189}{subsection.11.4.2}%
+\contentsline {paragraph}{Idempotence.}{190}{equation.11.4}%
+\contentsline {paragraph}{Uniqueness.}{190}{equation.11.4}%
+\contentsline {subsection}{\numberline {11.4.3}Step-by-Step Computation of All Four GSOs}{190}{subsection.11.4.3}%
+\contentsline {paragraph}{Recall.}{190}{subsection.11.4.3}%
+\contentsline {paragraph}{Summary of all four GSOs.}{192}{subsection.11.4.3}%
+\contentsline {subsection}{\numberline {11.4.4}Worked Numerical Example: Applying the GSOs to a Signal}{192}{subsection.11.4.4}%
+\contentsline {section}{\numberline {11.5}Causal Graph Filters --- Linear Combinations of GSOs}{193}{section.11.5}%
+\contentsline {subsection}{\numberline {11.5.1}Filter Definition}{193}{subsection.11.5.1}%
+\contentsline {paragraph}{Comparison to standard graph convolution.}{193}{equation.11.5}%
+\contentsline {subsection}{\numberline {11.5.2}Worked Numerical Example}{193}{subsection.11.5.2}%
+\contentsline {section}{\numberline {11.6}The DCN Architecture}{194}{section.11.6}%
+\contentsline {subsection}{\numberline {11.6.1}Multi-Feature Extension}{194}{subsection.11.6.1}%
+\contentsline {subsection}{\numberline {11.6.2}Architecture Diagram}{195}{subsection.11.6.2}%
+\contentsline {subsection}{\numberline {11.6.3}Forward Pass: Dimensions and Computation}{195}{subsection.11.6.3}%
+\contentsline {subsection}{\numberline {11.6.4}Permutation Equivariance}{195}{subsection.11.6.4}%
+\contentsline {subsection}{\numberline {11.6.5}DCN-T: The Transposed Variant for Source Detection}{196}{subsection.11.6.5}%
+\contentsline {subsection}{\numberline {11.6.6}Computational Complexity}{196}{subsection.11.6.6}%
+\contentsline {section}{\numberline {11.7}Parallel DCN (PDCN) --- Trading Depth for Width}{196}{section.11.7}%
+\contentsline {subsection}{\numberline {11.7.1}The Composition Lemma: Depth Does Not Help}{196}{subsection.11.7.1}%
+\contentsline {subsection}{\numberline {11.7.2}The PDCN Architecture}{197}{subsection.11.7.2}%
+\contentsline {subsection}{\numberline {11.7.3}Architecture Diagram: DCN vs. PDCN}{197}{subsection.11.7.3}%
+\contentsline {subsection}{\numberline {11.7.4}Parameter Count: Independent of Graph Size}{198}{subsection.11.7.4}%
+\contentsline {subsection}{\numberline {11.7.5}When to Use DCN vs. PDCN}{198}{subsection.11.7.5}%
+\contentsline {section}{\numberline {11.8}Source Detection with DCN-T}{198}{section.11.8}%
+\contentsline {subsection}{\numberline {11.8.1}The Source Identification Task}{198}{subsection.11.8.1}%
+\contentsline {subsection}{\numberline {11.8.2}Why Transposed GSOs Are Needed}{199}{subsection.11.8.2}%
+\contentsline {subsection}{\numberline {11.8.3}Connection to Reversed DAG Approaches}{199}{subsection.11.8.3}%
+\contentsline {subsection}{\numberline {11.8.4}Experimental Results}{200}{subsection.11.8.4}%
+\contentsline {section}{\numberline {11.9}Summary}{200}{section.11.9}%
+\contentsline {subsection}{\numberline {11.9.1}Comparison Table}{200}{subsection.11.9.1}%
+\contentsline {subsection}{\numberline {11.9.2}The Three Key Contributions}{201}{subsection.11.9.2}%
+\contentsline {subsection}{\numberline {11.9.3}Position in the Broader Landscape}{201}{subsection.11.9.3}%
+\contentsline {paragraph}{Versus Saram\"{a}ki's TEG (Chapter~\ref {chap:saramaki}).}{201}{subsection.11.9.3}%
+\contentsline {paragraph}{Versus standard temporal GNNs.}{201}{subsection.11.9.3}%
+\contentsline {paragraph}{Versus backtracking-based methods.}{201}{subsection.11.9.3}%
+\contentsline {part}{V\hspace {1em}Experiments \& Evaluation}{203}{part.5}%
+\contentsline {chapter}{\numberline {12}Experiments, Baselines, and Evaluation}{204}{chapter.12}%
+\contentsline {section}{\numberline {12.1}The Experiment Pipeline: Big Picture}{204}{section.12.1}%
+\contentsline {subsection}{\numberline {12.1.1}Pipeline Diagram}{205}{subsection.12.1.1}%
+\contentsline {subsection}{\numberline {12.1.2}Stage 1: Generating Ground-Truth Data (\texttt {main\_tsir.py})}{205}{subsection.12.1.2}%
+\contentsline {subsection}{\numberline {12.1.3}Stage 2a: GNN Inference (\texttt {main\_gnn.py})}{206}{subsection.12.1.3}%
+\contentsline {subsection}{\numberline {12.1.4}Stage 2b: Classical Baseline Evaluation (\texttt {main\_eval.py})}{206}{subsection.12.1.4}%
+\contentsline {subsection}{\numberline {12.1.5}Stage 3: Visualisation (\texttt {viz/})}{206}{subsection.12.1.5}%
+\contentsline {section}{\numberline {12.2}Evaluation Metrics: From Scratch}{207}{section.12.2}%
+\contentsline {subsection}{\numberline {12.2.1}Computing the Rank}{207}{subsection.12.2.1}%
+\contentsline {subsection}{\numberline {12.2.2}Rank Score}{208}{subsection.12.2.2}%
+\contentsline {subsection}{\numberline {12.2.3}Top-$k$ Score}{209}{subsection.12.2.3}%
+\contentsline {subsection}{\numberline {12.2.4}The \texttt {sel} Mask: Filtering Valid Outbreaks}{209}{subsection.12.2.4}%
+\contentsline {subsection}{\numberline {12.2.5}Other Metrics in the Codebase}{209}{subsection.12.2.5}%
+\contentsline {section}{\numberline {12.3}The \texttt {TSIRData} Dataclass}{210}{section.12.3}%
+\contentsline {subsection}{\numberline {12.3.1}Fields and Shapes}{210}{subsection.12.3.1}%
+\contentsline {subsection}{\numberline {12.3.2}Understanding the 3D Tensor Shape}{210}{subsection.12.3.2}%
+\contentsline {subsection}{\numberline {12.3.3}The \texttt {possible} Mask}{211}{subsection.12.3.3}%
+\contentsline {subsection}{\numberline {12.3.4}The \texttt {lik\_possible} Log-Prior}{211}{subsection.12.3.4}%
+\contentsline {subsection}{\numberline {12.3.5}The \texttt {maximal\_outbreak} Array}{212}{subsection.12.3.5}%
+\contentsline {section}{\numberline {12.4}Classical Baselines: Code Walkthroughs}{212}{section.12.4}%
+\contentsline {subsection}{\numberline {12.4.1}Uniform Baseline}{212}{subsection.12.4.1}%
+\contentsline {subsection}{\numberline {12.4.2}Random Baseline}{213}{subsection.12.4.2}%
+\contentsline {subsection}{\numberline {12.4.3}Degree Baseline}{213}{subsection.12.4.3}%
+\contentsline {subsection}{\numberline {12.4.4}Jordan Center Baseline}{214}{subsection.12.4.4}%
+\contentsline {subsection}{\numberline {12.4.5}From Scores to Probabilities: The \texttt {\_scores\_to\_probs} Function}{215}{subsection.12.4.5}%
+\contentsline {section}{\numberline {12.5}Running an Experiment End to End}{215}{section.12.5}%
+\contentsline {subsection}{\numberline {12.5.1}The YAML Configuration System}{215}{subsection.12.5.1}%
+\contentsline {subsection}{\numberline {12.5.2}Full Command Sequence}{216}{subsection.12.5.2}%
+\contentsline {subsection}{\numberline {12.5.3}What Gets Logged to W\&B}{217}{subsection.12.5.3}%
+\contentsline {section}{\numberline {12.6}Erdős–Rényi Networks as Benchmarks}{217}{section.12.6}%
+\contentsline {subsection}{\numberline {12.6.1}The Giant Component and Epidemic Spread}{218}{subsection.12.6.1}%
+\contentsline {section}{\numberline {12.7}Scaling Analysis: The \texttt {exp\_1\_vary\_n} Experiment}{218}{section.12.7}%
+\contentsline {subsection}{\numberline {12.7.1}Expected Scaling Behaviour}{219}{subsection.12.7.1}%
+\contentsline {subsection}{\numberline {12.7.2}Interpreting a Results Plot}{219}{subsection.12.7.2}%
+\contentsline {subsection}{\numberline {12.7.3}Why GNNs Should (in Principle) Scale Better}{219}{subsection.12.7.3}%

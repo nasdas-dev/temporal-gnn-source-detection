@@ -1,0 +1,91 @@
+\relax 
+\providecommand\zref@newlabel[2]{}
+\providecommand\hyper@newdestlabel[2]{}
+\@writefile{toc}{\contentsline {chapter}{\numberline {12}Experiments, Baselines, and Evaluation}{204}{chapter.12}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{ch:experiments}{{12}{204}{Experiments, Baselines, and Evaluation}{chapter.12}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {12.1}The Experiment Pipeline: Big Picture}{204}{section.12.1}\protected@file@percent }
+\newlabel{sec:pipeline}{{12.1}{204}{The Experiment Pipeline: Big Picture}{section.12.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.1.1}Pipeline Diagram}{205}{subsection.12.1.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {12.1}{\ignorespaces The four-stage experiment pipeline. Stage 1 produces a versioned data artifact; Stages 2a and 2b both consume it independently; Stage 3 collects all results from W\&B and produces comparison plots.}}{205}{figure.caption.24}\protected@file@percent }
+\newlabel{fig:pipeline}{{12.1}{205}{The four-stage experiment pipeline. Stage 1 produces a versioned data artifact; Stages 2a and 2b both consume it independently; Stage 3 collects all results from W\&B and produces comparison plots}{figure.caption.24}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.1.2}Stage 1: Generating Ground-Truth Data (\texttt  {main\_tsir.py})}{205}{subsection.12.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.1.3}Stage 2a: GNN Inference (\texttt  {main\_gnn.py})}{206}{subsection.12.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.1.4}Stage 2b: Classical Baseline Evaluation (\texttt  {main\_eval.py})}{206}{subsection.12.1.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.1.5}Stage 3: Visualisation (\texttt  {viz/})}{206}{subsection.12.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12.2}Evaluation Metrics: From Scratch}{207}{section.12.2}\protected@file@percent }
+\newlabel{sec:metrics}{{12.2}{207}{Evaluation Metrics: From Scratch}{section.12.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.2.1}Computing the Rank}{207}{subsection.12.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.2.2}Rank Score}{208}{subsection.12.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.2.3}Top-$k$ Score}{209}{subsection.12.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.2.4}The \texttt  {sel} Mask: Filtering Valid Outbreaks}{209}{subsection.12.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.2.5}Other Metrics in the Codebase}{209}{subsection.12.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12.3}The \texttt  {TSIRData} Dataclass}{210}{section.12.3}\protected@file@percent }
+\newlabel{sec:tsirdata}{{12.3}{210}{The \texttt {TSIRData} Dataclass}{section.12.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.3.1}Fields and Shapes}{210}{subsection.12.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.3.2}Understanding the 3D Tensor Shape}{210}{subsection.12.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.3.3}The \texttt  {possible} Mask}{211}{subsection.12.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.3.4}The \texttt  {lik\_possible} Log-Prior}{211}{subsection.12.3.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.3.5}The \texttt  {maximal\_outbreak} Array}{212}{subsection.12.3.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12.4}Classical Baselines: Code Walkthroughs}{212}{section.12.4}\protected@file@percent }
+\newlabel{sec:baselines}{{12.4}{212}{Classical Baselines: Code Walkthroughs}{section.12.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.4.1}Uniform Baseline}{212}{subsection.12.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.4.2}Random Baseline}{213}{subsection.12.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.4.3}Degree Baseline}{213}{subsection.12.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.4.4}Jordan Center Baseline}{214}{subsection.12.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.4.5}From Scores to Probabilities: The \texttt  {\_scores\_to\_probs} Function}{215}{subsection.12.4.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12.5}Running an Experiment End to End}{215}{section.12.5}\protected@file@percent }
+\newlabel{sec:running}{{12.5}{215}{Running an Experiment End to End}{section.12.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.5.1}The YAML Configuration System}{215}{subsection.12.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.5.2}Full Command Sequence}{216}{subsection.12.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.5.3}What Gets Logged to W\&B}{217}{subsection.12.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12.6}Erdős–Rényi Networks as Benchmarks}{217}{section.12.6}\protected@file@percent }
+\newlabel{sec:erdos_renyi}{{12.6}{217}{Erdős–Rényi Networks as Benchmarks}{section.12.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.6.1}The Giant Component and Epidemic Spread}{218}{subsection.12.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12.7}Scaling Analysis: The \texttt  {exp\_1\_vary\_n} Experiment}{218}{section.12.7}\protected@file@percent }
+\newlabel{sec:scaling}{{12.7}{218}{Scaling Analysis: The \texttt {exp\_1\_vary\_n} Experiment}{section.12.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.7.1}Expected Scaling Behaviour}{219}{subsection.12.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.7.2}Interpreting a Results Plot}{219}{subsection.12.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.7.3}Why GNNs Should (in Principle) Scale Better}{219}{subsection.12.7.3}\protected@file@percent }
+\@setckpt{chapters/11_baselines_codebase}{
+\setcounter{page}{221}
+\setcounter{equation}{0}
+\setcounter{enumi}{5}
+\setcounter{enumii}{0}
+\setcounter{enumiii}{0}
+\setcounter{enumiv}{0}
+\setcounter{footnote}{0}
+\setcounter{mpfootnote}{0}
+\setcounter{part}{5}
+\setcounter{chapter}{12}
+\setcounter{section}{7}
+\setcounter{subsection}{3}
+\setcounter{subsubsection}{0}
+\setcounter{paragraph}{0}
+\setcounter{subparagraph}{0}
+\setcounter{figure}{1}
+\setcounter{table}{0}
+\setcounter{parentequation}{0}
+\setcounter{BAenumi}{0}
+\setcounter{nlinenum}{0}
+\setcounter{section@level}{0}
+\setcounter{Item}{168}
+\setcounter{Hfootnote}{0}
+\setcounter{Hy@AnnotLevel}{0}
+\setcounter{bookmark@seq@number}{405}
+\setcounter{float@type}{16}
+\setcounter{mdf@globalstyle@cnt}{0}
+\setcounter{mdfcountframes}{0}
+\setcounter{mdf@env@i}{0}
+\setcounter{mdf@env@ii}{0}
+\setcounter{mdf@zref@counter}{0}
+\setcounter{caption@flags}{2}
+\setcounter{continuedfloat}{0}
+\setcounter{lstnumber}{16}
+\setcounter{tcbbreakpart}{1}
+\setcounter{tcblayer}{0}
+\setcounter{tcolorbox@number}{476}
+\setcounter{tcblisting}{0}
+\setcounter{lstlisting}{0}
+}

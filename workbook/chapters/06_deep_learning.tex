@@ -1,0 +1,1017 @@
+\chapter{Deep Learning: Teaching Computers to Learn}
+
+This chapter builds every piece of deep learning machinery you need to understand Graph Neural Networks and, ultimately, epidemic source detection. We start at the very beginning --- a single artificial neuron --- and work our way up to multi-layer networks, loss functions, backpropagation, optimization, and regularization.
+
+No concept appears without being explained first. Every equation is accompanied by a concrete numerical example you can verify with a pocket calculator. By the end of this chapter you will understand exactly why the \texttt{StaticGNN} in \texttt{gnn/static\_gnn.py} is designed the way it is, and why a plain MLP --- despite being powerful --- is not enough for source detection on graphs.
+
+\begin{analogybox}{What Does ``Learning'' Mean for a Computer?}
+Imagine teaching a child to recognize apples. You do not write down a rulebook: ``if it is red and round and has a stem, it is an apple.'' Instead, you show the child hundreds of apples and hundreds of non-apples, and the child gradually adjusts their internal understanding until they can classify new fruit correctly.
+
+Deep learning works the same way. We show a neural network thousands of epidemic simulations (each paired with the true source node). After seeing enough examples, the network adjusts its internal numerical parameters until it becomes good at predicting the source from a new, unseen outbreak snapshot. The key word is \emph{gradient} --- a mathematical arrow that points in the direction of improvement.
+\end{analogybox}
+
+% ============================================================
+\section{What is a Neural Network?}
+\label{sec:what_is_nn}
+
+\subsection{The Biological Inspiration}
+
+Your brain contains roughly 86 billion neurons. Each neuron receives electrical signals through its \textbf{dendrites} (input wires), accumulates those signals in its \textbf{cell body}, and fires an output signal down its \textbf{axon} (output wire) only if the accumulated input exceeds a threshold. The strength of the signal passed from one neuron to the next is controlled by the \textbf{synapse} --- a chemical junction that can be strong or weak.
+
+\begin{analogybox}{Neurons as Voting Machines}
+Think of a biological neuron as a voting machine at a meeting. Several people (input neurons) shout their votes, each with a different loudness (weight). The machine tallies the weighted votes, adds its own default opinion (bias), and only rings a bell (fires) if the total is loud enough. The ``bell'' signal then reaches the next room of voting machines. A neural network is a cascading hall of such voting machines.
+\end{analogybox}
+
+Artificial neurons mimic this process with pure arithmetic. The ``vote weight'' becomes a real number $w_i$. The ``tallying'' becomes a sum. The ``firing threshold'' becomes a non-linear function applied to the sum.
+
+\subsection{The Artificial Neuron: One Unit of Computation}
+
+\begin{conceptbox}{The Single Neuron}
+A single artificial neuron takes a vector of input values $\mathbf{x} = [x_1, x_2, \ldots, x_d]$, computes a \textbf{weighted sum} plus a \textbf{bias} term, and then passes the result through an \textbf{activation function} $f$.
+
+\begin{enumerate}
+    \item \textbf{Weighted sum (pre-activation):}
+    \begin{equation}
+        z = w_1 x_1 + w_2 x_2 + \cdots + w_d x_d + b = \sum_{i=1}^{d} w_i x_i + b
+    \end{equation}
+
+    \item \textbf{Activation (output):}
+    \begin{equation}
+        \text{output} = f(z)
+    \end{equation}
+\end{enumerate}
+
+The numbers $w_1, w_2, \ldots, w_d$ are called \textbf{weights} and $b$ is the \textbf{bias}. Together, $\{w_1, \ldots, w_d, b\}$ are the \textbf{learnable parameters} of the neuron. The network finds the values of these parameters that make it good at the task.
+\end{conceptbox}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.8cm,
+    input/.style={circle, draw=blue!60!black, fill=blue!8, thick, minimum size=0.9cm, font=\small},
+    neuron/.style={circle, draw=orange!70!black, fill=orange!10, thick, minimum size=1.2cm, font=\small\bfseries},
+    output/.style={circle, draw=green!60!black, fill=green!8, thick, minimum size=0.9cm, font=\small},
+    arr/.style={-{Stealth[length=2.5mm]}, thick}
+]
+  \node[input] (x1) at (0,  2.5) {$x_1$};
+  \node[input] (x2) at (0,  0.8) {$x_2$};
+  \node[input] (xd) at (0, -0.9) {$x_d$};
+  \node at (0, -0.05) {\vdots};
+
+  \node[neuron] (n) at (4.0, 0.8) {$f$};
+  \node[input, fill=yellow!15, draw=yellow!60!black] (b) at (4.0, 3.2) {$b$};
+  \node[output] (y) at (7.5, 0.8) {out};
+
+  \draw[arr] (x1) -- node[above, sloped, font=\scriptsize]{$w_1$} (n);
+  \draw[arr] (x2) -- node[above, font=\scriptsize]{$w_2$} (n);
+  \draw[arr] (xd) -- node[below, sloped, font=\scriptsize]{$w_d$} (n);
+  \draw[arr] (b)  -- node[right, font=\scriptsize]{$+b$} (n);
+  \draw[arr] (n)  -- node[above, font=\scriptsize]{$f(z)$} (y);
+
+  \node[font=\footnotesize, gray] at (4.0, 0.0) {$z{=}\sum w_i x_i{+}b$};
+\end{tikzpicture}
+\end{center}
+
+\begin{examplebox}{A Single Neuron, Step by Step}
+Let us compute the output of a single neuron with two inputs by hand.
+
+\textbf{Given values:}
+\begin{itemize}
+    \item Inputs: $x_1 = 0.5$, $x_2 = 0.3$
+    \item Weights: $w_1 = 0.8$, $w_2 = -0.4$
+    \item Bias: $b = 0.1$
+\end{itemize}
+
+\textbf{Step 1 --- Compute the weighted sum (pre-activation):}
+\begin{align*}
+    z &= w_1 \cdot x_1 + w_2 \cdot x_2 + b \\
+      &= 0.8 \times 0.5 + (-0.4) \times 0.3 + 0.1 \\
+      &= 0.40 - 0.12 + 0.10 \\
+      &= 0.38
+\end{align*}
+
+\textbf{Step 2a --- Apply ReLU activation:}
+\[
+    f_{\text{ReLU}}(z) = \max(0,\, z) = \max(0,\, 0.38) = \mathbf{0.38}
+\]
+
+\textbf{Step 2b --- Apply sigmoid activation instead:}
+\[
+    f_{\text{sigmoid}}(z) = \frac{1}{1 + e^{-z}} = \frac{1}{1 + e^{-0.38}}
+\]
+We need $e^{-0.38}$. Since $e^{0.38} \approx 1.462$, we have $e^{-0.38} \approx 0.684$. Therefore:
+\[
+    f_{\text{sigmoid}}(0.38) = \frac{1}{1 + 0.684} = \frac{1}{1.684} \approx \mathbf{0.594}
+\]
+
+\textbf{Interpretation:} With ReLU the neuron simply passes through the positive pre-activation $0.38$. With sigmoid the neuron maps $0.38$ to a value in $(0,1)$, which can be read as a ``soft probability'' of roughly $59.4\%$.
+\end{examplebox}
+
+\begin{keyinsight}{Why the Bias Matters}
+Without the bias $b$, every neuron's output would be zero when all inputs are zero. The bias is like a ``default level of activity'' that shifts the neuron's sensitivity threshold. In practice, removing biases makes it significantly harder for the network to learn, because the function $f(\sum w_i x_i)$ is constrained to pass through the origin.
+\end{keyinsight}
+
+% ============================================================
+\section{Activation Functions}
+\label{sec:activations}
+
+Without a non-linear activation function, a stack of neurons is mathematically equivalent to a single linear transformation --- no matter how many layers you add. Activation functions are the source of a neural network's expressive power.
+
+\subsection{ReLU: The Most Widely Used Activation}
+
+\begin{mathbox}{ReLU --- Rectified Linear Unit}
+\begin{equation}
+    f_{\text{ReLU}}(x) = \max(0,\; x) =
+    \begin{cases}
+        x & \text{if } x > 0 \\
+        0 & \text{if } x \le 0
+    \end{cases}
+\end{equation}
+\textbf{Derivative:} $f'_{\text{ReLU}}(x) = \mathbf{1}[x > 0]$ (1 for positive inputs, 0 for non-positive inputs).
+\end{mathbox}
+
+ReLU ``kills'' all negative pre-activations by setting them to zero. This sounds harsh but has a crucial benefit: because $f'(x) = 1$ for all $x > 0$, gradients do not shrink as they pass through active neurons. This solved the \emph{vanishing gradient problem} that crippled deep networks with sigmoid and tanh activations.
+
+\begin{examplebox}{ReLU Input-Output Table}
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{rrl}
+\toprule
+Input $x$ & $\max(0, x)$ & Note \\
+\midrule
+$-3.0$ & $0.0$ & negative input, killed \\
+$-0.5$ & $0.0$ & negative input, killed \\
+$0.0$  & $0.0$ & boundary \\
+$0.5$  & $0.5$ & positive, passed through unchanged \\
+$1.8$  & $1.8$ & positive, passed through unchanged \\
+$5.2$  & $5.2$ & positive, passed through unchanged \\
+\bottomrule
+\end{tabular}
+\end{center}
+Notice that ReLU is linear on the positive half --- it does not compress large positive values. This is a deliberate design choice that helps gradients flow during training.
+\end{examplebox}
+
+\subsection{Sigmoid: Squashing to Probabilities}
+
+\begin{mathbox}{Sigmoid Function}
+\begin{equation}
+    f_{\text{sigmoid}}(x) = \frac{1}{1 + e^{-x}}
+\end{equation}
+\textbf{Range:} $(0, 1)$. As $x \to +\infty$, $f \to 1$. As $x \to -\infty$, $f \to 0$.\\
+\textbf{Derivative:} $f'(x) = f(x)\bigl(1 - f(x)\bigr)$.
+\end{mathbox}
+
+Sigmoid is useful at the \emph{output} layer of binary classifiers because it maps any real number to a value interpretable as a probability. However, its derivative is at most $0.25$, which causes gradients to shrink rapidly in deep networks --- this is why it is rarely used in hidden layers today.
+
+\begin{examplebox}{Sigmoid at a Few Key Points}
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{rl}
+\toprule
+$x$ & $1/(1+e^{-x})$ \\
+\midrule
+$-4$ & $\approx 0.018$ \\
+$-2$ & $\approx 0.119$ \\
+$0$  & $= 0.500$ \\
+$2$  & $\approx 0.881$ \\
+$4$  & $\approx 0.982$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Sigmoid is symmetric around $x=0$ where its output is exactly $0.5$. Very large or very small inputs produce outputs near 1 or 0 respectively --- the function \emph{saturates}.
+\end{examplebox}
+
+\subsection{Softmax: Turning Scores into a Probability Distribution}
+
+When we have $k$ mutually exclusive classes (for us: $k = N$ nodes, one is the source), we need the output to form a valid probability distribution: all values in $[0,1]$ and summing to exactly 1. Softmax achieves this.
+
+\begin{mathbox}{Softmax Function}
+Given a vector of raw scores (logits) $\mathbf{z} = [z_1, z_2, \ldots, z_k]$, the softmax function converts them into probabilities:
+\begin{equation}
+    \text{softmax}(z_i) = \frac{e^{z_i}}{\displaystyle\sum_{j=1}^{k} e^{z_j}}
+    \quad \text{for } i = 1, 2, \ldots, k
+\end{equation}
+\textbf{Properties:} each output is in $(0,1)$; all outputs sum to exactly 1; the largest $z_i$ receives the highest probability; the ordering is preserved.
+\end{mathbox}
+
+\begin{examplebox}{Softmax on Three Scores, Worked Fully}
+Suppose our network produces logits $\mathbf{z} = [1.0,\; 2.0,\; 0.5]$ for three candidate sources.
+
+\textbf{Step 1 --- Compute exponentials:}
+\begin{align*}
+    e^{z_1} = e^{1.0} &\approx 2.718 \\
+    e^{z_2} = e^{2.0} &\approx 7.389 \\
+    e^{z_3} = e^{0.5} &\approx 1.649
+\end{align*}
+
+\textbf{Step 2 --- Sum:}
+\[
+    S = 2.718 + 7.389 + 1.649 = 11.756
+\]
+
+\textbf{Step 3 --- Divide each by the sum:}
+\begin{align*}
+    p_1 &= 2.718 / 11.756 \approx 0.231 \\
+    p_2 &= 7.389 / 11.756 \approx 0.628 \\
+    p_3 &= 1.649 / 11.756 \approx 0.140
+\end{align*}
+
+\textbf{Verification:} $0.231 + 0.628 + 0.140 = 0.999 \approx 1$ (rounding error only). \\
+\textbf{Interpretation:} The network assigns 62.8\% probability to node 2 being the source, 23.1\% to node 1, and 14.0\% to node 3.
+\end{examplebox}
+
+\subsection{Log-Softmax: Numerical Stability in Practice}
+
+Computing $\log(\text{softmax}(\mathbf{z}))$ naively can cause numerical overflow when any $z_i$ is large (e.g.\ $e^{1000} = \infty$ in floating point). The \textbf{log-softmax} function avoids this by exploiting the identity $\log(a/b) = \log a - \log b$ and subtracting the maximum logit before exponentiation.
+
+\begin{mathbox}{Log-Softmax (Numerically Stable Form)}
+\begin{equation}
+    \log\text{-softmax}(z_i) = z_i - \log\!\left(\sum_{j=1}^{k} e^{z_j}\right)
+\end{equation}
+In practice, the \textbf{log-sum-exp trick} subtracts $\max_j z_j$ from all logits before exponentiating, which keeps all values in a safe numerical range without changing the result.
+
+This is exactly what \texttt{F.log\_softmax(x, dim=1)} computes in PyTorch.
+\end{mathbox}
+
+\begin{examplebox}{Log-Softmax on the Same Three Scores}
+Continuing from $\mathbf{z} = [1.0, 2.0, 0.5]$ and $S = 11.756$:
+\[
+    \log S = \log(11.756) \approx 2.464
+\]
+\begin{align*}
+    \log\text{-softmax}(z_1) &= 1.0 - 2.464 = -1.464 \\
+    \log\text{-softmax}(z_2) &= 2.0 - 2.464 = -0.464 \\
+    \log\text{-softmax}(z_3) &= 0.5 - 2.464 = -1.964
+\end{align*}
+\textbf{Verification:} $e^{-1.464} \approx 0.231$, $e^{-0.464} \approx 0.629$, $e^{-1.964} \approx 0.140$ --- these match the softmax probabilities above exactly.
+
+\textbf{Log-probabilities are always $\le 0$}, which makes sense: $\log(p) \le 0$ for $p \in (0,1)$.
+\end{examplebox}
+
+\subsection{PReLU: A Learnable Activation}
+
+\begin{mathbox}{PReLU --- Parametric Rectified Linear Unit}
+\begin{equation}
+    f_{\text{PReLU}}(x;\, \alpha) = \max(\alpha x,\; x) =
+    \begin{cases}
+        x    & \text{if } x \ge 0 \\
+        \alpha x & \text{if } x < 0
+    \end{cases}
+\end{equation}
+Here $\alpha$ is a \textbf{learnable scalar parameter} (one per channel, initialized at $0.25$). The gradient with respect to $\alpha$ is $\frac{\partial}{\partial \alpha} f = x \cdot \mathbf{1}[x < 0]$, so $\alpha$ is updated by standard backpropagation.
+\end{mathbox}
+
+PReLU generalizes ReLU: if $\alpha = 0$ it reduces to ReLU; if $\alpha = 0.01$ it becomes Leaky ReLU. The key advantage is that the network can \emph{learn} how much signal to let through on the negative side, rather than fixing it to zero. Every convolution block in \texttt{gnn/static\_gnn.py} uses \texttt{torch.nn.PReLU()} precisely for this reason.
+
+\begin{keyinsight}{Choosing an Activation Function}
+\begin{itemize}
+    \item Use \textbf{ReLU} or \textbf{PReLU} in hidden layers. They avoid vanishing gradients and are computationally cheap.
+    \item Use \textbf{sigmoid} in the output layer only when you need a binary probability.
+    \item Use \textbf{softmax} (or log-softmax) in the output layer when you need a probability distribution over $k \ge 2$ classes.
+    \item \textbf{Never use sigmoid or tanh in hidden layers} of deep networks unless you have a specific reason --- their saturating behavior makes training slow or impossible.
+\end{itemize}
+\end{keyinsight}
+
+% ============================================================
+\section{Layers and the Forward Pass}
+\label{sec:forward_pass}
+
+\subsection{What is a Layer?}
+
+A \textbf{layer} is a set of neurons that all receive the same input vector and produce an output vector in parallel. If a layer has $m$ neurons and each receives a $d$-dimensional input, the layer applies $m$ different neurons simultaneously and stacks their outputs into a single vector of length $m$.
+
+\begin{conceptbox}{Layer as a Matrix-Vector Operation}
+A single layer with $m$ neurons and $d$-dimensional input can be written compactly as:
+\begin{equation}
+    \mathbf{h} = f\!\left(\mathbf{W}\mathbf{x} + \mathbf{b}\right)
+\end{equation}
+where:
+\begin{itemize}
+    \item $\mathbf{x} \in \mathbb{R}^d$ --- input vector ($d$ values from the previous layer or raw features)
+    \item $\mathbf{W} \in \mathbb{R}^{m \times d}$ --- weight matrix (row $i$ contains the weights for neuron $i$)
+    \item $\mathbf{b} \in \mathbb{R}^m$ --- bias vector (one bias per neuron)
+    \item $f$ --- activation function applied \textbf{element-wise} to each entry of $\mathbf{Wx}+\mathbf{b}$
+    \item $\mathbf{h} \in \mathbb{R}^m$ --- output vector (one value per neuron)
+\end{itemize}
+The learnable parameters of this layer are $\{\mathbf{W},\, \mathbf{b}\}$, totalling $m \cdot d + m = m(d+1)$ numbers.
+\end{conceptbox}
+
+\subsection{A Two-Layer Network}
+
+Let us define a small but concrete two-layer network and trace a data point through it.
+
+\begin{conceptbox}{Architecture: Input $\to$ Hidden $\to$ Output}
+\begin{itemize}
+    \item Input layer: $\mathbf{x} \in \mathbb{R}^2$ (2 raw features)
+    \item Hidden layer: $\mathbf{h} \in \mathbb{R}^3$ (3 neurons, ReLU activation)
+    \item Output layer: $y \in \mathbb{R}^1$ (1 neuron, no activation in this example)
+\end{itemize}
+\textbf{Equations:}
+\begin{align}
+    \mathbf{h} &= \text{ReLU}\!\left(\mathbf{W}^{(1)}\mathbf{x} + \mathbf{b}^{(1)}\right) \label{eq:layer1} \\
+    y           &= \mathbf{W}^{(2)}\mathbf{h} + b^{(2)} \label{eq:layer2}
+\end{align}
+where $\mathbf{W}^{(1)} \in \mathbb{R}^{3 \times 2}$, $\mathbf{b}^{(1)} \in \mathbb{R}^{3}$, $\mathbf{W}^{(2)} \in \mathbb{R}^{1 \times 3}$, $b^{(2)} \in \mathbb{R}$.
+\end{conceptbox}
+
+\begin{examplebox}{Forward Pass Through a Two-Layer Network (Fully Numerical)}
+\textbf{Weights (given, as if randomly initialized):}
+\[
+    \mathbf{W}^{(1)} = \begin{bmatrix} 0.1 & 0.2 \\ 0.3 & -0.1 \\ 0.5 & 0.4 \end{bmatrix}, \quad
+    \mathbf{b}^{(1)} = \begin{bmatrix} 0 \\ 0 \\ 0 \end{bmatrix}, \quad
+    \mathbf{W}^{(2)} = \begin{bmatrix} 1.0 & -0.5 & 0.3 \end{bmatrix}, \quad
+    b^{(2)} = 0
+\]
+
+\textbf{Input:} $\mathbf{x} = [1.0,\; 2.0]^\top$
+
+\textbf{Step 1 --- Pre-activation of hidden layer:}
+\[
+    \mathbf{z}^{(1)} = \mathbf{W}^{(1)}\mathbf{x} =
+    \begin{bmatrix} 0.1 \cdot 1.0 + 0.2 \cdot 2.0 \\ 0.3 \cdot 1.0 + (-0.1) \cdot 2.0 \\ 0.5 \cdot 1.0 + 0.4 \cdot 2.0 \end{bmatrix}
+    = \begin{bmatrix} 0.1 + 0.4 \\ 0.3 - 0.2 \\ 0.5 + 0.8 \end{bmatrix}
+    = \begin{bmatrix} 0.5 \\ 0.1 \\ 1.3 \end{bmatrix}
+\]
+
+\textbf{Step 2 --- Apply ReLU element-wise:}
+\[
+    \mathbf{h} = \text{ReLU}\!\left(\begin{bmatrix}0.5\\0.1\\1.3\end{bmatrix}\right)
+    = \begin{bmatrix}\max(0,0.5)\\\max(0,0.1)\\\max(0,1.3)\end{bmatrix}
+    = \begin{bmatrix}0.5\\0.1\\1.3\end{bmatrix}
+\]
+All three pre-activations are positive, so ReLU leaves them unchanged.
+
+\textbf{Step 3 --- Output layer:}
+\[
+    y = \mathbf{W}^{(2)}\mathbf{h} = 1.0 \cdot 0.5 + (-0.5) \cdot 0.1 + 0.3 \cdot 1.3
+      = 0.5 - 0.05 + 0.39 = \mathbf{0.84}
+\]
+The raw score for this input is $0.84$. In a classification setting, this would next be passed through softmax along with the scores for all other classes.
+\end{examplebox}
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    inp/.style={circle, draw=blue!55!black, fill=blue!8, thick, minimum size=0.8cm},
+    hid/.style={circle, draw=orange!70!black, fill=orange!7, thick, minimum size=0.8cm},
+    outn/.style={circle, draw=green!60!black, fill=green!8, thick, minimum size=0.8cm},
+    arr/.style={-{Stealth[length=1.8mm]}, gray!70, thin}
+]
+  \node[inp] (i1) at (0,  1.0) {$x_1$};
+  \node[inp] (i2) at (0, -1.0) {$x_2$};
+
+  \node[hid] (h1) at (3.0,  2.0) {$h_1$};
+  \node[hid] (h2) at (3.0,  0.0) {$h_2$};
+  \node[hid] (h3) at (3.0, -2.0) {$h_3$};
+
+  \node[outn] (y)  at (6.0,  0.0) {$y$};
+
+  \foreach \s in {1,2}{
+    \foreach \t in {1,2,3}{
+      \draw[arr] (i\s) -- (h\t);
+    }
+  }
+  \foreach \t in {1,2,3}{
+    \draw[arr] (h\t) -- (y);
+  }
+
+  \node[blue!60!black,  font=\footnotesize\bfseries] at (0,  -3.0) {Input ($\mathbb{R}^2$)};
+  \node[orange!70!black, font=\footnotesize\bfseries] at (3.0, -3.0) {Hidden ($\mathbb{R}^3$, ReLU)};
+  \node[green!60!black,  font=\footnotesize\bfseries] at (6.0, -3.0) {Output ($\mathbb{R}^1$)};
+
+  \node[gray, font=\scriptsize] at (1.5,  1.8) {$\mathbf{W}^{(1)}$};
+  \node[gray, font=\scriptsize] at (4.5,  0.9) {$\mathbf{W}^{(2)}$};
+\end{tikzpicture}
+\end{center}
+
+\subsection{Deep Networks: Stacking Many Layers}
+
+A \textbf{deep network} (or deep neural network) stacks multiple hidden layers. Each layer transforms the representation produced by the previous layer.
+
+\begin{mathbox}{$L$-Layer MLP Forward Pass}
+An $L$-layer network computes:
+\begin{align}
+    \mathbf{h}^{(0)} &= \mathbf{x} \quad \text{(input)} \\
+    \mathbf{z}^{(l)} &= \mathbf{W}^{(l)}\mathbf{h}^{(l-1)} + \mathbf{b}^{(l)} \quad \text{for } l = 1, \ldots, L \quad \text{(pre-activation)} \\
+    \mathbf{h}^{(l)} &= f\!\left(\mathbf{z}^{(l)}\right) \quad \text{for } l = 1, \ldots, L-1 \quad \text{(hidden activations)} \\
+    \hat{\mathbf{y}}  &= g\!\left(\mathbf{z}^{(L)}\right) \quad \text{(output activation, e.g.\ log-softmax)}
+\end{align}
+The total parameter count is $\sum_{l=1}^{L} \bigl( d_{l-1} \cdot d_l + d_l \bigr)$ where $d_l$ is the width of layer $l$ and $d_0 = d$ is the input dimension.
+\end{mathbox}
+
+% ============================================================
+\section{Loss Functions}
+\label{sec:loss_functions}
+
+A \textbf{loss function} $\mathcal{L}(\hat{\mathbf{y}},\, \mathbf{y})$ measures how wrong the network's prediction $\hat{\mathbf{y}}$ is compared to the true answer $\mathbf{y}$. Training \emph{minimizes} this loss over the training dataset.
+
+\begin{analogybox}{The Loss as a Navigation Error}
+Imagine you are navigating with GPS and the GPS tells you that you are 3 km off course. That ``3 km'' is the loss. You want to reduce it to zero by adjusting your heading (your weights). The direction to turn is given by the gradient --- more on that in the next section.
+\end{analogybox}
+
+\subsection{Cross-Entropy Loss for Classification}
+
+When the task is classification --- predicting which of $N$ classes is correct --- we use \textbf{cross-entropy loss}. In our case, $N$ is the number of nodes, and the correct class is the true source node.
+
+\begin{mathbox}{Cross-Entropy Loss}
+Let $\hat{\mathbf{y}} \in (0,1)^N$ be the network's predicted probability distribution over $N$ classes, and let $\mathbf{y}$ be the true label (a one-hot vector with a single 1 at position $c^*$, the correct class). The cross-entropy loss is:
+\begin{equation}
+    \mathcal{L}_{\text{CE}} = -\sum_{c=1}^{N} y_c \log \hat{y}_c
+\end{equation}
+Since $y_c = 0$ for all $c \ne c^*$ and $y_{c^*} = 1$, all but one term vanish:
+\begin{equation}
+    \mathcal{L}_{\text{CE}} = -\log \hat{y}_{c^*}
+\end{equation}
+The loss is simply the negative log-probability assigned to the correct class.
+
+\textbf{Intuition:} If the model is very confident and correct ($\hat{y}_{c^*} \approx 1$), then $-\log(1) = 0$ --- zero loss. If the model is wrong and confident ($\hat{y}_{c^*} \approx 0$), then $-\log(0) = +\infty$ --- infinite loss.
+\end{mathbox}
+
+\begin{examplebox}{Cross-Entropy: Three Classes}
+Suppose we have 3 candidate nodes. The network predicts $\hat{\mathbf{y}} = [0.1,\; 0.7,\; 0.2]$ and the true source is \textbf{node 2} (index 2, the middle one, with $\hat{y}_2 = 0.7$).
+
+\[
+    \mathcal{L}_{\text{CE}} = -\log \hat{y}_{c^*} = -\log(0.7) \approx \mathbf{0.357}
+\]
+
+Now imagine the network was instead very uncertain: $\hat{\mathbf{y}} = [0.33,\; 0.34,\; 0.33]$:
+\[
+    \mathcal{L}_{\text{CE}} = -\log(0.34) \approx \mathbf{1.079}
+\]
+
+And if the model was wrong and confident: $\hat{\mathbf{y}} = [0.9,\; 0.05,\; 0.05]$ (predicted node 1 instead of node 2):
+\[
+    \mathcal{L}_{\text{CE}} = -\log(0.05) \approx \mathbf{2.996}
+\]
+
+The loss correctly penalizes confident wrong answers most heavily.
+\end{examplebox}
+
+\begin{examplebox}{Source Detection as Classification}
+In our source detection task, the network observes an SIR snapshot (which nodes are Susceptible, Infected, or Recovered) on a graph with $N$ nodes. It must output a probability for each of the $N$ nodes being the source.
+
+This is an $N$-class classification problem. For a network with $N = 500$ nodes:
+\begin{itemize}
+    \item The output layer has 500 neurons.
+    \item Log-softmax produces 500 log-probabilities.
+    \item The true source has label 1 (gets the ``correct class'' slot).
+    \item All other 499 nodes have label 0.
+    \item The NLL loss picks out just the log-probability assigned to the true source.
+\end{itemize}
+
+A uniform (random-guessing) model would assign $\hat{y}_{c^*} = 1/500 = 0.002$, giving a loss of $-\log(0.002) \approx 6.2$. A well-trained model should drive this loss down significantly.
+\end{examplebox}
+
+\subsection{NLL Loss: What the Code Uses}
+
+When the model outputs \emph{log-probabilities} (as our \texttt{StaticGNN} does via \texttt{F.log\_softmax}), the appropriate loss is the \textbf{Negative Log-Likelihood (NLL)} loss:
+
+\begin{mathbox}{NLL Loss}
+Let $\hat{q}_{c^*} = \log \hat{y}_{c^*}$ be the log-probability assigned to the correct class. Then:
+\begin{equation}
+    \mathcal{L}_{\text{NLL}} = -\hat{q}_{c^*}
+\end{equation}
+This is identical to cross-entropy when the model uses log-softmax. The combination \texttt{F.log\_softmax + nn.NLLLoss} is numerically more stable than \texttt{F.softmax + cross\_entropy} because it avoids computing $\exp$ and then $\log$ in sequence.
+\end{mathbox}
+
+% ============================================================
+\section{Backpropagation --- The Chain Rule in Action}
+\label{sec:backprop}
+
+We now know how to compute a forward pass (get a prediction) and a loss (measure the error). What we need next is a method to compute the gradient of the loss with respect to every weight in the network. This is \textbf{backpropagation}.
+
+\begin{analogybox}{Backpropagation as Blame Attribution}
+Imagine a factory assembly line. A defective product rolls off the end. Who is to blame? The quality inspector at the end traces the defect backward: first to the packaging station, then to the assembly station, then to the raw materials. Each station gets assigned a ``blame score'' proportional to how much its error contributed to the final defect.
+
+Backpropagation does exactly this for a neural network. The loss at the end is the ``defect.'' Backpropagation traces it backward through all the layers, computing how much each weight contributed to the loss.
+\end{analogybox}
+
+\subsection{The Chain Rule: Derivatives Through Compositions}
+
+If you have a function composed of two operations --- $L = g(f(w))$ --- then the chain rule gives:
+\begin{equation}
+    \frac{dL}{dw} = \frac{dL}{df} \cdot \frac{df}{dw}
+\end{equation}
+In words: ``how much does $L$ change if I wiggle $w$?'' equals ``how much does $L$ change if I wiggle $f$'' times ``how much does $f$ change if I wiggle $w$.''
+
+\begin{conceptbox}{The Chain Rule in a Neural Network}
+For a weight $w$ in layer $l$ of a network, the gradient flows backward through the chain:
+\[
+    \frac{\partial \mathcal{L}}{\partial w} =
+    \underbrace{\frac{\partial \mathcal{L}}{\partial z^{(L)}}}_{\text{loss grad at output}}
+    \cdot
+    \underbrace{\frac{\partial z^{(L)}}{\partial \cdots}}_{\text{chain through upper layers}}
+    \cdot
+    \underbrace{\frac{\partial z^{(l)}}{\partial w}}_{\text{local contribution}}
+\]
+Each term in the chain is a local derivative that can be computed analytically. The \emph{product} of all these local derivatives gives the gradient of the global loss with respect to any specific weight.
+\end{conceptbox}
+
+\begin{examplebox}{Backpropagation Through a Single Neuron}
+We will trace the gradient from loss to weight for the single neuron computed earlier.
+
+\textbf{Setup:}
+\begin{itemize}
+    \item Inputs: $x_1 = 0.5$, $x_2 = 0.3$; Weights: $w_1 = 0.8$, $w_2 = -0.4$; Bias: $b = 0.1$
+    \item Pre-activation: $z = 0.38$; Activation: sigmoid; output: $\hat{y} = 0.594$
+    \item True label: $y = 1.0$; Loss: squared loss $\mathcal{L} = \frac{1}{2}(\hat{y} - y)^2$
+\end{itemize}
+
+\textbf{Forward values (already computed):}
+\[
+    z = 0.38, \quad \hat{y} = \sigma(0.38) \approx 0.594
+\]
+
+\textbf{Step 1 --- Gradient of loss w.r.t.\ output:}
+\[
+    \frac{\partial \mathcal{L}}{\partial \hat{y}} = \hat{y} - y = 0.594 - 1.0 = -0.406
+\]
+(The loss decreases as $\hat{y}$ increases, so the gradient is negative.)
+
+\textbf{Step 2 --- Gradient through the sigmoid} (chain rule):
+\[
+    \frac{\partial \hat{y}}{\partial z} = \sigma(z)(1 - \sigma(z)) = 0.594 \times (1 - 0.594) = 0.594 \times 0.406 \approx 0.241
+\]
+\[
+    \frac{\partial \mathcal{L}}{\partial z} = \frac{\partial \mathcal{L}}{\partial \hat{y}} \cdot \frac{\partial \hat{y}}{\partial z} = (-0.406) \times 0.241 \approx -0.098
+\]
+
+\textbf{Step 3 --- Gradient of $z$ w.r.t.\ each weight:}
+\[
+    \frac{\partial z}{\partial w_1} = x_1 = 0.5, \quad
+    \frac{\partial z}{\partial w_2} = x_2 = 0.3, \quad
+    \frac{\partial z}{\partial b}  = 1
+\]
+
+\textbf{Step 4 --- Final gradients via the chain rule:}
+\begin{align*}
+    \frac{\partial \mathcal{L}}{\partial w_1} &= \frac{\partial \mathcal{L}}{\partial z} \cdot \frac{\partial z}{\partial w_1} = (-0.098) \times 0.5 = -0.049 \\
+    \frac{\partial \mathcal{L}}{\partial w_2} &= \frac{\partial \mathcal{L}}{\partial z} \cdot \frac{\partial z}{\partial w_2} = (-0.098) \times 0.3 = -0.029 \\
+    \frac{\partial \mathcal{L}}{\partial b}   &= \frac{\partial \mathcal{L}}{\partial z} \cdot 1 = -0.098
+\end{align*}
+
+\textbf{Interpretation:} Each gradient tells us ``if I increase this weight by a tiny amount $\epsilon$, the loss changes by gradient $\times \epsilon$.'' The gradients are negative, so increasing $w_1$ and $w_2$ would \emph{decrease} the loss. Gradient descent will do exactly that.
+\end{examplebox}
+
+\subsection{Gradients as Infinitesimal Sensitivity}
+
+\begin{keyinsight}{What a Gradient Really Means}
+The gradient $\frac{\partial \mathcal{L}}{\partial w}$ answers the question: ``If I increase $w$ by a very small amount $\epsilon$, how much does the loss change?''
+
+\[
+    \mathcal{L}(w + \epsilon) \approx \mathcal{L}(w) + \epsilon \cdot \frac{\partial \mathcal{L}}{\partial w}
+\]
+
+A gradient of $-0.049$ for $w_1$ means: increase $w_1$ by $0.001$ and the loss decreases by $0.049 \times 0.001 = 0.000049$. This is tiny, but gradient descent applies this update thousands of times, cumulatively moving the weights to a region of low loss.
+\end{keyinsight}
+
+% ============================================================
+\section{Gradient Descent and Optimizers}
+\label{sec:optimizers}
+
+Now that we have gradients, we use them to update the weights. The goal is to move the weights in the direction that \emph{decreases} the loss.
+
+\subsection{Vanilla Gradient Descent}
+
+\begin{mathbox}{Gradient Descent Update Rule}
+For each learnable parameter $w$, the update is:
+\begin{equation}
+    w \leftarrow w - \eta \cdot \frac{\partial \mathcal{L}}{\partial w}
+\end{equation}
+where $\eta > 0$ is the \textbf{learning rate} (also written $\alpha$ or $\text{lr}$ in code).
+\end{mathbox}
+
+The minus sign is essential: we subtract the gradient because we want to go \emph{downhill}. If the gradient is positive (loss increases as $w$ increases), we decrease $w$. If the gradient is negative, we increase $w$.
+
+\begin{analogybox}{Gradient Descent as Hiking Downhill Blindfolded}
+Imagine you are blindfolded on a hilly landscape and your goal is to reach the lowest valley (minimum loss). You cannot see the whole terrain. The only thing you can do is feel the slope under your feet (the gradient) and take one step in the downhill direction.
+
+\begin{itemize}
+    \item \textbf{Learning rate too large:} your steps are so big that you overshoot the valley and land on the other side, maybe even on a higher hill. The loss oscillates or diverges.
+    \item \textbf{Learning rate too small:} your steps are so tiny that it takes millions of steps to get anywhere. Training is painfully slow.
+    \item \textbf{Learning rate just right:} you smoothly descend to the valley in a reasonable number of steps.
+\end{itemize}
+\end{analogybox}
+
+\begin{examplebox}{One Gradient Descent Step on Our Single Neuron}
+From the previous example, the gradients were:
+\[
+    \frac{\partial \mathcal{L}}{\partial w_1} = -0.049, \quad
+    \frac{\partial \mathcal{L}}{\partial w_2} = -0.029, \quad
+    \frac{\partial \mathcal{L}}{\partial b} = -0.098
+\]
+With learning rate $\eta = 0.1$, the new weights are:
+\begin{align*}
+    w_1 &\leftarrow 0.8 - 0.1 \times (-0.049) = 0.8 + 0.0049 = 0.8049 \\
+    w_2 &\leftarrow -0.4 - 0.1 \times (-0.029) = -0.4 + 0.0029 = -0.3971 \\
+    b   &\leftarrow 0.1 - 0.1 \times (-0.098) = 0.1 + 0.0098 = 0.1098
+\end{align*}
+After this update, the neuron's pre-activation for the same input would be:
+\[
+    z_{\text{new}} = 0.8049 \times 0.5 + (-0.3971) \times 0.3 + 0.1098
+    = 0.4025 - 0.1191 + 0.1098 = 0.3932
+\]
+The output would be $\sigma(0.3932) \approx 0.597$, slightly closer to the target $y = 1.0$. Repeating this process thousands of times converges to a good solution.
+\end{examplebox}
+
+\subsection{Stochastic and Mini-Batch Gradient Descent}
+
+In practice, computing the gradient on the entire training dataset before each update is too expensive. Instead:
+
+\begin{itemize}
+    \item \textbf{Stochastic gradient descent (SGD):} compute gradient on one random training example per step. Fast but noisy.
+    \item \textbf{Mini-batch SGD:} compute gradient on a small random batch of $B$ examples (typically $B \in \{16, 32, 64, 128\}$). Best of both worlds: less noisy than SGD but much faster than full-batch.
+\end{itemize}
+
+\subsection{The Adam Optimizer}
+
+Plain gradient descent uses the same learning rate $\eta$ for every parameter. In a neural network, some weights receive large gradients and others receive tiny ones. A single fixed $\eta$ is a poor fit for such heterogeneous dynamics.
+
+\textbf{Adam} (Adaptive Moment Estimation, Kingma \& Ba, 2015) maintains a separate, adaptive learning rate for each parameter by tracking the exponentially weighted average of its recent gradients (first moment) and their squares (second moment).
+
+\begin{mathbox}{Adam Update Equations}
+At time step $t$, given gradient $g_t = \nabla_w \mathcal{L}_t$:
+
+\begin{align}
+    m_t &= \beta_1 m_{t-1} + (1 - \beta_1) g_t \quad & \text{(first moment: moving average of gradients)} \\
+    v_t &= \beta_2 v_{t-1} + (1 - \beta_2) g_t^2 \quad & \text{(second moment: moving average of squared gradients)} \\
+    \hat{m}_t &= \frac{m_t}{1 - \beta_1^t} \quad & \text{(bias-corrected first moment)} \\
+    \hat{v}_t &= \frac{v_t}{1 - \beta_2^t} \quad & \text{(bias-corrected second moment)} \\
+    w_t &= w_{t-1} - \eta \cdot \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \varepsilon} \quad & \text{(parameter update)}
+\end{align}
+
+\textbf{Default hyperparameters:} $\beta_1 = 0.9$, $\beta_2 = 0.999$, $\varepsilon = 10^{-8}$.
+\end{mathbox}
+
+Let us unpack each symbol:
+\begin{itemize}
+    \item $m_t$: the \emph{momentum} term --- a running average of past gradients. If recent gradients consistently point in the same direction, $m_t$ accumulates that direction and the update accelerates (like a ball rolling downhill gathering momentum).
+    \item $v_t$: the \emph{second moment} --- a running average of past \emph{squared} gradients. Parameters that have been receiving large gradients will have a large $v_t$.
+    \item $\hat{m}_t / (\sqrt{\hat{v}_t} + \varepsilon)$: the effective step size. Parameters with large recent gradients get a smaller effective step (the large $\sqrt{\hat{v}_t}$ in the denominator), preventing them from overshooting.
+    \item $\varepsilon = 10^{-8}$: a small constant that prevents division by zero.
+    \item The bias correction terms $(1 - \beta_1^t)$ and $(1 - \beta_2^t)$ account for the fact that $m_0 = v_0 = 0$ --- early estimates are biased toward zero and need to be corrected.
+\end{itemize}
+
+\begin{examplebox}{One Adam Step (Simplified, Single Parameter)}
+Let $w = 0.8$, $\eta = 0.001$, $\beta_1 = 0.9$, $\beta_2 = 0.999$, $\varepsilon = 10^{-8}$. Say this is step $t=1$ and the gradient is $g_1 = -0.049$ (from our earlier example). Starting from $m_0 = 0$, $v_0 = 0$:
+\begin{align*}
+    m_1 &= 0.9 \times 0 + 0.1 \times (-0.049) = -0.0049 \\
+    v_1 &= 0.999 \times 0 + 0.001 \times (-0.049)^2 = 0.001 \times 0.002401 = 2.401 \times 10^{-6} \\
+    \hat{m}_1 &= -0.0049 / (1 - 0.9^1) = -0.0049 / 0.1 = -0.049 \\
+    \hat{v}_1 &= 2.401 \times 10^{-6} / (1 - 0.999^1) = 2.401 \times 10^{-6} / 0.001 = 2.401 \times 10^{-3} \\
+    w_1 &= 0.8 - 0.001 \times \frac{-0.049}{\sqrt{2.401 \times 10^{-3}} + 10^{-8}}
+          = 0.8 - 0.001 \times \frac{-0.049}{0.04900}
+          = 0.8 + 0.001 = \mathbf{0.801}
+\end{align*}
+At step 1, the bias correction makes $\hat{m}_1 = g_1$ and the adaptive learning rate effectively normalizes the step to $\pm 0.001$, regardless of gradient magnitude. This ``warm start'' normalization is what makes Adam reliable without careful learning rate tuning.
+\end{examplebox}
+
+% ============================================================
+\section{Batch Normalization}
+\label{sec:batchnorm}
+
+\subsection{The Problem: Shifting Input Distributions}
+
+During training, every time we update the weights in layer $l$, the \emph{distribution of inputs} to layer $l+1$ shifts. This is called \textbf{internal covariate shift}. It means each layer must constantly re-adapt to a moving target, which slows training.
+
+\begin{analogybox}{Batch Normalization as Zeroing Out Jet Lag}
+Imagine you are training for a marathon by running in a different city every day --- sometimes at sea level, sometimes at altitude, sometimes in heat. Your body wastes energy adapting to the new environment rather than building fitness. Batch normalization is like training in a perfectly consistent, standardized environment: the same altitude, temperature, and humidity every day, so your body can focus on becoming a better runner.
+\end{analogybox}
+
+\subsection{The BatchNorm Formula}
+
+\begin{mathbox}{Batch Normalization}
+Given a mini-batch $\mathcal{B} = \{x_1, x_2, \ldots, x_M\}$ of pre-activations (a single feature dimension across $M$ examples):
+
+\begin{align}
+    \mu_\mathcal{B} &= \frac{1}{M} \sum_{i=1}^{M} x_i \quad & \text{(mini-batch mean)} \\
+    \sigma^2_\mathcal{B} &= \frac{1}{M} \sum_{i=1}^{M} (x_i - \mu_\mathcal{B})^2 \quad & \text{(mini-batch variance)} \\
+    \hat{x}_i &= \frac{x_i - \mu_\mathcal{B}}{\sqrt{\sigma^2_\mathcal{B} + \varepsilon}} \quad & \text{(normalize to zero mean, unit variance)} \\
+    \text{BN}(x_i) &= \gamma \hat{x}_i + \delta \quad & \text{(scale and shift)}
+\end{align}
+
+$\gamma$ (scale) and $\delta$ (shift) are \textbf{learnable parameters}. They allow the network to undo the normalization if needed. $\varepsilon \approx 10^{-5}$ prevents division by zero.
+\end{mathbox}
+
+\begin{examplebox}{Batch Normalization by Hand}
+\textbf{Batch:} $\mathcal{B} = \{1.0,\; 3.0,\; 2.0,\; 4.0\}$ (four pre-activation values, $M = 4$)
+
+\textbf{Step 1 --- Compute mean:}
+\[
+    \mu_\mathcal{B} = \frac{1.0 + 3.0 + 2.0 + 4.0}{4} = \frac{10.0}{4} = 2.5
+\]
+
+\textbf{Step 2 --- Compute variance:}
+\[
+    \sigma^2_\mathcal{B} = \frac{(1.0-2.5)^2 + (3.0-2.5)^2 + (2.0-2.5)^2 + (4.0-2.5)^2}{4}
+    = \frac{2.25 + 0.25 + 0.25 + 2.25}{4} = \frac{5.0}{4} = 1.25
+\]
+
+\textbf{Step 3 --- Standard deviation:}
+\[
+    \sigma_\mathcal{B} = \sqrt{1.25} \approx 1.118
+\]
+
+\textbf{Step 4 --- Normalize each value (ignoring $\varepsilon$ for simplicity):}
+\begin{align*}
+    \hat{x}_1 &= (1.0 - 2.5) / 1.118 = -1.5 / 1.118 \approx -1.342 \\
+    \hat{x}_2 &= (3.0 - 2.5) / 1.118 = \ \, 0.5 / 1.118 \approx \phantom{-}0.447 \\
+    \hat{x}_3 &= (2.0 - 2.5) / 1.118 = -0.5 / 1.118 \approx -0.447 \\
+    \hat{x}_4 &= (4.0 - 2.5) / 1.118 = \ \, 1.5 / 1.118 \approx \phantom{-}1.342
+\end{align*}
+
+\textbf{Step 5 --- With $\gamma = 1$, $\delta = 0$ (identity, no learned rescaling):}
+\[
+    \text{output} = [-1.342,\; 0.447,\; -0.447,\; 1.342]
+\]
+
+\textbf{Verification:} mean $= (-1.342 + 0.447 - 0.447 + 1.342)/4 = 0/4 = 0$. Variance $= 1$ (by construction).
+
+The batch now has mean 0 and variance 1, making it much easier for the next layer to process.
+\end{examplebox}
+
+\begin{keyinsight}{BatchNorm at Inference Time}
+During training, $\mu_\mathcal{B}$ and $\sigma^2_\mathcal{B}$ are computed from the current mini-batch. During inference (test time), we do not have a batch in the same sense. PyTorch's \texttt{BatchNorm1d} tracks a \textbf{running mean} and \textbf{running variance} during training (exponentially weighted averages) and uses those fixed statistics at inference time. This is why you must always call \texttt{model.train()} before training and \texttt{model.eval()} before evaluation in PyTorch.
+\end{keyinsight}
+
+% ============================================================
+\section{Dropout}
+\label{sec:dropout}
+
+\subsection{The Problem: Overfitting}
+
+A neural network with millions of parameters can memorize the training data rather than learning genuine patterns. This is called \textbf{overfitting}: the model performs perfectly on training examples but fails on new, unseen ones.
+
+\begin{analogybox}{Dropout as Teamwork Under Uncertainty}
+Imagine a sports team where any player might be absent on game day without notice. Because each player knows they might not play, every player trains to be independently capable rather than relying on their teammates. The team becomes more robust --- even if two players are absent, the remaining players can still perform.
+
+Dropout works the same way. By randomly removing neurons during training, it forces every neuron to learn features that are useful on their own, not just in combination with specific other neurons.
+\end{analogybox}
+
+\subsection{The Dropout Mechanism}
+
+\begin{mathbox}{Dropout}
+During training, each neuron $h_i$ in a layer is independently set to zero with probability $p$ (the \textbf{dropout rate}). The surviving activations are scaled up by $\frac{1}{1-p}$ to preserve the expected magnitude.
+
+\begin{equation}
+    \tilde{h}_i = \begin{cases}
+        h_i / (1-p) & \text{with probability } 1-p \quad \text{(neuron survives, scaled up)} \\
+        0           & \text{with probability } p \quad \text{(neuron is dropped)}
+    \end{cases}
+\end{equation}
+
+At \textbf{inference} time, dropout is disabled and all neurons are active. Because activations were scaled up during training, no adjustment is needed at test time. This is called \textbf{inverted dropout} and is the standard implementation in PyTorch (\texttt{nn.Dropout(p=...)}).
+\end{mathbox}
+
+\begin{examplebox}{Dropout in Action}
+Suppose a hidden layer produces activations $\mathbf{h} = [0.5,\; 1.2,\; -0.3,\; 0.8,\; 2.1]$ and we apply dropout with $p = 0.4$ (40\% dropout rate, meaning each neuron is dropped with 40\% probability).
+
+One random realization of the dropout mask might be $\mathbf{m} = [1, 0, 1, 0, 1]$ (neurons 2 and 4 are dropped):
+\[
+    \tilde{\mathbf{h}} = \frac{1}{1 - 0.4} \times [0.5 \times 1,\; 1.2 \times 0,\; -0.3 \times 1,\; 0.8 \times 0,\; 2.1 \times 1]
+    = \frac{1}{0.6} \times [0.5,\; 0,\; -0.3,\; 0,\; 2.1]
+    = [0.833,\; 0,\; -0.5,\; 0,\; 3.5]
+\]
+The surviving neurons are scaled by $1/0.6 \approx 1.667$ so the expected sum stays the same.
+
+At test time, the full $\mathbf{h} = [0.5, 1.2, -0.3, 0.8, 2.1]$ is used without modification.
+\end{examplebox}
+
+\begin{keyinsight}{Dropout Rate in Our GNN}
+In \texttt{gnn/static\_gnn.py}, the dropout rate is a configurable hyperparameter (\texttt{dropout\_rate}). It is applied after each preprocessing layer, after each graph convolution layer, and after each postprocessing layer. A typical value is $p = 0.2$ to $p = 0.5$. Dropout is enabled only during training (\texttt{training=self.training} is passed to \texttt{F.dropout}) and automatically disabled during evaluation.
+\end{keyinsight}
+
+% ============================================================
+\section{Deep Learning for Classification}
+\label{sec:dl_classification}
+
+\subsection{Source Detection as a Multi-Class Problem}
+
+We now see how all the pieces fit together for the source detection task.
+
+\begin{conceptbox}{The Source Detection Task as Classification}
+Given a graph $G = (\mathcal{V}, \mathcal{E})$ with $N$ nodes and an observed epidemic snapshot (each node labeled as Susceptible, Infected, or Recovered), predict which of the $N$ nodes is the epidemic source.
+
+This is an $N$-class classification problem:
+\begin{itemize}
+    \item \textbf{Input:} Node feature matrix $\mathbf{X} \in \mathbb{R}^{N \times 3}$ (one row per node, three columns for S/I/R state, repeated across multiple Monte Carlo observation runs)
+    \item \textbf{Output:} A probability distribution over $N$ nodes, $\hat{\mathbf{p}} \in (0,1)^N$ with $\sum_i \hat{p}_i = 1$
+    \item \textbf{Predicted source:} $\hat{s} = \arg\max_i \hat{p}_i$ (the node with the highest predicted probability)
+    \item \textbf{Training signal:} NLL loss penalizes low probability assigned to the true source
+\end{itemize}
+\end{conceptbox}
+
+\subsection{The Output Layer Architecture}
+
+\begin{conceptbox}{From Embeddings to Log-Probabilities}
+After all hidden layers have produced a vector representation $\mathbf{h}_v \in \mathbb{R}^d$ for each node $v$, the output is produced in two steps:
+
+\begin{enumerate}
+    \item \textbf{Final linear layer:} $s_v = \mathbf{w}^\top \mathbf{h}_v + b_0$ (a scalar score for each node)
+    \item \textbf{Log-softmax across all nodes:}
+    \[
+        \log \hat{p}_v = s_v - \log \!\left(\sum_{u \in \mathcal{V}} e^{s_u}\right) \quad \text{for all } v \in \mathcal{V}
+    \]
+\end{enumerate}
+
+The output is a vector of $N$ log-probabilities. The true source node gets label $c^*$ and the NLL loss is $\mathcal{L} = -\log \hat{p}_{c^*}$.
+\end{conceptbox}
+
+In \texttt{gnn/static\_gnn.py}, the forward pass ends with:
+\begin{center}
+\texttt{x1 = self.final(x1).reshape((batch.unique().shape[0], self.num\_classes))}\\
+\texttt{x1 = F.log\_softmax(x1, dim=1)}
+\end{center}
+The \texttt{reshape} operation converts the per-node scalar scores into a matrix of shape $(\text{batch\_size}, N)$, and \texttt{log\_softmax(dim=1)} applies softmax across the $N$ node dimension --- exactly computing $\log \hat{p}_v$ for every node $v$ in every graph in the batch.
+
+\subsection{Why $N$ Classes Can Be 500 or More}
+
+A common misconception is that classification only works for a small number of classes. In practice, neural networks can handle thousands of classes. The softmax denominator sums over all $N$ nodes --- which is $O(N)$ computation, entirely manageable.
+
+For our experiments, $N$ ranges from small networks (20 nodes) to larger ones (500+ nodes). The output layer always has exactly $N$ neurons. As $N$ grows, the task becomes harder (more nodes to distinguish), but the architecture scales naturally.
+
+% ============================================================
+\section{The MLP Baseline and Its Limitations}
+\label{sec:mlp_baseline}
+
+\subsection{A Plain MLP on Flattened Features}
+
+Before using graph neural networks, it is natural to ask: can a plain multi-layer perceptron (MLP) solve the source detection problem?
+
+\begin{conceptbox}{MLP Baseline Architecture}
+The simplest approach is to flatten all node features into one long vector and pass it through an MLP:
+
+\begin{enumerate}
+    \item \textbf{Input:} Flatten the observation matrix to $\mathbf{x} \in \mathbb{R}^{3N \cdot R}$ where $N$ is the number of nodes and $R$ is the number of MC observation runs (each node has 3 state values: S, I, R probabilities)
+    \item \textbf{Hidden layers:} Several fully connected layers with ReLU/PReLU activations, BatchNorm, and Dropout
+    \item \textbf{Output:} $N$ scores $\to$ log-softmax $\to$ $N$ log-probabilities
+    \item \textbf{Loss:} NLL loss against the true source index
+\end{enumerate}
+
+Schematically:
+\[
+    \mathbb{R}^{3NR} \xrightarrow{\text{Linear}} \mathbb{R}^d \xrightarrow{\text{Linear}} \cdots \xrightarrow{\text{Linear}} \mathbb{R}^N \xrightarrow{\text{log-softmax}} \mathbb{R}^N
+\]
+\end{conceptbox}
+
+\begin{examplebox}{Parameter Count for an MLP on a Small Network}
+Suppose $N = 50$ nodes, $R = 10$ MC runs, hidden dimension $d = 256$, and we use two hidden layers.
+
+\begin{itemize}
+    \item Input dimension: $3 \times 50 \times 10 = 1500$
+    \item Layer 1: $\mathbf{W}^{(1)} \in \mathbb{R}^{256 \times 1500}$ $\Rightarrow$ $256 \times 1500 + 256 = 384{,}256$ parameters
+    \item Layer 2: $\mathbf{W}^{(2)} \in \mathbb{R}^{256 \times 256}$ $\Rightarrow$ $256 \times 256 + 256 = 65{,}792$ parameters
+    \item Output layer: $\mathbf{W}^{(3)} \in \mathbb{R}^{50 \times 256}$ $\Rightarrow$ $50 \times 256 + 50 = 12{,}850$ parameters
+    \item \textbf{Total: $\approx 463{,}000$ parameters} for just 50 nodes.
+\end{itemize}
+If we scale to $N = 500$ nodes with the same architecture, the input layer alone requires $1{,}500 \times 500 \times 10 / 1000 = 7{,}500{,}000+$ parameters. The model explodes in size and requires enormous amounts of training data.
+\end{examplebox}
+
+\subsection{The Fundamental Limitation of MLPs: Ignoring Graph Structure}
+
+An MLP on flattened features has a critical conceptual flaw for source detection:
+
+\begin{keyinsight}{MLPs Cannot Exploit the Graph}
+An MLP treats its input as a flat vector. It does not know that certain input dimensions correspond to nodes that are connected in a graph. This means:
+
+\begin{enumerate}
+    \item \textbf{No structural reasoning:} The MLP cannot reason ``node $v$ is likely the source because its neighbors are all infected and it is recovered.'' It would need to learn this from positional coincidences in the flat vector.
+
+    \item \textbf{No permutation equivariance:} If we renumber the nodes (swap node 1 and node 2), an MLP sees a completely different input even though the graph is structurally the same. A Graph Neural Network by design produces the same answer regardless of node numbering.
+
+    \item \textbf{Poor generalization across graph sizes:} A trained MLP is tied to a specific $N$. If $N$ changes, the input dimension changes and the model must be retrained from scratch. GNNs operate on the graph's edges and can generalize across sizes.
+
+    \item \textbf{Parameter inefficiency:} The MLP needs $O(N^2)$ parameters just for the first layer because it must explicitly learn relationships between every pair of input positions. A graph convolution learns a single aggregation function (shared weights) that applies to every node --- only $O(d^2)$ parameters regardless of $N$.
+\end{enumerate}
+\end{keyinsight}
+
+\begin{analogybox}{Why the Graph Matters}
+Suppose two friends, Alice and Bob, both sneeze on the same day. An MLP reasoning from a flat observation vector might assign them equal probability of being the source. But a graph-aware model can reason: Alice is connected to 10 people who are all sick, while Bob is connected to 10 people who are all healthy. Only Alice's neighbors are affected --- Alice is almost certainly the source.
+
+The graph structure carries essential causal information that a flat MLP literally cannot see.
+\end{analogybox}
+
+\subsection{This Motivates Graph Neural Networks}
+
+The limitations of the MLP baseline are precisely what motivate Graph Neural Networks (GNNs), introduced in the next chapter. A GNN processes the node features \emph{in the context of the graph structure}, passing information between connected nodes and enabling the kind of neighborhood-aware reasoning that source detection requires.
+
+\begin{conceptbox}{The Bridge from MLP to GNN}
+The key design change from MLP to GNN is simple to state but profound in consequence:
+
+\begin{center}
+\textbf{MLP:} each node's representation is updated from its \emph{own features only}.\\[4pt]
+\textbf{GNN:} each node's representation is updated from its \emph{own features} and the \emph{aggregated features of its neighbors}.
+\end{center}
+
+Everything else --- the linear transformations, activation functions, batch normalization, dropout, loss functions, and backpropagation --- carries over from MLP to GNN unchanged. The next chapter shows how this simple structural modification makes an enormous difference for graph-structured problems.
+\end{conceptbox}
+
+% ============================================================
+\section{The Complete Training Pipeline}
+\label{sec:training_pipeline}
+
+Having covered every individual component, let us assemble them into the full training loop used in this project.
+
+\begin{codewalk}{Full PyTorch Training Loop (\texttt{gnn/static\_gnn.py} style)}
+\begin{lstlisting}[language=Python]
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+
+# --- Model, optimizer, and loss ---
+model     = StaticGNN(...)             # defined in gnn/static_gnn.py
+optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+criterion = nn.NLLLoss()               # expects log-probabilities as input
+
+best_val_loss = float('inf')
+patience, patience_counter = 30, 0
+
+for epoch in range(MAX_EPOCHS):
+
+    # ---- Training phase ----
+    model.train()                      # enables BatchNorm + Dropout
+    total_loss = 0.0
+
+    for batch in train_loader:         # each batch is a PyG Data object
+        optimizer.zero_grad()          # 1. reset gradients from last step
+
+        log_probs = model(             # 2. forward pass
+            x=batch.x,
+            edge_index=batch.edge_index,
+            edge_weights=batch.edge_attr,
+            batch=batch.batch
+        )                              # shape: (batch_size, N)
+
+        loss = criterion(log_probs, batch.y)   # 3. NLL loss
+
+        loss.backward()                # 4. backpropagation
+        nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 5. clip
+        optimizer.step()               # 6. Adam weight update
+
+        total_loss += loss.item()
+
+    # ---- Validation phase ----
+    model.eval()                       # disables BatchNorm + Dropout
+    with torch.no_grad():              # no gradient computation needed
+        val_loss = evaluate(model, val_loader, criterion)
+
+    # ---- Early stopping ----
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        torch.save(model.state_dict(), 'best_model.pt')
+        patience_counter = 0
+    else:
+        patience_counter += 1
+        if patience_counter >= patience:
+            print(f"Early stop at epoch {epoch}")
+            break
+
+# ---- Restore best model ----
+model.load_state_dict(torch.load('best_model.pt'))
+\end{lstlisting}
+\end{codewalk}
+
+\begin{conceptbox}{The Six Steps Inside Every Training Iteration}
+Every gradient descent step, for any model in PyTorch, follows this invariant sequence:
+\begin{enumerate}
+    \item \textbf{Zero gradients:} \texttt{optimizer.zero\_grad()} clears accumulated gradients from the previous step. Forgetting this is one of the most common PyTorch bugs.
+    \item \textbf{Forward pass:} compute predictions.
+    \item \textbf{Compute loss:} measure prediction error.
+    \item \textbf{Backward pass:} \texttt{loss.backward()} computes $\partial \mathcal{L} / \partial w$ for every learnable $w$ via the chain rule.
+    \item \textbf{Gradient clipping (optional):} cap gradient norms to prevent exploding updates.
+    \item \textbf{Optimizer step:} \texttt{optimizer.step()} applies the Adam (or SGD) update rule to every parameter.
+\end{enumerate}
+This template applies equally to the MLP baseline, the StaticGNN, the TemporalGNN, and every other model discussed in subsequent chapters.
+\end{conceptbox}
+
+% ============================================================
+\section{Chapter Summary}
+\label{sec:dl_summary}
+
+This chapter built the entire deep learning foundation from scratch. Here is a concise reference card of every concept introduced.
+
+\begin{mathbox}{Deep Learning Reference Card}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{p{3.8cm}p{9.5cm}}
+\toprule
+\textbf{Concept} & \textbf{Key Formula or Idea} \\
+\midrule
+Single neuron & $z = \sum_i w_i x_i + b$; output $= f(z)$ \\
+ReLU & $f(x) = \max(0, x)$; avoids vanishing gradients \\
+Sigmoid & $f(x) = 1/(1+e^{-x})$; squashes to $(0,1)$ \\
+Softmax & $p_i = e^{z_i}/\sum_j e^{z_j}$; probability distribution \\
+Log-softmax & $\log p_i = z_i - \log \sum_j e^{z_j}$; numerically stable \\
+PReLU & $f(x;\alpha) = \max(\alpha x, x)$; learnable negative slope \\
+Layer (forward) & $\mathbf{h} = f(\mathbf{W}\mathbf{x} + \mathbf{b})$ \\
+Cross-entropy loss & $\mathcal{L} = -\log \hat{p}_{c^*}$ \\
+Backpropagation & Chain rule: $\partial \mathcal{L}/\partial w = (\partial \mathcal{L}/\partial z)(\partial z/\partial w)$ \\
+Gradient descent & $w \leftarrow w - \eta \cdot \partial\mathcal{L}/\partial w$ \\
+Adam & Adaptive per-parameter learning rates via first and second gradient moments \\
+Batch normalization & Normalize mini-batch to zero mean, unit variance; re-scale with $\gamma, \delta$ \\
+Dropout & Randomly zero activations during training; prevents overfitting \\
+MLP limitation & Cannot exploit graph structure; no permutation equivariance \\
+\bottomrule
+\end{tabular}
+\end{mathbox}
+
+The next chapter (Chapter~7) extends these ideas to graphs: instead of $\mathbf{h} = f(\mathbf{W}\mathbf{x} + \mathbf{b})$, we will compute $\mathbf{h}_v = f\!\left(\mathbf{W}_1 \mathbf{x}_v + \mathbf{W}_2 \sum_{u \in \mathcal{N}(v)} \mathbf{x}_u + \mathbf{b}\right)$ --- incorporating information from the node's neighbors as defined by the graph edges. This is the fundamental operation of a Graph Neural Network.

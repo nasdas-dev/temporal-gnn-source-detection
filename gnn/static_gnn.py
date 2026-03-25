@@ -4,6 +4,97 @@ from torch.nn import Linear, Sequential
 from torch_geometric.nn import GCNConv, GraphConv, SAGEConv, GATConv, GINConv
 
 
+# Ported from gnn/static_source_detection_gnn/sourcedet/model.py
+class ResistanceLoss(torch.nn.Module):
+    """Kernel-based proper scoring rule using the resistance distance matrix.
+
+    The resistance distance between nodes i and j is derived from the
+    pseudo-inverse of the graph Laplacian.  This loss function implements
+    the kernel scoring rule
+
+        S(p, i) = (Omega @ p)[i] - 0.5 * p^T @ Omega @ p
+
+    where Omega is the resistance distance matrix and i is the true source
+    node, following the framework of Gneiting & Raftery (2007).
+
+    Parameters
+    ----------
+    adjacency_matrix : torch.Tensor, shape (n_nodes, n_nodes)
+        Unweighted adjacency matrix of the graph.
+    """
+
+    def __init__(self, adjacency_matrix: torch.Tensor) -> None:
+        super().__init__()
+        # Ensure adjacency is float tensor
+        self.adjacency_matrix = adjacency_matrix.float()
+        self.size = self.adjacency_matrix.shape[0]
+
+        # Degree matrix (diagonal of row sums)
+        degree_values = torch.sum(self.adjacency_matrix, dim=1)
+        self.degree_matrix = torch.diag(degree_values)
+
+        # Laplacian
+        self.laplacian = self.degree_matrix - self.adjacency_matrix
+
+        # Pseudo-inverse of Laplacian
+        self.laplacian_inv = torch.linalg.pinv(self.laplacian)
+
+        # Resistance distance matrix: Omega_ij = L+_ii + L+_jj - 2 * L+_ij
+        diag = torch.diag(self.laplacian_inv)  # shape (size,)
+        self.resistance = diag[:, None] + diag[None, :] - 2 * self.laplacian_inv
+
+    def forward(
+        self,
+        y_pred: torch.Tensor,
+        y_true: torch.Tensor,
+        log_softmax: bool = True,
+        reduction: str = "mean",
+    ) -> torch.Tensor:
+        """Compute the resistance-distance kernel scoring rule.
+
+        Parameters
+        ----------
+        y_pred : torch.Tensor, shape (batch_size, n_nodes) or (n_nodes,)
+            Predicted log-probabilities (if ``log_softmax=True``) or
+            probabilities (if ``log_softmax=False``).
+        y_true : torch.Tensor, shape (batch_size,)
+            True source node indices.
+        log_softmax : bool
+            If ``True``, ``y_pred`` is assumed to be log-probabilities and is
+            converted to probabilities via ``exp``.
+        reduction : str
+            One of ``"mean"``, ``"sum"``, or ``"none"``.
+
+        Returns
+        -------
+        torch.Tensor
+            Scalar loss (or per-sample losses if ``reduction="none"``).
+        """
+        # Ensure y_pred is 2D
+        if y_pred.dim() == 1:
+            y_pred = y_pred.unsqueeze(0)
+
+        # Transform to probabilities if input is in log-space
+        if log_softmax:
+            y_pred = y_pred.exp()
+
+        # Index rows of (resistance @ y_pred^T) by the true source indices
+        rows, cols = y_true.tolist(), list(range(y_pred.shape[0]))
+        expected_residual = (self.resistance @ y_pred.T)[rows, cols]
+
+        # Regularisation term: 0.5 * sum_j sum_k p_j * Omega_jk * p_k
+        regularisation = 0.5 * torch.sum((y_pred @ self.resistance) * y_pred, dim=1)
+
+        loss = expected_residual - regularisation
+
+        if reduction == "mean":
+            return loss.mean()
+        elif reduction == "sum":
+            return loss.sum()
+        else:
+            return loss
+
+
 class StaticGNN(torch.nn.Module):
     def __init__(self, num_preprocess_layers, embed_dim_preprocess, num_postprocess_layers, num_conv_layers, aggr,
                  num_node_features, hidden_channels, num_classes, dropout_rate, batch_norm, skip):

@@ -1,0 +1,1350 @@
+\chapter{Directed Acyclic Graph Convolutional Networks: Learning Causal Signals}
+\label{chap:rey_dagcn}
+
+% =============================================================================
+\section{Why Standard GNNs Cannot Learn on DAGs}
+\label{sec:dagcn_motivation}
+% =============================================================================
+
+Directed acyclic graphs (DAGs) are one of the most important families of graphs
+in applied science. A gene regulatory network is a DAG: Gene A activates Gene
+B, and Gene B activates Gene C, but the regulation flows in one direction only
+--- Gene C cannot retroactively regulate Gene A. A Bayesian network is a DAG:
+each node is a random variable, and directed edges encode conditional
+dependencies from causes to effects. A neural architecture search space is a
+DAG: layers are composed in topological order. A workflow scheduler is a DAG:
+task dependencies form an acyclic precedence relation. In each of these domains,
+the DAG structure encodes something fundamental about the system --- the
+\emph{causal direction} of influence.
+
+It is therefore natural to ask: can we learn from signals defined on DAGs using
+Graph Neural Networks (GNNs)? Can we build a GNN that respects the directional,
+causal structure of a DAG?
+
+The answer, for standard GNNs, is: surprisingly poorly. Rey, Ajorlou, and
+Mateos~\cite{rey2025dagcn} identify two fundamental failures that arise when
+standard spectral or message-passing GNNs are applied to DAGs. Understanding
+these failures is the starting point for their \emph{Directed Acyclic Graph
+Convolutional Network} (DAGCN), which we study in this chapter.
+
+\subsection{The Standard Filterbank GNN}
+
+The standard spectral GNN, often called a \textbf{graph filterbank convolutional
+neural network} (FB-GCNN), applies repeated polynomial filtering of the input
+signal matrix $\mathbf{X} \in \mathbb{R}^{N \times F}$ using powers of the
+adjacency matrix $\mathbf{A}$:
+
+\begin{equation}
+    \mathbf{X}^{(\ell+1)} = \sigma\!\left(
+        \sum_{r=0}^{R} \mathbf{A}^r \, \mathbf{X}^{(\ell)} \, \boldsymbol{\Theta}_r^{(\ell)}
+    \right)
+    \label{eq:fb_gcnn}
+\end{equation}
+
+where $\boldsymbol{\Theta}_r^{(\ell)} \in \mathbb{R}^{F_\ell \times F_{\ell+1}}$
+are learnable weight matrices and $\sigma$ is a pointwise nonlinearity such as
+ReLU. The term $\mathbf{A}^r \mathbf{X}^{(\ell)}$ computes the $r$-hop
+neighbourhood aggregation: each node gathers information from nodes up to $r$
+steps away.
+
+This architecture has been enormously successful on undirected and general
+directed graphs. On DAGs, however, it encounters two structural problems.
+
+\subsection{Failure Mode 1: The Nilpotent Spectrum}
+
+\begin{conceptbox}{Nilpotency of the DAG Adjacency Matrix}
+\textbf{Definition.} A matrix $\mathbf{A}$ is \textbf{nilpotent} if there
+exists an integer $n \ge 1$ such that $\mathbf{A}^n = \mathbf{0}$.
+
+\medskip
+\textbf{Claim.} For any DAG on $N$ nodes with adjacency matrix
+$\mathbf{A} \in \{0,1\}^{N \times N}$, we have $\mathbf{A}^N = \mathbf{0}$.
+
+\medskip
+\textbf{Why.} A DAG has no cycles. Order the nodes in topological order:
+label node 1 as the first node in the topological sequence, node 2 as the
+second, and so on. In this ordering, every edge $(i, j) \in E$ satisfies
+$i > j$ (edges only go from lower-indexed to higher-indexed nodes in
+topological order). The matrix $\mathbf{A}$ is therefore \emph{strictly
+lower-triangular} in this ordering. For any strictly lower-triangular matrix,
+multiplying by $\mathbf{A}$ shifts all non-zero entries strictly downward
+along the diagonal. After $N$ such multiplications, all entries have been
+shifted off the bottom of the matrix and $\mathbf{A}^N = \mathbf{0}$.
+
+\medskip
+\textbf{Consequence for eigenvalues.}
+The characteristic polynomial of a strictly lower-triangular matrix is
+$\det(\mathbf{A} - \lambda \mathbf{I}) = (-\lambda)^N$, so all $N$
+eigenvalues of $\mathbf{A}$ are \textbf{zero}. The spectral decomposition
+$\mathbf{A} = \mathbf{U} \boldsymbol{\Lambda} \mathbf{U}^{-1}$ (with
+$\boldsymbol{\Lambda} = \mathbf{0}$) is degenerate --- all eigenvectors
+correspond to the same eigenvalue zero, and the matrix is not diagonalisable
+in general.
+\end{conceptbox}
+
+This single fact collapses the theoretical foundation of spectral GNNs on DAGs.
+Spectral graph convolution is defined via the graph's eigenbasis: the graph
+Fourier transform decomposes a signal into components corresponding to
+different graph frequencies (eigenvalues). If all eigenvalues are zero, all
+``frequencies'' are identical, and the Fourier transform provides no
+discriminative information. Every node looks the same from the spectral
+perspective, regardless of its position in the DAG.
+
+\begin{examplebox}{Nilpotency in the Gene Network}
+Consider our running four-node gene regulatory network:
+\begin{itemize}[noitemsep]
+    \item Nodes: Gene A, Gene B, Gene C, Gene D.
+    \item Edges (regulatory): A $\to$ C, B $\to$ C, C $\to$ D.
+\end{itemize}
+In topological order A, B, C, D (labelled 1, 2, 3, 4), the adjacency matrix is:
+\[
+    \mathbf{A} = \begin{pmatrix} 0 & 0 & 0 & 0 \\ 0 & 0 & 0 & 0 \\ 1 & 1 & 0 & 0 \\ 0 & 0 & 1 & 0 \end{pmatrix}
+\]
+where $A_{ij} \neq 0$ means there is a directed edge \emph{from} $j$ \emph{to}
+$i$ (i.e., gene $j$ regulates gene $i$). Compute:
+\[
+    \mathbf{A}^2 = \begin{pmatrix} 0&0&0&0\\0&0&0&0\\0&0&0&0\\1&1&0&0 \end{pmatrix}, \quad
+    \mathbf{A}^3 = \begin{pmatrix} 0&0&0&0\\0&0&0&0\\0&0&0&0\\0&0&0&0 \end{pmatrix} = \mathbf{0}
+\]
+After just 3 multiplications (fewer than $N = 4$), the matrix is zero.
+All eigenvalues of $\mathbf{A}$ are zero, confirming nilpotency. A spectral
+GNN using polynomial filters $\sum_r h_r \lambda^r$ evaluates to $h_0 \mathbf{I}$
+on every node --- it can only apply a global scalar shift, learning nothing about
+the DAG structure.
+\end{examplebox}
+
+\subsection{Failure Mode 2: Ignoring the Partial Order}
+
+Even if we set aside spectral methods and consider spatial (message-passing)
+GNNs, a second and more fundamental problem remains. Standard message passing
+aggregates information from all neighbours, regardless of the direction of
+edges. On a DAG, however, direction \emph{is} the structure. An edge $j \to i$
+means ``$j$ causally influences $i$'', not the reverse.
+
+\begin{keyinsight}{Direction Encodes Causality --- Ignoring It Is Wrong}
+In a gene regulatory network, if Gene A regulates Gene C, then Gene A's
+expression level is a \emph{cause} of Gene C's expression level. A GNN that
+aggregates information symmetrically --- allowing Gene C's expression to
+influence Gene A's representation just as much as Gene A's expression influences
+Gene C's --- is learning a model that is causally inverted with respect to the
+actual biology.
+
+The problem is not merely a loss of information. It is the introduction of
+\emph{incorrect} information: backward message passing from descendants to
+ancestors implies a causal influence that does not exist. For downstream tasks
+that depend on causal reasoning (such as source detection, causal inference, or
+circuit simulation), this contamination of representations is not a minor error
+--- it is a fundamental mis-specification.
+\end{keyinsight}
+
+\paragraph{Worked example: phantom backward flow.}
+Return to the gene network. Gene D is purely downstream: it is regulated by C,
+which is regulated by A and B. Gene D has no regulatory influence on any other
+gene. In a standard undirected or bidirectional GNN, Gene D's expression signal
+would be propagated back to Gene C during message passing, and from C back to
+Genes A and B. After two message-passing steps, the representation of Gene A
+would contain contributions from Gene D. This is biologically nonsensical: Gene
+D has no regulatory effect on Gene A in this network. The standard GNN has
+created a phantom causal pathway $D \to C \to A$ that does not exist.
+
+\begin{analogybox}{A One-Way Street That GNNs Drive the Wrong Way}
+Imagine a city whose streets form a perfect one-way system: you can drive from
+the city centre outward, but never inward. A delivery driver using a map that
+ignores one-way signs would plan routes that are physically illegal and
+impossible. Standard GNNs are like that map: they see connections but not
+their direction, and they plan impossible routes through the network as a result.
+
+The DAGCN paper builds a map that is aware of one-way streets --- one that
+respects the causal direction of every edge and builds representations
+accordingly. The key insight is that we need a new notion of ``graph frequency''
+that respects direction: not the eigenvectors of $\mathbf{A}$ (which are
+degenerate), but the columns of a structure that captures the full
+\emph{ancestry} relations in the DAG.
+\end{analogybox}
+
+% =============================================================================
+\section{DAGs, Partial Orders, and What ``Comes Before'' Means}
+\label{sec:dagcn_partial_order}
+% =============================================================================
+
+To build a proper theory of signal processing on DAGs, we first need a precise
+language for the \emph{precedence structure} that a DAG encodes. This section
+develops that language carefully, with explicit attention to the running gene
+network example.
+
+\subsection{From Directed Edges to a Partial Order}
+
+\begin{mathbox}{Definition: Partial Order Induced by a DAG}
+Let $D = (\mathcal{V}, \mathcal{E})$ be a DAG with $|\mathcal{V}| = N$ nodes.
+We say that node $j$ \textbf{precedes} node $i$ (written $j \prec i$, or
+equivalently $j < i$) if there exists a directed path from $j$ to $i$ in $D$.
+
+The relation $\prec$ satisfies the three axioms of a \textbf{partial order}:
+\begin{enumerate}[noitemsep]
+    \item \textbf{Irreflexivity:} No node precedes itself ($j \not\prec j$),
+          because a directed path from $j$ to $j$ would form a cycle, contradicting
+          the definition of a DAG.
+    \item \textbf{Asymmetry:} If $j \prec i$ then $i \not\prec j$, because a
+          directed path from $j$ to $i$ and another from $i$ to $j$ would together
+          form a cycle.
+    \item \textbf{Transitivity:} If $j \prec k$ and $k \prec i$ then $j \prec i$,
+          because the two directed paths can be concatenated.
+\end{enumerate}
+
+We write $j \le i$ to mean either $j = i$ or $j \prec i$ (reflexive closure).
+In the matrix convention of Rey et al., $A_{ij} \neq 0$ means there is a direct
+edge from $j$ to $i$, so $j \prec i$ directly.
+\end{mathbox}
+
+Unlike a \emph{total} order (where every pair of elements is comparable), a
+partial order allows pairs of nodes that are \emph{incomparable}: neither
+$j \prec i$ nor $i \prec j$. In the gene network, Genes A and B are
+incomparable --- neither regulates the other.
+
+\subsection{Topological Ordering}
+
+A \textbf{topological ordering} of a DAG assigns a label $\ell: \mathcal{V}
+\to \{1, \dots, N\}$ to each node such that if $j \prec i$, then
+$\ell(j) < \ell(i)$. Every finite DAG has at least one topological ordering
+(and generally many). The partial order is consistent with any topological
+ordering, but it is richer: it records which nodes are \emph{related} by the
+precedence relation, not just the numeric labels.
+
+\begin{examplebox}{Partial Order in the Gene Regulatory Network}
+Our four-node network: edges A $\to$ C, B $\to$ C, C $\to$ D. Recall the
+convention: $A_{ij} \neq 0$ means edge \emph{from} $j$ \emph{to} $i$.
+
+We enumerate the precedence relationships:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Pair} & \textbf{Directed path exists?} & \textbf{Relation} \\
+\midrule
+A, C & A $\to$ C (direct edge) & $A \prec C$ \\
+B, C & B $\to$ C (direct edge) & $B \prec C$ \\
+C, D & C $\to$ D (direct edge) & $C \prec D$ \\
+A, D & A $\to$ C $\to$ D (length-2 path) & $A \prec D$ \\
+B, D & B $\to$ C $\to$ D (length-2 path) & $B \prec D$ \\
+A, B & No path in either direction & Incomparable \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A valid topological ordering is: A=1, B=2, C=3, D=4. Another valid ordering
+is B=1, A=2, C=3, D=4. Both are consistent with the partial order.
+
+The \textbf{predecessor sets} (all nodes that come before a given node,
+including itself) are:
+\begin{align*}
+    \text{pred}(A) &= \{A\} \\
+    \text{pred}(B) &= \{B\} \\
+    \text{pred}(C) &= \{A, B, C\} \\
+    \text{pred}(D) &= \{A, B, C, D\}
+\end{align*}
+
+Genes A and B are \emph{root genes}: no gene precedes them. Gene D is the
+\emph{terminal gene}: every gene is a predecessor of D (D comes last in every
+valid topological ordering).
+\end{examplebox}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    gnode/.style={circle, draw=green!50!black, fill=green!8!white, thick,
+                  minimum size=1.1cm, font=\bfseries\sffamily},
+    arr/.style={-{Stealth[length=3mm]}, thick, green!40!black},
+    lbl/.style={font=\scriptsize\sffamily, fill=white, inner sep=1pt}
+]
+    \node[gnode] (A) at (0,  0)   {A};
+    \node[gnode] (B) at (2,  0)   {B};
+    \node[gnode] (C) at (1, -2)   {C};
+    \node[gnode] (D) at (1, -4)   {D};
+
+    \draw[arr] (A) -- node[lbl, left]{\tiny reg.} (C);
+    \draw[arr] (B) -- node[lbl, right]{\tiny reg.} (C);
+    \draw[arr] (C) -- node[lbl, right]{\tiny reg.} (D);
+
+    \node[font=\scriptsize\sffamily\itshape, text=gray] at (-1.2, 0)  {roots};
+    \node[font=\scriptsize\sffamily\itshape, text=gray] at (-1.2,-4)  {terminal};
+\end{tikzpicture}
+\caption{The four-node \textbf{gene regulatory DAG} used as a running example
+throughout this chapter. Nodes A and B are root genes (no regulators). Gene C
+is regulated by both A and B. Gene D is regulated by C alone. Arrows point
+from regulator to target: $A_{ij} \neq 0$ means $j$ regulates $i$.}
+\label{fig:gene_dag}
+\end{figure}
+
+\begin{analogybox}{The Partial Order as a Bureaucratic Org Chart}
+Imagine a company hierarchy. The CEO is at the top. Instructions flow
+\emph{downward}: the CEO directs the VP, the VP directs the Manager, the
+Manager directs the Engineer. An instruction from the Engineer never flows
+upward to the CEO. Two engineers in separate divisions are \emph{incomparable}:
+neither directs the other.
+
+The DAG partial order is exactly this org chart. ``$j \prec i$'' means ``$j$
+gives instructions that eventually reach $i$'' --- $j$ is above $i$ in the
+hierarchy. A GNN that allows backward message passing is like a model of
+corporate communication in which engineers can send directives to the CEO.
+This is not just inefficient; it is a model of a completely different
+organisation.
+\end{analogybox}
+
+% =============================================================================
+\section{The Transitive Closure --- The DAG's Memory}
+\label{sec:dagcn_transitive_closure}
+% =============================================================================
+
+The adjacency matrix $\mathbf{A}$ records only \emph{direct} edges: one-step
+connections. But on a DAG, what matters for signal propagation is the
+\emph{entire ancestry}: all paths of all lengths from every ancestor to every
+descendant. The object that captures this is the \textbf{weighted transitive
+closure} $\mathbf{W}$.
+
+\subsection{Motivation: Why Direct Edges Are Not Enough}
+
+Consider Gene D in our running example. Its expression is influenced not just
+by its direct regulator C, but by C's regulators A and B as well. If Gene A is
+highly expressed, it activates Gene C, which in turn activates Gene D. The
+``memory'' of Gene A's activity is encoded in Gene D's expression level through
+the indirect pathway A $\to$ C $\to$ D. The adjacency matrix $\mathbf{A}$
+records only the C $\to$ D edge; it is blind to the indirect influence. The
+transitive closure records all of it.
+
+\subsection{Definition and Computation}
+
+\begin{mathbox}{Weighted Transitive Closure}
+Let $\mathbf{A}$ be the adjacency matrix of a DAG, ordered topologically so
+that $\mathbf{A}$ is strictly lower-triangular. Define:
+
+\begin{equation}
+    \mathbf{W} = (\mathbf{I} - \mathbf{A})^{-1}
+    = \mathbf{I} + \mathbf{A} + \mathbf{A}^2 + \cdots + \mathbf{A}^{N-1}
+    \label{eq:transitive_closure}
+\end{equation}
+
+The infinite series terminates at $\mathbf{A}^{N-1}$ because $\mathbf{A}$ is
+nilpotent ($\mathbf{A}^N = \mathbf{0}$). The matrix $(\mathbf{I} - \mathbf{A})$
+is always invertible because its determinant equals 1 (all diagonal entries are
+1, all entries above the diagonal are 0 in topological order, so
+$\det(\mathbf{I} - \mathbf{A}) = \prod_i (\mathbf{I} - \mathbf{A})_{ii} = 1$).
+
+\medskip
+\textbf{Interpretation.}
+$W_{ij} \neq 0$ if and only if $j = i$ (same node) or there is a directed
+path from $j$ to $i$ in the DAG. Specifically:
+\begin{itemize}[noitemsep]
+    \item $W_{ii} = 1$ for all $i$ (from the identity term $\mathbf{I}$).
+    \item $W_{ij} = A_{ij} = 1$ if there is a direct edge from $j$ to $i$.
+    \item $W_{ij} = [\mathbf{A}^2]_{ij} + \cdots$ accumulates contributions
+          from all indirect paths of length 2 and above.
+\end{itemize}
+In this way, $\mathbf{W}$ is the ``memory'' of the entire DAG: it encodes
+all ancestral relationships, not just immediate parents.
+\end{mathbox}
+
+\subsection{Step-by-Step Computation for the Gene Network}
+
+We compute $\mathbf{W}$ for the four-node gene regulatory DAG. Recall, in
+topological order A=1, B=2, C=3, D=4:
+
+\[
+    \mathbf{A} = \begin{pmatrix} 0&0&0&0\\0&0&0&0\\1&1&0&0\\0&0&1&0 \end{pmatrix}
+\]
+
+\begin{examplebox}{Computing $\mathbf{W} = \mathbf{I} + \mathbf{A} + \mathbf{A}^2 + \mathbf{A}^3$}
+
+\textbf{Step 1:} Compute $\mathbf{A}^2$. The $(i,j)$ entry counts paths of
+length exactly 2 from $j$ to $i$.
+\[
+    \mathbf{A}^2 = \mathbf{A} \cdot \mathbf{A} = \begin{pmatrix} 0&0&0&0\\0&0&0&0\\0&0&0&0\\1&1&0&0 \end{pmatrix}
+\]
+The non-zero entries $[\mathbf{A}^2]_{D,A} = 1$ and $[\mathbf{A}^2]_{D,B} = 1$
+correspond to the paths A $\to$ C $\to$ D and B $\to$ C $\to$ D respectively.
+
+\medskip
+\textbf{Step 2:} Compute $\mathbf{A}^3 = \mathbf{A} \cdot \mathbf{A}^2$.
+\[
+    \mathbf{A}^3 = \begin{pmatrix} 0&0&0&0\\0&0&0&0\\0&0&0&0\\0&0&0&0 \end{pmatrix} = \mathbf{0}
+\]
+As expected, $\mathbf{A}^3 = \mathbf{0}$ (the network has no paths of length 3).
+
+\medskip
+\textbf{Step 3:} Sum: $\mathbf{W} = \mathbf{I} + \mathbf{A} + \mathbf{A}^2$.
+\[
+    \mathbf{W} = \begin{pmatrix}1&0&0&0\\0&1&0&0\\0&0&1&0\\0&0&0&1\end{pmatrix}
+    + \begin{pmatrix}0&0&0&0\\0&0&0&0\\1&1&0&0\\0&0&1&0\end{pmatrix}
+    + \begin{pmatrix}0&0&0&0\\0&0&0&0\\0&0&0&0\\1&1&0&0\end{pmatrix}
+    = \begin{pmatrix}1&0&0&0\\0&1&0&0\\1&1&1&0\\1&1&1&1\end{pmatrix}
+\]
+
+Read the entries: $W_{CA} = 1$ (A is an ancestor of C), $W_{CB} = 1$ (B is an
+ancestor of C), $W_{DA} = 1$, $W_{DB} = 1$, $W_{DC} = 1$ (A, B, C are all
+ancestors of D). The structure of $\mathbf{W}$ perfectly mirrors the DAG's
+ancestry relation.
+\end{examplebox}
+
+\subsection{The Linear Structural Equation Model}
+
+The transitive closure $\mathbf{W}$ has a beautiful probabilistic
+interpretation via the \textbf{Linear Structural Equation Model} (SEM). The
+SEM is the standard generative model for signals on DAGs in the causal
+inference literature. Each node $i$ has a signal value $x_i$ that depends
+linearly on the signals of its parents plus an exogenous (independent) noise
+contribution $c_i$:
+
+\begin{equation}
+    x_i = \sum_{j: j \prec i} A_{ij} \, x_j + c_i
+    \quad \Longleftrightarrow \quad
+    \mathbf{x} = \mathbf{A} \mathbf{x} + \mathbf{c}
+    \label{eq:sem}
+\end{equation}
+
+Solving for $\mathbf{x}$:
+\[
+    (\mathbf{I} - \mathbf{A})\mathbf{x} = \mathbf{c}
+    \quad \Longrightarrow \quad
+    \mathbf{x} = (\mathbf{I} - \mathbf{A})^{-1} \mathbf{c} = \mathbf{W} \mathbf{c}
+\]
+
+The signal $\mathbf{x}$ at every node is a linear combination of the exogenous
+contributions $\mathbf{c}$, mediated by the transitive closure $\mathbf{W}$.
+
+\begin{examplebox}{SEM Interpretation in the Gene Network}
+In the gene network, the SEM $\mathbf{x} = \mathbf{W}\mathbf{c}$ gives:
+\begin{align*}
+    x_A &= c_A \\
+    x_B &= c_B \\
+    x_C &= c_A + c_B + c_C \\
+    x_D &= c_A + c_B + c_C + c_D
+\end{align*}
+Gene A's expression is purely its own exogenous contribution. Gene C's
+expression is the sum of contributions from its two regulators (A and B) plus
+its own baseline. Gene D accumulates the contributions of all four genes in the
+network --- it carries the full ``memory'' of the regulatory cascade.
+
+\medskip
+\textbf{The DAG Fourier Transform.} Rey et al.\ interpret $\mathbf{W}$ as the
+\textbf{DAG Fourier basis}: it decomposes the observed signal $\mathbf{x}$ into
+the ``pure'' exogenous contributions $\mathbf{c} = \mathbf{W}^{-1}\mathbf{x}$.
+Just as the classical Fourier transform decomposes a signal into sinusoidal
+frequencies, the DAG inverse transform $\mathbf{c} = \mathbf{W}^{-1}\mathbf{x}$
+recovers the ``causal frequencies'' --- how much each node contributes
+independently of its ancestors.
+
+Note that $\mathbf{W}^{-1} = (\mathbf{I} - \mathbf{A})$, which gives:
+\[
+    \mathbf{W}^{-1} = \begin{pmatrix}1&0&0&0\\0&1&0&0\\-1&-1&1&0\\0&0&-1&1\end{pmatrix}
+\]
+\end{examplebox}
+
+\begin{examplebox}{Numerical Example: Recovering Exogenous Contributions}
+Suppose we observe gene expression levels $\mathbf{x} = [2, 3, 7, 9]^\top$
+(Genes A, B, C, D respectively). What are the exogenous contributions
+$\mathbf{c} = \mathbf{W}^{-1}\mathbf{x}$?
+
+\[
+    \mathbf{c} = \begin{pmatrix}1&0&0&0\\0&1&0&0\\-1&-1&1&0\\0&0&-1&1\end{pmatrix}
+    \begin{pmatrix}2\\3\\7\\9\end{pmatrix}
+    = \begin{pmatrix}2\\3\\7-2-3\\9-7\end{pmatrix}
+    = \begin{pmatrix}2\\3\\2\\2\end{pmatrix}
+\]
+
+Interpretation: Gene A contributes 2 ``units'' of expression purely from its
+own baseline. Gene B contributes 3 units. After removing the inherited
+influence of A and B (which contributes $2+3=5$ to Gene C's expression of 7),
+Gene C has its own exogenous contribution of 2. Gene D's observed expression
+of 9 is Gene C's total expression (7) plus Gene D's own exogenous contribution
+of 2. The DAG Fourier transform cleanly separates these inherited and
+intrinsic components.
+\end{examplebox}
+
+% =============================================================================
+\section{Causal Graph Shift Operators --- Projecting onto Causal Channels}
+\label{sec:dagcn_gso}
+% =============================================================================
+
+With the SEM and the DAG Fourier basis $\mathbf{W}$ established, Rey et al.\
+can now define a new family of graph shift operators (GSOs) that replace the
+adjacency matrix in the GNN architecture. These \textbf{causal GSOs} are the
+technical heart of the paper.
+
+\subsection{Intuition: Causal Channels}
+
+The standard graph shift operator on an undirected graph is the adjacency
+matrix $\mathbf{A}$ (or the normalised Laplacian $\mathbf{L}$). Applying
+$\mathbf{A}$ to a signal $\mathbf{x}$ at node $i$ produces
+$[\mathbf{A}\mathbf{x}]_i = \sum_{j \in \mathcal{N}(i)} x_j$: each node
+receives the sum of its neighbours' signals. This is agnostic to direction.
+
+On a DAG, we want something richer: for each node $k$, a shift operator
+$\mathbf{S}_k$ that asks the question:
+
+\begin{center}
+\emph{``How much of node $i$'s signal is attributable to the causal channel
+running through node $k$?''}
+\end{center}
+
+Equivalently, $\mathbf{S}_k$ projects $\mathbf{x}$ onto the set of exogenous
+contributions $c_j$ for which node $j$ is a \emph{common ancestor} of both
+node $i$ and node $k$. The answer gives a ``causal footprint'' of node $k$'s
+ancestry as seen from every other node.
+
+\begin{analogybox}{GSOs as Radio Stations}
+Think of the DAG as a radio broadcasting network. Each root gene is a
+transmitter station. Every node in the DAG receives signals from all transmitter
+stations that have a directed path to it. The causal GSO $\mathbf{S}_k$
+is a \textbf{frequency selector} tuned to ``the channel of node $k$'': it
+passes through only the frequency components (exogenous contributions $c_j$)
+that are relevant to node $k$'s causal history, and zeros out all other
+frequencies. Different DAGs have different causal channels: no two
+non-isomorphic DAGs produce the same set of GSOs.
+\end{analogybox}
+
+\subsection{Formal Definition}
+
+\begin{mathbox}{Causal Graph Shift Operator $\mathbf{S}_k$}
+For each node $k \in \mathcal{V}$, define the diagonal matrix
+$\mathbf{D}_k \in \{0,1\}^{N \times N}$ by:
+\[
+    [\mathbf{D}_k]_{ii} = \begin{cases} 1 & \text{if } i \le k \; (i = k \text{ or } i \prec k) \\ 0 & \text{otherwise} \end{cases}
+\]
+In words, $\mathbf{D}_k$ is the diagonal indicator matrix for the set of nodes
+that \emph{precede} $k$ (including $k$ itself). Then the \textbf{causal graph
+shift operator} for node $k$ is:
+\begin{equation}
+    \mathbf{S}_k = \mathbf{W} \mathbf{D}_k \mathbf{W}^{-1}
+    \label{eq:causal_gso}
+\end{equation}
+
+The output $[\mathbf{S}_k \mathbf{x}]_i$ is:
+\[
+    [\mathbf{S}_k \mathbf{x}]_i = \sum_{\substack{j \le i \\ j \le k}} W_{ij} \, c_j
+\]
+--- the sum of exogenous contributions $c_j$ over all nodes $j$ that are common
+predecessors of both $i$ and $k$, weighted by the ancestry weight $W_{ij}$.
+\end{mathbox}
+
+Two properties are immediately noteworthy:
+
+\paragraph{Idempotence.} $\mathbf{S}_k^2 = \mathbf{S}_k$. Applying the
+causal shift for node $k$ twice is identical to applying it once. This is
+because $\mathbf{D}_k$ is a projection matrix ($\mathbf{D}_k^2 = \mathbf{D}_k$),
+and the GSO inherits this property.
+
+\paragraph{Uniqueness.} The full collection $\{\mathbf{S}_k\}_{k \in \mathcal{V}}$
+uniquely identifies the DAG (up to isomorphism). No two non-isomorphic DAGs
+produce the same set of causal GSOs (Proposition~2 in the paper). This means
+the GSOs are expressive enough to distinguish any pair of structurally distinct
+DAGs --- an important property for graph learning.
+
+\subsection{Step-by-Step Computation of All Four GSOs}
+
+We now compute all four causal GSOs for the gene regulatory network.
+
+\paragraph{Recall.} $\mathbf{W} = \begin{pmatrix}1&0&0&0\\0&1&0&0\\1&1&1&0\\1&1&1&1\end{pmatrix}$
+and $\mathbf{W}^{-1} = \begin{pmatrix}1&0&0&0\\0&1&0&0\\-1&-1&1&0\\0&0&-1&1\end{pmatrix}$.
+
+\begin{examplebox}{Computing $\mathbf{S}_A$ (GSO for Gene A)}
+
+$\text{pred}(A) = \{A\}$, so $\mathbf{D}_A = \text{diag}(1, 0, 0, 0)$.
+
+\[
+    \mathbf{S}_A = \mathbf{W} \begin{pmatrix}1&0&0&0\\0&0&0&0\\0&0&0&0\\0&0&0&0\end{pmatrix} \mathbf{W}^{-1}
+\]
+
+First compute $\mathbf{W}\mathbf{D}_A$: this keeps only the first column of
+$\mathbf{W}$ and zeros out the rest:
+\[
+    \mathbf{W}\mathbf{D}_A = \begin{pmatrix}1&0&0&0\\0&0&0&0\\1&0&0&0\\1&0&0&0\end{pmatrix}
+\]
+
+Now multiply by $\mathbf{W}^{-1}$ on the right. Since we only have non-zeros in
+column 1 (corresponding to Gene A), and $[\mathbf{W}^{-1}]_{1,:} = [1,0,0,0]$
+(first row of $\mathbf{W}^{-1}$):
+\[
+    \mathbf{S}_A = \begin{pmatrix}1&0&0&0\\0&0&0&0\\1&0&0&0\\1&0&0&0\end{pmatrix}
+\]
+
+\textbf{Reading $\mathbf{S}_A$:} Column $j$ of $\mathbf{S}_A$ is non-zero only
+for $j = A$. Row $i$ is non-zero only for nodes $i$ that have Gene A as an
+ancestor (i.e., $A, C, D$). This says: Gene A's causal channel is ``visible''
+at nodes A, C, and D, but not at B (since A does not regulate B).
+\end{examplebox}
+
+\begin{examplebox}{Computing $\mathbf{S}_B$ (GSO for Gene B)}
+
+$\text{pred}(B) = \{B\}$, so $\mathbf{D}_B = \text{diag}(0, 1, 0, 0)$.
+
+By the same logic, $\mathbf{W}\mathbf{D}_B$ keeps only column 2 of $\mathbf{W}$:
+\[
+    \mathbf{W}\mathbf{D}_B = \begin{pmatrix}0&0&0&0\\0&1&0&0\\0&1&0&0\\0&1&0&0\end{pmatrix}
+\]
+
+Multiplying by $\mathbf{W}^{-1}$ and using $[\mathbf{W}^{-1}]_{2,:} = [0,1,0,0]$:
+\[
+    \mathbf{S}_B = \begin{pmatrix}0&0&0&0\\0&1&0&0\\0&1&0&0\\0&1&0&0\end{pmatrix}
+\]
+
+Gene B's causal channel is visible at B, C, and D. Not at A (B does not
+regulate A).
+\end{examplebox}
+
+\begin{examplebox}{Computing $\mathbf{S}_C$ (GSO for Gene C)}
+
+$\text{pred}(C) = \{A, B, C\}$, so $\mathbf{D}_C = \text{diag}(1, 1, 1, 0)$.
+
+\[
+    \mathbf{W}\mathbf{D}_C = \begin{pmatrix}1&0&0&0\\0&1&0&0\\1&1&1&0\\1&1&1&0\end{pmatrix}
+\]
+
+Now right-multiply by $\mathbf{W}^{-1}$:
+\[
+    \mathbf{S}_C = \mathbf{W}\mathbf{D}_C \mathbf{W}^{-1}
+    = \begin{pmatrix}1&0&0&0\\0&1&0&0\\1&1&1&0\\1&1&1&0\end{pmatrix}
+    \begin{pmatrix}1&0&0&0\\0&1&0&0\\-1&-1&1&0\\0&0&-1&1\end{pmatrix}
+\]
+
+Row 1 (Gene A): $[1, 0, 0, 0]$.
+Row 2 (Gene B): $[0, 1, 0, 0]$.
+Row 3 (Gene C): $[1\cdot1 + 1\cdot0 + 1\cdot(-1),\; 1\cdot0 + 1\cdot1 + 1\cdot(-1),\; 1\cdot0+1\cdot0+1\cdot1,\; 0]$
+$= [0, 0, 1, 0]$.
+Row 4 (Gene D): same as row 3 (since $\mathbf{W}\mathbf{D}_C$ has identical
+rows 3 and 4): $[0, 0, 1, 0]$.
+
+\[
+    \mathbf{S}_C = \begin{pmatrix}1&0&0&0\\0&1&0&0\\0&0&1&0\\0&0&1&0\end{pmatrix}
+\]
+
+\textbf{Interpretation.} $[\mathbf{S}_C]_{D,C} = 1$: Gene D inherits Gene C's
+causal channel. But the ``mixing'' through A and B cancels out, leaving a clean
+projection onto Gene C's own contribution.
+\end{examplebox}
+
+\begin{examplebox}{Computing $\mathbf{S}_D$ (GSO for Gene D)}
+
+$\text{pred}(D) = \{A, B, C, D\} = \mathcal{V}$, so $\mathbf{D}_D = \mathbf{I}$.
+
+\[
+    \mathbf{S}_D = \mathbf{W} \mathbf{I} \mathbf{W}^{-1} = \mathbf{W}\mathbf{W}^{-1} = \mathbf{I}
+\]
+
+The causal GSO for the terminal node is the identity matrix! This makes perfect
+sense: Gene D is preceded by every gene in the network, so its ``causal
+channel'' includes all frequencies. Applying $\mathbf{S}_D$ leaves the signal
+unchanged.
+\end{examplebox}
+
+\paragraph{Summary of all four GSOs.}
+\[
+    \mathbf{S}_A = \begin{pmatrix}1&0&0&0\\0&0&0&0\\1&0&0&0\\1&0&0&0\end{pmatrix}, \quad
+    \mathbf{S}_B = \begin{pmatrix}0&0&0&0\\0&1&0&0\\0&1&0&0\\0&1&0&0\end{pmatrix}
+\]
+\[
+    \mathbf{S}_C = \begin{pmatrix}1&0&0&0\\0&1&0&0\\0&0&1&0\\0&0&1&0\end{pmatrix}, \quad
+    \mathbf{S}_D = \begin{pmatrix}1&0&0&0\\0&1&0&0\\0&0&1&0\\0&0&0&1\end{pmatrix} = \mathbf{I}
+\]
+
+\subsection{Worked Numerical Example: Applying the GSOs to a Signal}
+
+Let $\mathbf{x} = [2, 3, 1, 0.5]^\top$ (gene expression levels for A, B, C, D).
+
+First, compute the exogenous contributions:
+$\mathbf{c} = \mathbf{W}^{-1}\mathbf{x} = [2, 3, 1-2-3, 0.5-1]^\top = [2, 3, -4, -0.5]^\top$.
+
+Now apply each GSO:
+
+\begin{examplebox}{Numerical Application of Each Causal GSO}
+\[
+    \mathbf{S}_A \mathbf{x} = \begin{pmatrix}1\\0\\1\\1\end{pmatrix} \cdot x_A
+    = \begin{pmatrix}2\\0\\2\\2\end{pmatrix}
+\]
+At every node that has A as an ancestor (A, C, D), the signal is replaced by
+Gene A's own expression (2). Gene B, which does not inherit from A, gets 0.
+
+\[
+    \mathbf{S}_B \mathbf{x} = \begin{pmatrix}0\\1\\1\\1\end{pmatrix} \cdot x_B
+    = \begin{pmatrix}0\\3\\3\\3\end{pmatrix}
+\]
+
+\[
+    \mathbf{S}_C \mathbf{x} = \begin{pmatrix}x_A \\ x_B \\ x_C \\ x_C\end{pmatrix}
+    = \begin{pmatrix}2\\3\\1\\1\end{pmatrix}
+\]
+
+\[
+    \mathbf{S}_D \mathbf{x} = \mathbf{x} = \begin{pmatrix}2\\3\\1\\0.5\end{pmatrix}
+\]
+
+Observe that $\mathbf{S}_A\mathbf{x} + \mathbf{S}_B\mathbf{x} + \cdots$ does
+\emph{not} simply reconstruct $\mathbf{x}$. The GSOs are not an orthonormal
+decomposition; they are projection-like operators whose learnable combination
+defines a graph filter.
+\end{examplebox}
+
+% =============================================================================
+\section{Causal Graph Filters --- Linear Combinations of GSOs}
+\label{sec:dagcn_filters}
+% =============================================================================
+
+With the causal GSOs defined, we can now construct proper \textbf{causal graph
+filters}: linear combinations of the $N$ shift operators that perform a
+well-defined ``convolution'' operation on DAG signals.
+
+\subsection{Filter Definition}
+
+\begin{mathbox}{Causal Graph Filter}
+A causal graph filter $\mathbf{H}$ with parameters $\boldsymbol{\theta} =
+[\theta_1, \dots, \theta_N]^\top \in \mathbb{R}^N$ is:
+\begin{equation}
+    \mathbf{H} = \sum_{k \in \mathcal{V}} \theta_k \mathbf{S}_k
+    = \mathbf{W} \left(\sum_k \theta_k \mathbf{D}_k\right) \mathbf{W}^{-1}
+    \label{eq:causal_filter}
+\end{equation}
+
+The diagonal matrix in the middle, $\boldsymbol{\Phi} = \sum_k \theta_k
+\mathbf{D}_k$, is a \textbf{causal frequency response}: its $(i,i)$ entry is
+$\Phi_{ii} = \sum_{k \ge i} \theta_k$ (the sum of filter coefficients for all
+nodes that succeed $i$, including $i$ itself). In the DAG Fourier domain, the
+filter multiplies the $i$-th causal frequency $c_i$ by
+$\hat{h}_i = \sum_{k \ge i} \theta_k$.
+
+\medskip
+\textbf{Output.} For each node $i$:
+\[
+    [\mathbf{H}\mathbf{x}]_i = \sum_{j \le i} W_{ij} \, \hat{h}_j \, c_j
+    = \sum_{j \le i} W_{ij} \left(\sum_{k \ge j} \theta_k\right) c_j
+\]
+Each ancestral exogenous contribution $c_j$ is re-weighted by the cumulative
+filter coefficient $\hat{h}_j = \sum_{k \ge j} \theta_k$. This is a proper
+convolution: it is shift-equivariant with respect to the causal GSOs and
+reduces to standard polynomial filtering when the DAG is a directed path graph.
+\end{mathbox}
+
+\paragraph{Comparison to standard graph convolution.}
+In a standard graph convolution, the filter $\mathbf{H} = \sum_r h_r
+\mathbf{A}^r$ applies the same weight $h_r$ to contributions that are $r$ hops
+away, regardless of direction. On a DAG, this means contributions from
+descendants are treated identically to contributions from ancestors (once we
+ignore directionality). By contrast, the causal filter $\mathbf{H} =
+\sum_k \theta_k \mathbf{S}_k$ assigns a distinct learnable weight
+$\theta_k$ to each node's causal channel, and \emph{only} aggregates from
+ancestors (never from descendants). The filter is causal by construction.
+
+\subsection{Worked Numerical Example}
+
+\begin{examplebox}{Causal Filter with $\boldsymbol{\theta} = [1, 0.5, 0.5, 0.25]$ on $\mathbf{x} = [2, 3, 1, 0.5]$}
+
+\textbf{Step 1.} Compute the frequency response at each node:
+\begin{align*}
+    \hat{h}_A &= \theta_A + \theta_B + \theta_C + \theta_D = 1 + 0.5 + 0.5 + 0.25 = 2.25 \\
+    \hat{h}_B &= \theta_B + \theta_C + \theta_D = 0.5 + 0.5 + 0.25 = 1.25 \\
+    \hat{h}_C &= \theta_C + \theta_D = 0.5 + 0.25 = 0.75 \\
+    \hat{h}_D &= \theta_D = 0.25
+\end{align*}
+
+(Each $\hat{h}_j = \sum_{k \ge j} \theta_k$, summing over all descendants
+of $j$ including $j$ itself.)
+
+\textbf{Step 2.} Compute exogenous contributions:
+$\mathbf{c} = [2, 3, -4, -0.5]^\top$ (computed earlier).
+
+\textbf{Step 3.} Apply the filter. For each node $i$, sum $W_{ij} \hat{h}_j c_j$
+over all ancestors $j \le i$:
+\begin{align*}
+    [\mathbf{H}\mathbf{x}]_A &= W_{AA} \hat{h}_A c_A
+        = 1 \cdot 2.25 \cdot 2 = 4.5 \\
+    [\mathbf{H}\mathbf{x}]_B &= W_{BB} \hat{h}_B c_B
+        = 1 \cdot 1.25 \cdot 3 = 3.75 \\
+    [\mathbf{H}\mathbf{x}]_C &= W_{CA} \hat{h}_A c_A
+        + W_{CB} \hat{h}_B c_B
+        + W_{CC} \hat{h}_C c_C \\
+        &= 1 \cdot 2.25 \cdot 2 + 1 \cdot 1.25 \cdot 3 + 1 \cdot 0.75 \cdot (-4) \\
+        &= 4.5 + 3.75 - 3 = 5.25 \\
+    [\mathbf{H}\mathbf{x}]_D &= W_{DA}\hat{h}_A c_A + W_{DB}\hat{h}_B c_B
+        + W_{DC}\hat{h}_C c_C + W_{DD}\hat{h}_D c_D \\
+        &= 1 \cdot 2.25 \cdot 2 + 1 \cdot 1.25 \cdot 3 + 1 \cdot 0.75 \cdot (-4)
+           + 1 \cdot 0.25 \cdot (-0.5) \\
+        &= 4.5 + 3.75 - 3 - 0.125 = 5.125
+\end{align*}
+
+\textbf{Result:} $\mathbf{H}\mathbf{x} = [4.5, 3.75, 5.25, 5.125]^\top$.
+
+Observe that no information flows from D back to A or B. The filter strictly
+respects the causal structure of the DAG: the output at Gene A depends only on
+Gene A's own exogenous contribution, and the output at Gene D aggregates all
+four contributions weighted by their positions in the causal hierarchy.
+\end{examplebox}
+
+% =============================================================================
+\section{The DCN Architecture}
+\label{sec:dagcn_dcn}
+% =============================================================================
+
+With the causal graph filter in hand, Rey et al.\ construct a full deep learning
+architecture called the \textbf{Directed Convolutional Network} (DCN). The DCN
+is the multi-feature, multi-layer, nonlinear generalisation of the causal graph
+filter.
+
+\subsection{Multi-Feature Extension}
+
+In practice, each node has not a single scalar signal but an
+$F$-dimensional feature vector. We collect all node features into a matrix
+$\mathbf{X}^{(\ell)} \in \mathbb{R}^{N \times F_\ell}$ where $N$ is the number
+of nodes and $F_\ell$ is the feature dimension at layer $\ell$.
+
+Each causal GSO $\mathbf{S}_k$ gets its own learnable weight matrix
+$\boldsymbol{\Theta}_k^{(\ell)} \in \mathbb{R}^{F_\ell \times F_{\ell+1}}$ that
+maps from the current feature dimension to the next. The DCN layer recursion is:
+
+\begin{equation}
+    \mathbf{X}^{(\ell+1)} = \sigma\!\left(
+        \sum_{k \in \mathcal{V}} \mathbf{S}_k \, \mathbf{X}^{(\ell)} \,
+        \boldsymbol{\Theta}_k^{(\ell)}
+    \right)
+    \label{eq:dcn_layer}
+\end{equation}
+
+where $\sigma = \text{ReLU}$ is the pointwise nonlinearity and $\mathbf{X}^{(0)}
+= \mathbf{X}$ is the input feature matrix. Each $\mathbf{S}_k$ acts on all
+$F_\ell$ input features simultaneously (it is applied to each column of
+$\mathbf{X}^{(\ell)}$ independently), and the result is linearly mixed by
+$\boldsymbol{\Theta}_k^{(\ell)}$ to produce the output features.
+
+\subsection{Architecture Diagram}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, rounded corners=4pt, draw=purple!60!black,
+                fill=purple!6!white, thick, minimum width=3.6cm,
+                minimum height=0.85cm, font=\small\sffamily, align=center},
+    gsobox/.style={rectangle, rounded corners=4pt, draw=orange!60!black,
+                   fill=orange!5!white, thick, minimum width=3.6cm,
+                   minimum height=0.85cm, font=\small\sffamily, align=center},
+    arrow/.style={-{Stealth[length=3mm]}, thick, purple!60!black},
+    label/.style={font=\scriptsize\sffamily\itshape, text=gray!60!black}
+]
+    \node[box]    (inp)  at (0,  0)   {Input $\mathbf{X}^{(0)} \in \mathbb{R}^{N \times F_0}$};
+    \node[gsobox] (gso1) at (0, -1.8) {$\sum_{k} \mathbf{S}_k \mathbf{X}^{(0)} \boldsymbol{\Theta}_k^{(0)}$\\{\scriptsize $N$ causal GSO branches}};
+    \node[box]    (act1) at (0, -3.4) {$\mathbf{X}^{(1)} = \sigma(\cdot) \in \mathbb{R}^{N \times F_1}$};
+    \node[gsobox] (gso2) at (0, -5.2) {$\sum_{k} \mathbf{S}_k \mathbf{X}^{(1)} \boldsymbol{\Theta}_k^{(1)}$\\{\scriptsize same structure, new weights}};
+    \node[box]    (act2) at (0, -6.8) {$\mathbf{X}^{(2)} = \sigma(\cdot) \in \mathbb{R}^{N \times F_2}$};
+    \node[box]    (out)  at (0, -8.4) {Task head (classification / regression)};
+
+    \draw[arrow] (inp)  -- (gso1);
+    \draw[arrow] (gso1) -- (act1);
+    \draw[arrow] (act1) -- (gso2);
+    \draw[arrow] (gso2) -- (act2);
+    \draw[arrow] (act2) -- node[label, right]{final layer} (out);
+
+    % Side annotation
+    \node[label, align=left] at (5.0, -1.8)
+        {$N$ weight matrices\\$\boldsymbol{\Theta}_k^{(0)} \in \mathbb{R}^{F_0 \times F_1}$};
+    \node[label, align=left] at (5.0, -5.2)
+        {$N$ weight matrices\\$\boldsymbol{\Theta}_k^{(1)} \in \mathbb{R}^{F_1 \times F_2}$};
+\end{tikzpicture}
+\caption{The \textbf{Directed Convolutional Network (DCN)} architecture. At each
+layer, all $N$ causal GSOs are applied in parallel to the current feature
+matrix, each with its own weight matrix. The results are summed and passed
+through a pointwise nonlinearity. The total parameter count at layer $\ell$ is
+$N \times F_\ell \times F_{\ell+1}$ --- it \emph{scales with the graph size}
+$N$.}
+\label{fig:dcn_architecture}
+\end{figure}
+
+\subsection{Forward Pass: Dimensions and Computation}
+
+Let us trace through the DCN forward pass with concrete dimensions for the gene
+network ($N=4$ nodes, $F_0=2$ input features, $F_1=4$ hidden features,
+$F_2=1$ output).
+
+\begin{examplebox}{Forward Pass Walkthrough for the Gene Network}
+
+\textbf{Input.} $\mathbf{X}^{(0)} \in \mathbb{R}^{4 \times 2}$: two features
+per gene (e.g., expression level and sequence motif score).
+
+\textbf{Layer 0.} For each of the 4 nodes $k \in \{A, B, C, D\}$:
+\begin{enumerate}[noitemsep]
+    \item Compute $\mathbf{S}_k \mathbf{X}^{(0)} \in \mathbb{R}^{4 \times 2}$
+          (apply the $4 \times 4$ causal GSO to the $4 \times 2$ feature matrix).
+    \item Multiply by $\boldsymbol{\Theta}_k^{(0)} \in \mathbb{R}^{2 \times 4}$
+          to get a $4 \times 4$ contribution.
+\end{enumerate}
+Sum all 4 contributions: $\sum_k \mathbf{S}_k \mathbf{X}^{(0)} \boldsymbol{\Theta}_k^{(0)}
+\in \mathbb{R}^{4 \times 4}$.
+
+Apply ReLU: $\mathbf{X}^{(1)} = \text{ReLU}(\cdot) \in \mathbb{R}^{4 \times 4}$.
+
+\textbf{Layer 1.} Repeat: for each of 4 GSOs, apply to $\mathbf{X}^{(1)} \in
+\mathbb{R}^{4 \times 4}$ and multiply by $\boldsymbol{\Theta}_k^{(1)} \in
+\mathbb{R}^{4 \times 1}$. Sum, apply ReLU:
+$\mathbf{X}^{(2)} \in \mathbb{R}^{4 \times 1}$.
+
+\textbf{Parameter count.} Layer 0: $4 \times 2 \times 4 = 32$ parameters.
+Layer 1: $4 \times 4 \times 1 = 16$ parameters. Total: 48 parameters (plus
+task head). For a graph of $N$ nodes with $F$ features and $L$ layers, the
+total is $O(N F^2 L)$ --- \emph{linear in} $N$.
+\end{examplebox}
+
+\subsection{Permutation Equivariance}
+
+The DCN satisfies \textbf{permutation equivariance} (Corollary~1 in the paper):
+if we relabel the nodes of the DAG by any permutation $\pi$ that preserves the
+DAG structure (i.e., an automorphism), the output is permuted by the same
+$\pi$. More precisely, for any topological-order-preserving permutation $\pi$:
+\[
+    \mathbf{H}(\mathbf{P}_\pi \mathbf{X}) = \mathbf{P}_\pi \mathbf{H}(\mathbf{X})
+\]
+where $\mathbf{P}_\pi$ is the permutation matrix corresponding to $\pi$. This
+is the fundamental equivariance requirement for any respectable graph learning
+architecture.
+
+\subsection{DCN-T: The Transposed Variant for Source Detection}
+
+For source detection tasks, information flows in the \emph{opposite} direction
+to the DAG's causal edges. We observe who is infected (downstream) and want to
+identify the source (upstream). To support backward-looking aggregation, Rey et
+al.\ define the \textbf{transposed DCN} (DCN-T) by replacing each causal GSO
+$\mathbf{S}_k$ with its transpose $\mathbf{S}_k^\top$:
+
+\begin{equation}
+    \mathbf{X}^{(\ell+1)}_{\text{DCN-T}} = \sigma\!\left(
+        \sum_{k \in \mathcal{V}} \mathbf{S}_k^\top \, \mathbf{X}^{(\ell)} \,
+        \boldsymbol{\Theta}_k^{(\ell)}
+    \right)
+    \label{eq:dcnt_layer}
+\end{equation}
+
+The transposed GSO $\mathbf{S}_k^\top$ aggregates information from a node's
+\emph{descendants} rather than its ancestors. For source detection: when we
+apply DCN-T to the infection state, each candidate source node's representation
+accumulates evidence from all nodes it could have infected (its descendants).
+The true source will have the richest set of infected descendants, and DCN-T
+is designed to detect exactly this pattern.
+
+\subsection{Computational Complexity}
+
+At each DCN layer, the dominant cost is the $N$ matrix products
+$\mathbf{S}_k \mathbf{X}^{(\ell)}$. Each $\mathbf{S}_k$ has at most
+$\|\mathbf{S}_k\|_0 \le N^2$ non-zero entries (in practice much fewer for
+sparse DAGs). Let $S = \max_k \|\mathbf{S}_k\|_0$ be the maximum sparsity.
+The total cost per layer is $O(N \cdot S \cdot F_\ell)$ for the GSO
+applications, plus $O(N \cdot F_\ell \cdot F_{\ell+1})$ for the weight
+multiplications. On sparse DAGs (e.g., trees or chains), $S = O(N)$, giving
+an overall per-layer cost of $O(N^2 F + NF^2)$.
+
+% =============================================================================
+\section{Parallel DCN (PDCN) --- Trading Depth for Width}
+\label{sec:dagcn_pdcn}
+% =============================================================================
+
+The DCN architecture as defined in Equation~(\ref{eq:dcn_layer}) has one
+important limitation: its parameter count scales with $N$ (the graph size),
+because there are $N$ separate weight matrices $\boldsymbol{\Theta}_k^{(\ell)}$
+per layer. For large graphs, this becomes prohibitive. Moreover, the authors
+show that the expressiveness gain from stacking multiple DCN layers is limited
+by a composition lemma.
+
+\subsection{The Composition Lemma: Depth Does Not Help}
+
+\begin{conceptbox}{Why Deep DCN Has Limited Expressiveness}
+\textbf{Lemma (Composition of causal filters).}
+The composition of two causal graph filters is itself a causal graph filter.
+Formally, if $\mathbf{H}_1 = \mathbf{W}\boldsymbol{\Phi}_1\mathbf{W}^{-1}$ and
+$\mathbf{H}_2 = \mathbf{W}\boldsymbol{\Phi}_2\mathbf{W}^{-1}$, then:
+\[
+    \mathbf{H}_1 \mathbf{H}_2 = \mathbf{W}(\boldsymbol{\Phi}_1\boldsymbol{\Phi}_2)\mathbf{W}^{-1}
+\]
+which is another causal graph filter with frequency response
+$\boldsymbol{\Phi}_1\boldsymbol{\Phi}_2$ (a diagonal matrix, since the product
+of two diagonal matrices is diagonal).
+
+\medskip
+\textbf{Consequence.} Two DCN layers (ignoring the nonlinearity) collapse into
+one DCN layer with a modified frequency response. Adding more layers does not
+introduce new representational capabilities that could not be achieved by a
+single deeper filter. In the absence of the nonlinearity, a deep linear DCN is
+equivalent to a single causal graph filter. The nonlinearity $\sigma$ breaks
+this collapse, but only partially: empirically, deep DCN does not offer
+substantial gains over a single layer followed by a nonlinearity, and adding
+layers primarily increases computational cost without a commensurate accuracy
+improvement.
+\end{conceptbox}
+
+This motivates a different scaling strategy: rather than going \emph{deep}
+(stacking layers), go \emph{wide} (running $N$ parallel branches with shared
+weights).
+
+\subsection{The PDCN Architecture}
+
+\begin{mathbox}{Parallel DCN (PDCN)}
+The PDCN architecture has $N$ parallel processing branches, one for each causal
+GSO. All branches share the same MLP parameters $\boldsymbol{\Theta}^{(\ell)}$:
+
+\begin{equation}
+    \mathbf{Z}_k^{(\ell)} = \text{MLP}\!\left(\mathbf{S}_k \mathbf{X}^{(\ell)};
+    \boldsymbol{\Theta}^{(\ell)}\right), \quad k \in \mathcal{V}
+    \label{eq:pdcn_branch}
+\end{equation}
+
+\begin{equation}
+    \mathbf{X}^{(\ell+1)} = \sum_{k \in \mathcal{V}} \mathbf{Z}_k^{(\ell)}
+    \label{eq:pdcn_sum}
+\end{equation}
+
+Each branch applies the same MLP (with ReLU activations and $L$ layers of
+hidden dimension $F$) to a different GSO-transformed version of the feature
+matrix. The results are summed across all $N$ branches.
+\end{mathbox}
+
+\subsection{Architecture Diagram: DCN vs. PDCN}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    inp/.style={rectangle, rounded corners=3pt, draw=blue!60!black,
+                fill=blue!5!white, thick, minimum width=2.6cm,
+                minimum height=0.75cm, font=\small\sffamily, align=center},
+    branch/.style={rectangle, rounded corners=3pt, draw=orange!60!black,
+                   fill=orange!5!white, thick, minimum width=2.1cm,
+                   minimum height=0.75cm, font=\small\sffamily, align=center},
+    sumbox/.style={circle, draw=red!60!black, fill=red!5!white, thick,
+                   minimum size=0.75cm, font=\bfseries\sffamily},
+    arrow/.style={-{Stealth[length=2.5mm]}, thick},
+    label/.style={font=\scriptsize\sffamily\itshape, text=gray!60!black}
+]
+    % Input
+    \node[inp] (X) at (0, 0) {$\mathbf{X}^{(\ell)}$};
+
+    % Four branches (one per GSO)
+    \node[branch] (B1) at (-4.5, -1.8) {$\mathbf{S}_A\mathbf{X}^{(\ell)}$};
+    \node[branch] (B2) at (-1.5, -1.8) {$\mathbf{S}_B\mathbf{X}^{(\ell)}$};
+    \node[branch] (B3) at ( 1.5, -1.8) {$\mathbf{S}_C\mathbf{X}^{(\ell)}$};
+    \node[branch] (B4) at ( 4.5, -1.8) {$\mathbf{S}_D\mathbf{X}^{(\ell)}$};
+
+    % MLP boxes (shared weights)
+    \node[branch] (M1) at (-4.5, -3.4) {\small MLP($\cdot$; $\boldsymbol{\Theta}$)};
+    \node[branch] (M2) at (-1.5, -3.4) {\small MLP($\cdot$; $\boldsymbol{\Theta}$)};
+    \node[branch] (M3) at ( 1.5, -3.4) {\small MLP($\cdot$; $\boldsymbol{\Theta}$)};
+    \node[branch] (M4) at ( 4.5, -3.4) {\small MLP($\cdot$; $\boldsymbol{\Theta}$)};
+
+    % Sum node
+    \node[sumbox] (S) at (0, -5.2) {$+$};
+
+    % Output
+    \node[inp] (Xp) at (0, -6.8) {$\mathbf{X}^{(\ell+1)}$};
+
+    % Arrows: input to branches
+    \draw[arrow] (X) -- (B1);
+    \draw[arrow] (X) -- (B2);
+    \draw[arrow] (X) -- (B3);
+    \draw[arrow] (X) -- (B4);
+
+    % Arrows: branches to MLPs
+    \draw[arrow] (B1) -- (M1);
+    \draw[arrow] (B2) -- (M2);
+    \draw[arrow] (B3) -- (M3);
+    \draw[arrow] (B4) -- (M4);
+
+    % Arrows: MLPs to sum
+    \draw[arrow] (M1) -- (S);
+    \draw[arrow] (M2) -- (S);
+    \draw[arrow] (M3) -- (S);
+    \draw[arrow] (M4) -- (S);
+
+    % Sum to output
+    \draw[arrow] (S) -- (Xp);
+
+    % Shared weights label
+    \node[label] at (6.5, -3.4) {Same $\boldsymbol{\Theta}$\\for all branches};
+    \draw[->, gray!40, thin] (5.8, -3.4) -- (5.0, -3.4);
+\end{tikzpicture}
+\caption{The \textbf{Parallel DCN (PDCN)} architecture for the gene network
+($N = 4$). The input $\mathbf{X}^{(\ell)}$ is first transformed by each of the
+$N = 4$ causal GSOs in parallel. All $N$ resulting matrices are processed by
+the \emph{same} shared MLP (weight-tied across branches), then summed to
+produce $\mathbf{X}^{(\ell+1)}$. Parameter count: $O(F^2 L)$ independently
+of $N$.}
+\label{fig:pdcn_architecture}
+\end{figure}
+
+\subsection{Parameter Count: Independent of Graph Size}
+
+The decisive advantage of the PDCN over the DCN is parameter efficiency. In the
+DCN, there are $N$ separate weight matrices per layer, giving $O(NF^2L)$ total
+parameters. In the PDCN, all $N$ branches share a single MLP, so the total
+parameter count is $O(F^2 L)$ --- completely \emph{independent of} $N$.
+
+This has three consequences:
+
+\begin{enumerate}
+    \item \textbf{Scalability.} The PDCN can be applied to large DAGs without
+          increasing the number of learned parameters. The same model can handle
+          DAGs with 10 nodes or 10,000 nodes.
+    \item \textbf{Generalisation.} Because weights are shared across branches,
+          the PDCN is forced to learn features that are meaningful for any
+          GSO-transformed input, not just the one corresponding to a specific
+          node $k$. This acts as a form of regularisation.
+    \item \textbf{Permutation equivariance (Remark~1).} Sharing weights across
+          branches ensures that the PDCN is permutation equivariant: relabelling
+          the nodes produces the same output, relabelled identically.
+\end{enumerate}
+
+\begin{keyinsight}{PDCN Achieves WL-Expressiveness}
+The PDCN can distinguish any pair of non-isomorphic DAGs that differ in their
+causal GSO structure. Since the causal GSOs $\{\mathbf{S}_k\}_{k \in
+\mathcal{V}}$ uniquely characterise the DAG up to isomorphism (Proposition~2 in
+the paper), any function of the full set of GSO-transformed features
+$\{\mathbf{S}_k \mathbf{X}\}_{k \in \mathcal{V}}$ is at least as expressive as
+the Weisfeiler--Lehman (WL) graph isomorphism test. The PDCN, by processing
+each GSO branch with a shared MLP and summing, achieves exactly this level of
+expressiveness.
+\end{keyinsight}
+
+\subsection{When to Use DCN vs. PDCN}
+
+The choice between DCN and PDCN depends on the specific requirements:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Criterion} & \textbf{DCN} & \textbf{PDCN} \\
+\midrule
+Parameter count & $O(NF^2L)$ --- scales with $N$ & $O(F^2L)$ --- independent of $N$ \\
+Expressiveness & High (per-node weights) & High (WL-level, shared weights) \\
+Inductive learning & No (tied to graph size) & Yes (same model, any size) \\
+When $N$ is large & Expensive & Preferred \\
+When $N$ is small & Both applicable & Preferred for generalisation \\
+Source detection & DCN-T (transposed) & PDCN-T (transposed) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% =============================================================================
+\section{Source Detection with DCN-T}
+\label{sec:dagcn_source}
+% =============================================================================
+
+The most compelling application of the DAGCN framework in the paper is
+\textbf{source identification}: given a signal propagated on a DAG (for example,
+a viral cascade on a gene regulatory network), identify the node that initiated
+the propagation.
+
+\subsection{The Source Identification Task}
+
+In the source identification setting, we observe the final signal state
+$\mathbf{x}_{\text{obs}} \in \mathbb{R}^N$ at every node after the propagation
+has run to completion. Under the SEM, this signal was generated as $\mathbf{x}
+= \mathbf{W}\mathbf{c}$ where $\mathbf{c}$ has exactly one large non-zero entry
+at the source node $k^*$ (and small noise contributions at other nodes). The
+task is to identify $k^*$ from $\mathbf{x}_{\text{obs}}$.
+
+\begin{examplebox}{Why This Is Hard}
+Suppose the true source is Gene A in our network. Gene A's exogenous
+contribution $c_A$ propagates to all its descendants: C and D each accumulate
+a contribution of $W_{CA} c_A = c_A$ and $W_{DA} c_A = c_A$ respectively.
+The signal at Gene D is $x_D = c_A + c_B + c_C + c_D \approx c_A$ if $c_A$
+dominates. But from $x_D$ alone, we cannot tell whether the large signal came
+from Gene A or Gene B (both equally contribute to Gene D). We need to look at
+the \emph{pattern} across all nodes to identify the source.
+
+In particular, if Gene B's contribution is small ($c_B \approx 0$) but Gene A
+is the source ($c_A$ large), then: $x_A = c_A$ (large), $x_B \approx 0$ (small),
+$x_C \approx c_A$ (large), $x_D \approx c_A$ (large). The signature is:
+large signal at A, C, D; small at B. A model looking only at local node
+features or only at direct edges would miss this pattern; it requires reasoning
+about the \emph{transitive} influence of Gene A.
+\end{examplebox}
+
+\subsection{Why Transposed GSOs Are Needed}
+
+The standard causal GSO $\mathbf{S}_k$ aggregates from a node's \emph{ancestors}
+(looking upstream). For source detection, we need the opposite: we need each
+candidate source node to aggregate from its \emph{descendants} (looking
+downstream). The reason is intuitive --- we want the source node to ``see''
+how many and which downstream nodes exhibit the propagated signal.
+
+The transposed GSO $\mathbf{S}_k^\top$ does exactly this. The $(i,j)$ entry of
+$\mathbf{S}_k^\top$ is $[\mathbf{S}_k]_{ji}$, which is non-zero when node $i$
+is an ancestor of node $j$ and both $j$ and $k$ share a common ancestor. In the
+context of source detection, applying $\mathbf{S}_k^\top$ to the observed signal
+allows candidate source node $k$ to collect evidence from all nodes downstream
+of it:
+
+\[
+    [\mathbf{S}_k^\top \mathbf{x}]_i = \sum_{j: i \le j,\; k \le j}
+    [\mathbf{W}^\top]_{ij} \, [\mathbf{W}^{-\top}]_{ji} \, x_j
+\]
+
+In plain terms: $\mathbf{S}_k^\top$ at node $i$ aggregates the observed signals
+of all nodes $j$ that are descendants of both $i$ and $k$. If $i = k^*$ (the
+true source), this aggregates evidence from every infected descendant.
+
+\begin{analogybox}{Finding the Source of a Rumour by Asking Who Heard It}
+Imagine a rumour that started with one person and spread through a social
+network. Each person only passes the rumour to people they directly communicate
+with (causal direction: source $\to$ recipients). After the rumour has spread,
+you want to find who started it.
+
+You cannot ask who \emph{told} you the rumour (that would be aggregating from
+ancestors, looking upstream --- the DCN direction). Instead, you ask each person:
+``Of all the people who know the rumour, which ones could only have heard it from
+you?'' That question looks \emph{downstream}: it asks who is in your rumour
+propagation cone. The person whose downstream cone matches the set of informed
+people most precisely is the source. This is exactly what $\mathbf{S}_k^\top$
+computes for each candidate source node $k$.
+\end{analogybox}
+
+\subsection{Connection to Reversed DAG Approaches}
+
+The DCN-T approach is conceptually aligned with the reversed-DAG message
+passing used in the Saram\"{a}ki Temporal Event Graph framework (Chapter~\ref{chap:saramaki}).
+Both recognise the same fundamental insight: epidemic source detection is a
+\emph{backward inference} problem. The observed infection pattern is the
+downstream consequence of the source's action; we must propagate evidence
+upstream (in the Saram\"{a}ki approach, by flipping the DAG edges) or equivalently
+aggregate from descendants (in the DCN-T approach, by transposing the GSOs).
+
+The key difference is in the representation: the Saram\"{a}ki approach builds
+an explicit event-level DAG and reverses it structurally, while the DCN-T works
+on the original node-level DAG and reverses the direction of aggregation through
+matrix transposition. The underlying causal logic is identical.
+
+\subsection{Experimental Results}
+
+Rey et al.\ evaluate source identification accuracy on synthetic DAGs generated
+from Erd\H{o}s--R\'{e}nyi and Barab\'{a}si--Albert DAG models. The source node
+generates a large exogenous input $c_{k^*} \gg 0$ and all other nodes have
+small noise contributions. The models predict the most likely source node.
+
+The results are striking:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Model} & \textbf{Accuracy} & \textbf{Notes} \\
+\midrule
+Standard DCN (forward GSOs) & 0.057 & Near-random; cannot look downstream \\
+DCN-T (transposed GSOs) & \textbf{0.997} & Near-perfect; correctly aggregates downstream \\
+Standard GCN (undirected) & 0.312 & Partial success; loses causal direction \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The contrast between standard DCN (0.057 accuracy, essentially random) and
+DCN-T (0.997 accuracy, near-perfect) is perhaps the most informative result
+in the paper. It is not that the architecture is wrong or the data is
+insufficient --- the standard DCN is simply looking in the wrong direction. By
+transposing the GSOs, the DCN-T aggregates exactly the right information, and
+the task becomes almost trivially easy. The causal direction of aggregation is
+not a hyperparameter to be tuned; it is a structural requirement of the task.
+
+The standard GCN achieves 0.312 accuracy --- well above random (0.25 for a
+four-class problem) but far below DCN-T. This is because undirected aggregation
+captures some of the signal (a node with many infected neighbours is likely
+near the source) but corrupts the representation by mixing upstream and
+downstream information symmetrically.
+
+% =============================================================================
+\section{Summary}
+\label{sec:dagcn_summary}
+% =============================================================================
+
+This chapter has developed the complete theoretical and practical framework
+of Rey, Ajorlou, and Mateos's \textbf{Directed Acyclic Graph Convolutional
+Network (DAGCN)}~\cite{rey2025dagcn}. We close with a structured comparison
+of the three architectures and a discussion of the paper's position in the
+broader landscape.
+
+\subsection{Comparison Table}
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Property} & \textbf{Standard GNN} & \textbf{DCN} & \textbf{PDCN} \\
+\midrule
+Handles DAG structure & No & Yes & Yes \\
+Spectral foundation & Eigendecomposition & Transitive closure & Transitive closure \\
+Aggregation direction & Both / undirected & Ancestors only & Ancestors only \\
+Basis & Eigenvectors of $\mathbf{L}$ & Columns of $\mathbf{W}$ & Columns of $\mathbf{W}$ \\
+Shift operators & Powers of $\mathbf{A}$ or $\mathbf{L}$ & $\{\mathbf{S}_k\}_{k \in \mathcal{V}}$ & $\{\mathbf{S}_k\}_{k \in \mathcal{V}}$ \\
+Param count / layer & $O(RF^2)$ & $O(NF^2)$ & $O(F^2L)$ \\
+Scales with graph & No & Yes (bad) & No (good) \\
+Source detection & Poor & Poor (forward) & Excellent (transposed) \\
+WL expressiveness & Limited & Yes & Yes \\
+Inductive (new graphs) & Limited & No (fixed $N$) & Yes \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{The Three Key Contributions}
+
+Rey et al.\ make three tightly coupled contributions:
+
+\begin{enumerate}
+    \item \textbf{The causal GSO and DAG Fourier theory.} By recognising the
+          transitive closure $\mathbf{W} = (\mathbf{I} - \mathbf{A})^{-1}$ as the
+          natural Fourier basis for DAG signals and defining the causal GSOs
+          $\mathbf{S}_k = \mathbf{W}\mathbf{D}_k\mathbf{W}^{-1}$, the paper
+          provides a rigorous spectral theory for DAGs that avoids the nilpotency
+          problem entirely. The spectrum is no longer the (degenerate) eigenvalues
+          of $\mathbf{A}$; it is the per-node causal channels, one for each node
+          in the graph.
+
+    \item \textbf{The DCN and PDCN architectures.} The DCN generalises the
+          causal filter to a deep, multi-feature, nonlinear architecture with
+          per-node weight matrices. The PDCN resolves the scaling problem by
+          sharing weights across GSO branches, achieving $O(F^2L)$ parameter
+          count regardless of graph size. Both architectures are permutation
+          equivariant and WL-expressive.
+
+    \item \textbf{The DCN-T transposition for causal inference.} The insight
+          that source detection requires \emph{transposed} GSOs --- aggregating
+          from descendants rather than ancestors --- is both elegant and
+          empirically validated. The accuracy gap between DCN (0.057) and DCN-T
+          (0.997) demonstrates that architectural alignment with the task's
+          causal direction is not a minor improvement but a categorical difference.
+\end{enumerate}
+
+\subsection{Position in the Broader Landscape}
+
+The DAGCN paper occupies a distinctive position in the GNN landscape for
+temporal and causal networks. Compared to the approaches studied in previous
+chapters:
+
+\paragraph{Versus Saram\"{a}ki's TEG (Chapter~\ref{chap:saramaki}).} Both
+approaches recognise that DAG structure is fundamental to causal reasoning on
+temporal networks. The TEG approach lifts the problem to the event level,
+constructing a new DAG of events and running GNN message passing on it. The
+DAGCN approach works directly on the original node-level DAG, using the
+transitive closure to build a rich spectral theory. The TEG approach handles
+arbitrary temporal networks (including those with undirected contacts), while
+DAGCN requires a pre-specified DAG structure.
+
+\paragraph{Versus standard temporal GNNs.} Temporal GNNs such as TGAT or
+TGN use attention mechanisms or memory modules to order temporal information,
+but they operate on the original node graph and do not exploit DAG structure
+explicitly. DAGCN, by contrast, uses the full ancestry structure encoded in
+$\mathbf{W}$ to define shift operators. On true DAG data, DAGCN's structural
+advantage translates directly into better empirical performance.
+
+\paragraph{Versus backtracking-based methods.} Methods such as the
+Backtracking Network of Ru et al.\ use explicit probabilistic likelihood models
+to score candidate sources. DAGCN learns these scores end-to-end from data,
+without requiring a parametric model of the propagation process. This makes
+DAGCN more flexible in settings where the generative model is unknown, at the
+cost of requiring labelled training examples of (source, observed signal) pairs.
+
+\begin{keyinsight}{The Central Lesson of This Chapter}
+The central lesson of the DAGCN paper is that the appropriate notion of
+``graph frequency'' depends fundamentally on the type of graph being processed.
+For undirected graphs, the eigenvectors of the Laplacian are the right basis.
+For DAGs, the eigenvectors of $\mathbf{A}$ are degenerate and useless; the
+right basis is the columns of the transitive closure $\mathbf{W}$. A GNN
+designed for undirected graphs cannot simply be applied to a DAG by ignoring
+the direction --- it will be blind to the very structure that makes the DAG
+informative. The causal GSOs $\{\mathbf{S}_k\}$ provide the first principled,
+expressive, and computationally tractable signal processing framework for DAGs,
+and the DCN/PDCN architectures operationalise this framework in a learnable,
+scalable form.
+\end{keyinsight}

@@ -1,0 +1,97 @@
+\relax 
+\providecommand\zref@newlabel[2]{}
+\providecommand\hyper@newdestlabel[2]{}
+\@writefile{toc}{\contentsline {chapter}{\numberline {8}Weighted Temporal Event Graphs: Preserving Causal Paths}{141}{chapter.8}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{chap:saramaki}{{8}{141}{Weighted Temporal Event Graphs: Preserving Causal Paths}{chapter.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.1}Why Static Graphs Fail: A Four-Person Story}{141}{section.8.1}\protected@file@percent }
+\newlabel{sec:saramaki_motivation}{{8.1}{141}{Why Static Graphs Fail: A Four-Person Story}{section.8.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.1}Setting the Scene}{141}{subsection.8.1.1}\protected@file@percent }
+\citation{saramaki2019temporal}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.2}What a Static Graph Sees}{142}{subsection.8.1.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8.1}{\ignorespaces The \textbf  {static projection} of the four contacts. All edges exist simultaneously. A graph algorithm sees $A$--$B$--$C$--$D$ and also $A$--$D$--$C$--$B$, $A$--$D$--$C$--$B$, and so on.}}{142}{figure.caption.13}\protected@file@percent }
+\newlabel{fig:static_projection}{{8.1}{142}{The \textbf {static projection} of the four contacts. All edges exist simultaneously. A graph algorithm sees $A$--$B$--$C$--$D$ and also $A$--$D$--$C$--$B$, $A$--$D$--$C$--$B$, and so on}{figure.caption.13}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.2}The Saram\"{a}ki Insight: Make Events the Nodes}{142}{section.8.2}\protected@file@percent }
+\newlabel{sec:saramaki_insight}{{8.2}{142}{The Saram\"{a}ki Insight: Make Events the Nodes}{section.8.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.2.1}Why This Solves the Problem}{143}{subsection.8.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.2.2}Our Four Events as Nodes}{143}{subsection.8.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.3}Formal Construction of the Temporal Event Graph}{143}{section.8.3}\protected@file@percent }
+\newlabel{sec:teg_construction}{{8.3}{143}{Formal Construction of the Temporal Event Graph}{section.8.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.3.1}Why This Graph is Always a DAG}{144}{subsection.8.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.3.2}Explaining Each Condition with Concrete Examples}{144}{subsection.8.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Condition 1: Shared person.}{144}{subsection.8.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Condition 2: Strict chronological order.}{144}{subsection.8.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Condition 3: Infectious window.}{144}{subsection.8.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.4}Full Worked Example: Building the TEG Step by Step}{145}{section.8.4}\protected@file@percent }
+\newlabel{sec:teg_worked}{{8.4}{145}{Full Worked Example: Building the TEG Step by Step}{section.8.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.1}Checking All Ordered Pairs}{145}{subsection.8.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.2}The Resulting TEG: A TikZ Diagram}{145}{subsection.8.4.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8.2}{\ignorespaces The \textbf  {Temporal Event Graph (TEG)} for the four-event scenario, with $\Delta t = \infty $. Nodes are contact events; directed edges represent valid causal pathways. Edge weights $\tau = t_j - t_i$ are the inter-event waiting times. The graph flows strictly left-to-right (past to future) and contains no cycles.}}{145}{figure.caption.14}\protected@file@percent }
+\newlabel{fig:teg_full}{{8.2}{145}{The \textbf {Temporal Event Graph (TEG)} for the four-event scenario, with $\Delta t = \infty $. Nodes are contact events; directed edges represent valid causal pathways. Edge weights $\tau = t_j - t_i$ are the inter-event waiting times. The graph flows strictly left-to-right (past to future) and contains no cycles}{figure.caption.14}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.3}Reading the TEG}{146}{subsection.8.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.5}The $\Delta t$ Constraint: Modelling the Infectious Period}{146}{section.8.5}\protected@file@percent }
+\newlabel{sec:teg_delta_t}{{8.5}{146}{The $\Delta t$ Constraint: Modelling the Infectious Period}{section.8.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.1}Recomputing with $\Delta t = 1$}{146}{subsection.8.5.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8.3}{\ignorespaces TEG with $\Delta t = 1$. The long-range edge $e_1 \to e_4$ (dashed red) is pruned because the inter-event time $\tau = 3$ exceeds the infectious window $\Delta t = 1$. Only the tight causal chain $e_1 \to e_2 \to e_3 \to e_4$ survives.}}{147}{figure.caption.15}\protected@file@percent }
+\newlabel{fig:teg_pruned}{{8.3}{147}{TEG with $\Delta t = 1$. The long-range edge $e_1 \to e_4$ (dashed red) is pruned because the inter-event time $\tau = 3$ exceeds the infectious window $\Delta t = 1$. Only the tight causal chain $e_1 \to e_2 \to e_3 \to e_4$ survives}{figure.caption.15}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.2}The Effect of $\Delta t$ on Graph Density}{147}{subsection.8.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.6}Why a DAG is Perfect for Source Detection with GNNs}{147}{section.8.6}\protected@file@percent }
+\newlabel{sec:teg_dag_gnn}{{8.6}{147}{Why a DAG is Perfect for Source Detection with GNNs}{section.8.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.6.1}The Source Detection Problem on the TEG}{147}{subsection.8.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.6.2}Visualising the Reversed DAG}{148}{subsection.8.6.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8.4}{\ignorespaces The \textbf  {reversed TEG} (using $\Delta t = \infty $ version). Every arrow has been flipped. Information about who is Recovered now flows from late events ($e_4, e_3$) backward toward early events ($e_1$). After message passing, early event $e_1$ accumulates evidence from the entire chain.}}{148}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:teg_reversed}{{8.4}{148}{The \textbf {reversed TEG} (using $\Delta t = \infty $ version). Every arrow has been flipped. Information about who is Recovered now flows from late events ($e_4, e_3$) backward toward early events ($e_1$). After message passing, early event $e_1$ accumulates evidence from the entire chain}{figure.caption.16}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.6.3}From Event Scores Back to Person Scores}{148}{subsection.8.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.7}Code Walkthrough: The \texttt  {DAGGNN} Architecture}{148}{section.8.7}\protected@file@percent }
+\newlabel{sec:dag_gnn_code}{{8.7}{148}{Code Walkthrough: The \texttt {DAGGNN} Architecture}{section.8.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.7.1}Putting It All Together: The Full Forward Pass}{152}{subsection.8.7.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8.5}{\ignorespaces The complete \texttt  {DAGGNN} forward pass. Data flows top to bottom: people's health states are embedded as event features, the DAG is reversed, message passing propagates evidence backward in time, and the readout maps event evidence back to person scores.}}{152}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:daggnn_pipeline}{{8.5}{152}{The complete \texttt {DAGGNN} forward pass. Data flows top to bottom: people's health states are embedded as event features, the DAG is reversed, message passing propagates evidence backward in time, and the readout maps event evidence back to person scores}{figure.caption.17}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.8}The Graph Bloat Problem}{152}{section.8.8}\protected@file@percent }
+\newlabel{sec:graph_bloat}{{8.8}{152}{The Graph Bloat Problem}{section.8.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.8.1}Worst-Case Edge Count}{152}{subsection.8.8.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.8.2}How $\Delta t$ Mitigates Bloat}{153}{subsection.8.8.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.9}Summary: What the Saram\"{a}ki TEG Gives Us}{153}{section.8.9}\protected@file@percent }
+\newlabel{sec:saramaki_summary}{{8.9}{153}{Summary: What the Saram\"{a}ki TEG Gives Us}{section.8.9}{}}
+\@setckpt{chapters/08_paper_saramaki}{
+\setcounter{page}{155}
+\setcounter{equation}{0}
+\setcounter{enumi}{5}
+\setcounter{enumii}{0}
+\setcounter{enumiii}{0}
+\setcounter{enumiv}{0}
+\setcounter{footnote}{0}
+\setcounter{mpfootnote}{0}
+\setcounter{part}{4}
+\setcounter{chapter}{8}
+\setcounter{section}{9}
+\setcounter{subsection}{0}
+\setcounter{subsubsection}{0}
+\setcounter{paragraph}{0}
+\setcounter{subparagraph}{0}
+\setcounter{figure}{5}
+\setcounter{table}{0}
+\setcounter{parentequation}{0}
+\setcounter{BAenumi}{0}
+\setcounter{nlinenum}{0}
+\setcounter{section@level}{0}
+\setcounter{Item}{108}
+\setcounter{Hfootnote}{0}
+\setcounter{Hy@AnnotLevel}{0}
+\setcounter{bookmark@seq@number}{278}
+\setcounter{float@type}{16}
+\setcounter{mdf@globalstyle@cnt}{0}
+\setcounter{mdfcountframes}{0}
+\setcounter{mdf@env@i}{0}
+\setcounter{mdf@env@ii}{0}
+\setcounter{mdf@zref@counter}{0}
+\setcounter{caption@flags}{2}
+\setcounter{continuedfloat}{0}
+\setcounter{lstnumber}{22}
+\setcounter{tcbbreakpart}{1}
+\setcounter{tcblayer}{0}
+\setcounter{tcolorbox@number}{339}
+\setcounter{tcblisting}{0}
+\setcounter{lstlisting}{0}
+}

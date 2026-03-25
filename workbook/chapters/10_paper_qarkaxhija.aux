@@ -1,0 +1,88 @@
+\relax 
+\providecommand\zref@newlabel[2]{}
+\providecommand\hyper@newdestlabel[2]{}
+\citation{qarkaxhija2022}
+\@writefile{toc}{\contentsline {chapter}{\numberline {10}Higher-Order De Bruijn GNNs for Temporal Networks}{165}{chapter.10}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\@writefile{toc}{\contentsline {section}{\numberline {10.1}Where We Stand: Three Approaches to the Same Problem}{165}{section.10.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.2}The Markovian Problem: A Concrete Failure Mode}{165}{section.10.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.3}What Is a De Bruijn Graph? From DNA to Sequences}{167}{section.10.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.3.1}De Bruijn Graphs for DNA Sequences}{167}{subsection.10.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.3.2}Adapting the Concept to Temporal Networks}{167}{subsection.10.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.4}Constructing De Bruijn Graphs for Temporal Networks}{168}{section.10.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.4.1}The $k$-th Order De Bruijn Graph}{168}{subsection.10.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.4.2}Our Implementation: First-Order De Bruijn Graph ($k=1$)}{169}{subsection.10.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.5}Worked Example: Building the De Bruijn Graph Step by Step}{169}{section.10.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.5.1}The Input Temporal Network}{169}{subsection.10.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.5.2}Step 1: Enumerate De Bruijn Nodes}{169}{subsection.10.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.5.3}Step 2: Draw De Bruijn Edges}{169}{subsection.10.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.5.4}Step 3: Visualise the Result}{170}{subsection.10.5.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {10.1}{\ignorespaces First-order De Bruijn graph for the example temporal network with four contact events. Orange rectangles are \emph  {event nodes}; blue circles are \emph  {sentinel nodes} (one per person). Orange arrows are causal De Bruijn edges; blue dashed arrows connect each sentinel to the events it ``owns.'' Only forward-in-time causal edges are shown for clarity.}}{170}{figure.caption.18}\protected@file@percent }
+\newlabel{fig:debruijn_example}{{10.1}{170}{First-order De Bruijn graph for the example temporal network with four contact events. Orange rectangles are \emph {event nodes}; blue circles are \emph {sentinel nodes} (one per person). Orange arrows are causal De Bruijn edges; blue dashed arrows connect each sentinel to the events it ``owns.'' Only forward-in-time causal edges are shown for clarity}{figure.caption.18}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10.6}Why Higher-Order Graphs Capture Non-Markovian Dynamics}{171}{section.10.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.6.1}First-Order versus Second-Order: An Epidemic Illustration}{171}{subsection.10.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.6.2}Mathematical Statement: Non-Markovian Message Passing}{171}{subsection.10.6.2}\protected@file@percent }
+\newlabel{eq:dbgnn_update}{{10.1}{171}{Mathematical Statement: Non-Markovian Message Passing}{equation.10.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10.7}The Sentinel Node: Mapping Back to People}{172}{section.10.7}\protected@file@percent }
+\newlabel{sec:sentinels}{{10.7}{172}{The Sentinel Node: Mapping Back to People}{section.10.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.7.1}Formal Definition of Sentinel Nodes}{172}{subsection.10.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.8}The DBGNN Architecture: Putting It All Together}{173}{section.10.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.8.1}Stage 1: Feature Initialisation}{173}{subsection.10.8.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.8.2}Stage 2: De Bruijn Message Passing}{173}{subsection.10.8.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.8.3}Stage 3: Sentinel Readout}{174}{subsection.10.8.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.8.4}Stage 4: Score Projection and Log-Softmax}{174}{subsection.10.8.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.9}Code Walkthrough: \texttt  {gnn/dbgnn.py} and \texttt  {gnn/graph\_builder.py}}{174}{section.10.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.9.1}Graph Construction: \texttt  {utils/make\_de\_bruijn\_graph.py}}{174}{subsection.10.9.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.9.2}Tensor Preparation: \texttt  {gnn/graph\_builder.py}}{175}{subsection.10.9.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.9.3}The DBGNN Model: \texttt  {gnn/dbgnn.py}}{176}{subsection.10.9.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.10}Model Selection: Choosing the Right Order $k$}{177}{section.10.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.11}Comparison of the Three Temporal GNN Architectures}{179}{section.10.11}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {10.1}{\ignorespaces Comparison of the three temporal GNN architectures studied in this workbook. All three solve the fundamental causal leakage problem of static GNNs, but through different mechanisms with different trade-offs in graph size, memory depth, and computational cost.}}{179}{table.caption.19}\protected@file@percent }
+\newlabel{tab:temporal_arch_comparison}{{10.1}{179}{Comparison of the three temporal GNN architectures studied in this workbook. All three solve the fundamental causal leakage problem of static GNNs, but through different mechanisms with different trade-offs in graph size, memory depth, and computational cost}{table.caption.19}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10.12}Empirical Results from Qarkaxhija et al.}{180}{section.10.12}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {10.2}{\ignorespaces Balanced accuracy (\%) for node classification on six dynamic graph datasets, comparing static GCN, HONEM (a higher-order embedding baseline), and DBGNN. Results reproduced from Qarkaxhija et al.\ (2022), Table~2. ``Gain'' is computed relative to the second-best method on each dataset.}}{180}{table.caption.20}\protected@file@percent }
+\newlabel{tab:dbgnn_results}{{10.2}{180}{Balanced accuracy (\%) for node classification on six dynamic graph datasets, comparing static GCN, HONEM (a higher-order embedding baseline), and DBGNN. Results reproduced from Qarkaxhija et al.\ (2022), Table~2. ``Gain'' is computed relative to the second-best method on each dataset}{table.caption.20}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10.13}Limitations and Open Questions}{180}{section.10.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10.14}Chapter Summary}{181}{section.10.14}\protected@file@percent }
+\@setckpt{chapters/10_paper_qarkaxhija}{
+\setcounter{page}{182}
+\setcounter{equation}{1}
+\setcounter{enumi}{5}
+\setcounter{enumii}{0}
+\setcounter{enumiii}{0}
+\setcounter{enumiv}{0}
+\setcounter{footnote}{0}
+\setcounter{mpfootnote}{0}
+\setcounter{part}{4}
+\setcounter{chapter}{10}
+\setcounter{section}{14}
+\setcounter{subsection}{0}
+\setcounter{subsubsection}{0}
+\setcounter{paragraph}{0}
+\setcounter{subparagraph}{0}
+\setcounter{figure}{1}
+\setcounter{table}{2}
+\setcounter{parentequation}{0}
+\setcounter{BAenumi}{0}
+\setcounter{nlinenum}{0}
+\setcounter{section@level}{0}
+\setcounter{Item}{140}
+\setcounter{Hfootnote}{0}
+\setcounter{Hy@AnnotLevel}{0}
+\setcounter{bookmark@seq@number}{326}
+\setcounter{float@type}{16}
+\setcounter{mdf@globalstyle@cnt}{0}
+\setcounter{mdfcountframes}{0}
+\setcounter{mdf@env@i}{0}
+\setcounter{mdf@env@ii}{0}
+\setcounter{mdf@zref@counter}{0}
+\setcounter{caption@flags}{2}
+\setcounter{continuedfloat}{0}
+\setcounter{lstnumber}{10}
+\setcounter{tcbbreakpart}{2}
+\setcounter{tcblayer}{0}
+\setcounter{tcolorbox@number}{397}
+\setcounter{tcblisting}{0}
+\setcounter{lstlisting}{0}
+}
