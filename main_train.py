@@ -27,8 +27,14 @@ from __future__ import annotations
 import argparse
 import os
 
+# Prevent OpenMP/MKL deadlock when wandb spawns background threads alongside
+# PyTorch's multi-threaded CPU kernels (especially scatter_add_ and Linear).
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
 import numpy as np
 import torch
+torch.set_num_threads(1)
 import wandb
 import yaml
 
