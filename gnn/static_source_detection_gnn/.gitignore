@@ -1,0 +1,5 @@
+documentation.txt
+data/*
+run_logs/*
+.venv/
+__pycache__/

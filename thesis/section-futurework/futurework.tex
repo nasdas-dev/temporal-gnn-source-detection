@@ -1,0 +1,50 @@
+\chapter{Future Work}
+\label{c:futurework}
+
+The most pressing extension of the present work is the generalisation to
+multi-source detection. All architectures evaluated in this thesis assume that
+a single patient-zero initiated the outbreak, an assumption that is often
+violated during the early stages of an emerging epidemic when multiple
+individuals may independently introduce the pathogen into the contact network.
+A principled multi-source formulation requires either a multi-label output head
+that assigns independent probabilities to each node in a candidate source set
+$\mathcal{S}^*$, or a sequential detection scheme in which sources are
+identified and removed iteratively, analogous to peeling algorithms in
+combinatorial inference. Either approach demands a revised training procedure
+and evaluation protocol, since standard top-$k$ accuracy metrics conflate
+accuracy with set-size sensitivity when $|\mathcal{S}^*| > 1$. Alongside the
+multi-source extension, the inductive generalisation capacity of all evaluated
+models deserves attention: currently, models are trained and evaluated on the
+same network topology, precluding deployment on previously unseen contact
+networks without retraining. Integrating per-node memory modules in the style
+of Temporal Graph Networks (TGN) \cite{Rossi2020}---which maintain a
+continuously updated state vector for each node and update it via a gated
+recurrent unit as new contacts arrive---would enable a model to adapt to
+arbitrary network topologies at inference time, a property that is essential
+for real-time outbreak response applications where the contact network may
+change between training and deployment.
+
+On the architectural side, the De Bruijn GNN can be extended by incorporating
+the Hypergeometric Pattern Analysis (HYPA) framework of
+\cite{vonPichowski2024}. HYPA uses a hypergeometric ensemble of randomised
+temporal networks as a null model and retains only those higher-order temporal
+patterns---represented as De Bruijn graph nodes---whose observed frequency is
+statistically anomalous relative to the null model. Using HYPA-filtered De
+Bruijn graphs as input to the GNN introduces a principled, data-driven inductive
+bias that suppresses spurious higher-order patterns arising from random
+fluctuations in the contact sequence, potentially improving both accuracy and
+generalisation across network families. Beyond epidemic applications, the
+general framework developed in this thesis---temporal network representation,
+Monte Carlo simulation-based training, and causal GNN inference---transfers
+naturally to other spreading processes on temporal graphs, including rumour
+and misinformation propagation in social networks, malware transmission in
+computer infrastructure, and cascading failures in power or transport systems.
+Adapting the simulation engine and loss functions to these domains would
+broaden the empirical scope of the methodology considerably. A further
+promising direction is the integration of active querying strategies, in which
+the model adaptively selects a small number of additional nodes whose infection
+status is queried to resolve ambiguity among the top-ranked source candidates
+\cite{Sterchi2025}. Such a strategy converts the purely passive inference
+problem studied here into a sequential decision problem and offers a principled
+way to improve accuracy under tight observation budgets---a practically relevant
+setting for epidemiological investigation, where testing resources are limited.

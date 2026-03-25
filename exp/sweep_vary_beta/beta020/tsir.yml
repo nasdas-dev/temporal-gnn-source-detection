@@ -1,0 +1,12 @@
+nwk:
+  type: empirical
+  name: france_office
+  t_max: 274
+
+sir:
+  beta: 0.20
+  mu: 0.10
+  start_t: 0
+  end_t: 274
+  n_runs: 5000
+  mc_runs: 500

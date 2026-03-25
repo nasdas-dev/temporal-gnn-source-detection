@@ -1,0 +1,212 @@
+\chapter{Experimental Evaluation}
+\label{c:chapter4}
+
+This chapter describes the experimental framework used to evaluate the four GNN architectures introduced in Chapter~5 against a set of classical heuristic baselines. We specify the datasets employed, define the evaluation metrics, and outline the analyses that will be performed once training runs are complete. The experiments are designed to test the three research hypotheses stated in Chapter~1: that temporal GNN architectures outperform static projections on structured networks (H1), that this advantage diminishes as the observation window grows (H2), and that temporal models maintain robustness in late-stage outbreaks where the aggregated contact history is dense (H3).
+
+\section{Datasets}
+\label{st:datasets}
+
+\subsection{Synthetic Graphs}
+\label{ssst:synthetic}
+
+We generate two families of synthetic temporal contact networks to provide controlled experimental conditions. The first family follows the Erd\H{o}s--R\'enyi random graph model $G(N, p)$, with node counts $N \in \{50, 100, 200, 500\}$ and edge probability $p = 2/N$, placing all instances in the sparse regime where the mean degree remains approximately two regardless of $N$. Temporal structure is imposed by treating each undirected static edge as a potential contact: at each of $T$ discrete time steps the edge is independently activated with probability $p_{\mathrm{act}}$, yielding a sequence of contact matrices that respects the sparse backbone of the random graph. This activation model ensures that the number of temporal contacts scales linearly with $T$ while keeping the instantaneous network sparse, a regime broadly representative of real face-to-face proximity data.
+
+The second family uses the Barab\'asi--Albert preferential attachment model with attachment parameter $m \in \{1, 2, 3\}$, producing scale-free degree distributions whose heterogeneity is known to accelerate epidemic spreading and to concentrate infection probability near high-degree hubs. The same independent temporal activation model is applied. Across both families, SIR simulations are parameterised with infection rate $\beta \in \{0.1, 0.2, 0.3\}$, recovery rate $\mu \in \{0.05, 0.1, 0.2\}$, and observation window $T \in \{10, 20, 40\}$ time steps, yielding a full factorial grid of spreading conditions. For each combination of network instance and parameter setting, 5000 Monte Carlo simulations are generated per candidate source node for training, and 1000 ground-truth simulations per source are reserved for evaluation, providing sufficiently stable empirical accuracy estimates.
+
+\subsection{Real-world Contact Networks}
+\label{ssst:realworld}
+
+To assess generalisation to realistic epidemic scenarios, we evaluate all models on five empirical temporal networks drawn from the literature on infectious disease spreading. The Sexual contact network (Rocha et al.\ 2011) encodes 9319 timestamped interactions between 5762 individuals and represents an undirected face-to-face proximity setting of direct epidemiological relevance. The Hospital network (Isella et al.\ 2011) comprises 1139 contacts among 75 nodes recorded by RFID sensors in a French hospital ward, providing a small, dense, undirected graph in which SIR dynamics are tightly constrained by the ward topology. The European email network (Leskovec et al.\ 2007) contains 2113 directed messages exchanged among 625 members of a European research institution, introducing directional flow and thus non-trivial causal path structure. The Bitcoin trust network (Kumar et al.\ 2016) records 4053 directed trust ratings among 1302 users of a cryptocurrency platform, while the Messages network (Panzarasa et al.\ 2009) contains 8764 directed private messages exchanged between 1522 students of an online community. The two directed networks introduce asymmetric spreading dynamics that are absent from the undirected synthetic benchmarks.
+
+SIR simulations on all real-world networks follow the protocol of Ru et al.~\cite{Ru2023}: spreading parameters are drawn from the set $(\bar{p}, \bar{q}) \in \{(0.3, 0.01), (0.8, 0.05)\}$, where $\bar{p}$ and $\bar{q}$ denote per-contact infection and recovery probabilities respectively. The epidemic start time is drawn uniformly at random from the interval $[t_{\min}, t_{\max}]$ of recorded contact times, ensuring that models cannot exploit a fixed outbreak onset. The face-to-face networks---Sexual contact and Hospital---are considered the most epidemiologically realistic benchmarks, as the undirected and temporally dense contact structure closely mirrors the assumptions underlying the SIR model.
+
+\section{Evaluation Metrics}
+\label{st:evalmetrics}
+
+\subsection{Top-$k$ Accuracy}
+\label{ssst:topk}
+
+The primary evaluation metric is Top-$k$ accuracy, which measures the fraction of test instances for which the true source node appears among the $k$ highest-ranked candidates according to the model's predicted probability distribution. Formally, let $Q$ denote the set of test instances, $v_q^*$ the true source for instance $q$, and $\mathrm{topk}(\hat{p}_q)$ the set of $k$ nodes receiving the highest predicted probability $\hat{p}_q$ under the model. Then
+
+\[
+    \mathrm{Top\text{-}k} = \frac{1}{|Q|} \sum_{q \in Q} \mathbf{1}\!\left[v_q^* \in \mathrm{topk}(\hat{p}_q)\right].
+\]
+
+We report Top-1, Top-3, and Top-5 accuracy throughout. Top-1 accuracy is the strictest criterion and directly measures exact source identification. Top-3 and Top-5 accuracies are motivated by the practical demands of contact tracing: in a real outbreak investigation, public health authorities can typically follow up on a short ranked list of suspects rather than requiring a single deterministic answer. Reporting across all three thresholds thus bridges the gap between algorithmic precision and operational utility.
+
+\subsection{Average Error Distance and Reciprocal Rank}
+\label{ssst:avgerr}
+
+Mean Reciprocal Rank (MRR) provides a continuous summary of the model's global ranking quality. Let $\mathrm{rank}(v_q^*)$ denote the position of the true source in the list of nodes sorted by descending predicted probability. Then
+
+\[
+    \mathrm{MRR} = \frac{1}{|Q|} \sum_{q \in Q} \frac{1}{\mathrm{rank}(v_q^*)}.
+\]
+
+MRR penalises models that place the true source far down the ranked list more severely than Top-$k$ accuracy, because the harmonic weighting by rank discounts partial success rapidly. A model that consistently ranks the true source second or third will have an MRR notably below one even if its Top-3 accuracy is high; MRR is therefore sensitive to systematic underconfidence near the top of the distribution.
+
+We complement MRR with a hop-distance metric that acknowledges the practical value of a near-miss prediction. Define $\hat{v}_q^* = \arg\max_v \hat{p}_q(v)$ as the top-ranked predicted source, and let $d(\cdot, \cdot)$ denote shortest-path distance on the aggregated static graph $G_a$ obtained by collapsing all temporal contacts. The Hop-1 score is then
+
+\[
+    \mathrm{Hop\text{-}1} = \frac{1}{|Q|} \sum_{q \in Q} \mathbf{1}\!\left[d\!\left(v_q^*,\, \hat{v}_q^*\right) \leq 1\right].
+\]
+
+A prediction is counted as a practical success whenever the estimated source is the true source or one of its direct neighbours, since the true source is then contained in the immediate contact set of the predicted node and is thus recoverable by a single tracing step.
+
+\subsection{Resistance Score for Uncertainty Quantification}
+\label{ssst:resistancescore}
+
+Beyond point-estimate accuracy, we evaluate the stability of each model's inferences when the assumed spreading parameters deviate from those used at training time. Let $\mathcal{P}$ be a held-out set of perturbed parameter pairs $(\beta', \mu')$ that differ from the training parameters $(\beta, \mu)$. For each perturbation, we compute the ranked ordering of nodes produced by the model under the training parameters and under the perturbed parameters, and measure their agreement via Kendall's $\tau$ rank correlation. The Resistance Score is defined as
+
+\[
+    \mathcal{R} = \frac{1}{|\mathcal{P}|} \sum_{(\beta', \mu') \in \mathcal{P}} \mathrm{Kendall\text{-}\tau}\!\left(\mathrm{rank}_{\beta,\mu},\, \mathrm{rank}_{\beta',\mu'}\right).
+\]
+
+Kendall's $\tau \in [-1, 1]$ equals one when both rankings are identical and zero when they are uncorrelated. A high value of $\mathcal{R}$ indicates that the model's posterior over source nodes is robust to misspecification of the epidemic parameters---a property of considerable practical importance, since $\beta$ and $\mu$ are rarely known precisely in a real outbreak. Models that rely heavily on fine-grained parameter-dependent features are expected to yield low $\mathcal{R}$, whereas architectures that capture structural properties of the observed spreading pattern are expected to be more resilient.
+
+\section{Results and Analysis}
+\label{st:results}
+
+% -----------------------------------------------------------------------
+% NOTE: This section is a structural skeleton to be filled in once
+%       experiments have been run. Section headers, table layouts, and
+%       figure placeholders are in place; insert numbers and discussion
+%       text after completing training runs.
+% -----------------------------------------------------------------------
+
+\subsection{Performance Comparison: GNNs vs.\ Classical Heuristics}
+\label{ssst:performancecomparison}
+
+Table~\ref{tab:main_results} reports Top-1, Top-3, Top-5, MRR, and Hop-1 for
+all four GNN architectures and five classical baselines across the evaluated
+datasets.
+
+% TODO: fill in values after running experiments
+\begin{table}[htbp]
+  \centering
+  \caption{Main results: Top-$k$ accuracy, MRR, and Hop-1 for all methods
+           on synthetic (ER, BA) and real-world networks.
+           Best GNN result in each column in \textbf{bold}.}
+  \label{tab:main_results}
+  \begin{tabular}{llccccc}
+    \hline
+    \textbf{Dataset} & \textbf{Method} & \textbf{Top-1} & \textbf{Top-3}
+      & \textbf{Top-5} & \textbf{MRR} & \textbf{Hop-1} \\
+    \hline
+    \multirow{9}{*}{Erd\H{o}s--R\'enyi}
+      & Uniform           & -- & -- & -- & -- & -- \\
+      & Degree            & -- & -- & -- & -- & -- \\
+      & Jordan centre     & -- & -- & -- & -- & -- \\
+      & SME               & -- & -- & -- & -- & -- \\
+      \cline{2-7}
+      & Static GNN        & -- & -- & -- & -- & -- \\
+      & Backtracking Net  & -- & -- & -- & -- & -- \\
+      & DBGNN             & -- & -- & -- & -- & -- \\
+      & DAG-GNN           & -- & -- & -- & -- & -- \\
+    \hline
+    \multirow{9}{*}{Barab\'asi--Albert}
+      & Uniform           & -- & -- & -- & -- & -- \\
+      & Degree            & -- & -- & -- & -- & -- \\
+      & Jordan centre     & -- & -- & -- & -- & -- \\
+      & SME               & -- & -- & -- & -- & -- \\
+      \cline{2-7}
+      & Static GNN        & -- & -- & -- & -- & -- \\
+      & Backtracking Net  & -- & -- & -- & -- & -- \\
+      & DBGNN             & -- & -- & -- & -- & -- \\
+      & DAG-GNN           & -- & -- & -- & -- & -- \\
+    \hline
+    \multirow{4}{*}{Hospital}
+      & Static GNN        & -- & -- & -- & -- & -- \\
+      & Backtracking Net  & -- & -- & -- & -- & -- \\
+      & DBGNN             & -- & -- & -- & -- & -- \\
+      & DAG-GNN           & -- & -- & -- & -- & -- \\
+    \hline
+    \multirow{4}{*}{Email}
+      & Static GNN        & -- & -- & -- & -- & -- \\
+      & Backtracking Net  & -- & -- & -- & -- & -- \\
+      & DBGNN             & -- & -- & -- & -- & -- \\
+      & DAG-GNN           & -- & -- & -- & -- & -- \\
+    \hline
+  \end{tabular}
+\end{table}
+
+% TODO: write 2--3 paragraphs discussing main findings once table is filled.
+
+\subsection{Impact of Network Size and Observation Window (H1 and H2)}
+\label{ssst:impact_network_density}
+
+Figure~\ref{fig:vary_n} shows Top-1 accuracy as a function of network size $N$
+for fixed spreading parameters, and Figure~\ref{fig:vary_T} shows accuracy as a
+function of observation window length $T$.
+
+% TODO: insert figures
+\begin{figure}[htbp]
+  \centering
+  % \includegraphics[width=\linewidth]{figures/vary_n.pdf}
+  \caption{Top-1 accuracy vs.\ network size $N$ (Erd\H{o}s--R\'enyi,
+           $\beta=0.2$, $\mu=0.1$, $T=20$). Error bars show one standard
+           deviation across five random seeds.}
+  \label{fig:vary_n}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  % \includegraphics[width=\linewidth]{figures/vary_T.pdf}
+  \caption{Top-1 accuracy vs.\ observation window $T$ (Erd\H{o}s--R\'enyi,
+           $N=100$, $\beta=0.2$, $\mu=0.1$). As $T$ grows, the aggregated
+           contact graph saturates and temporal architectures are expected to
+           converge toward the static baseline (H2).}
+  \label{fig:vary_T}
+\end{figure}
+
+% TODO: discuss H1 / H2 findings here once data is available.
+
+\subsection{Robustness to Partial Observation (H3)}
+\label{ssst:robustness}
+
+Table~\ref{tab:robustness} reports Top-1 accuracy under edge removal
+($\rho_e \in \{0.1, 0.2, 0.4\}$) and node-state masking
+($\rho_n \in \{0.1, 0.2, 0.4\}$), and Table~\ref{tab:resistance} shows
+Resistance Score $\mathcal{R}$ under spreading-parameter perturbation.
+
+% TODO: fill in after running robustness experiments
+\begin{table}[htbp]
+  \centering
+  \caption{Top-1 accuracy under partial observation on Erd\H{o}s--R\'enyi
+           ($N=100$, $\beta=0.2$, $\mu=0.1$, $T=20$).
+           Left columns: fraction of edges removed ($\rho_e$).
+           Right columns: fraction of node states masked ($\rho_n$).}
+  \label{tab:robustness}
+  \begin{tabular}{lcccccc}
+    \hline
+    & \multicolumn{3}{c}{\textbf{Edge removal} $\rho_e$}
+    & \multicolumn{3}{c}{\textbf{Node masking} $\rho_n$} \\
+    \cline{2-4}\cline{5-7}
+    \textbf{Method} & 0.1 & 0.2 & 0.4 & 0.1 & 0.2 & 0.4 \\
+    \hline
+    Static GNN       & -- & -- & -- & -- & -- & -- \\
+    Backtracking Net & -- & -- & -- & -- & -- & -- \\
+    DBGNN            & -- & -- & -- & -- & -- & -- \\
+    DAG-GNN          & -- & -- & -- & -- & -- & -- \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Resistance Score $\mathcal{R}$ (Kendall's $\tau$) under
+           spreading-parameter perturbation across all architectures.}
+  \label{tab:resistance}
+  \begin{tabular}{lc}
+    \hline
+    \textbf{Method} & $\mathcal{R}$ \\
+    \hline
+    Static GNN       & -- \\
+    Backtracking Net & -- \\
+    DBGNN            & -- \\
+    DAG-GNN          & -- \\
+    \hline
+  \end{tabular}
+\end{table}
+
+% TODO: discuss H3 and robustness findings here once data is available.

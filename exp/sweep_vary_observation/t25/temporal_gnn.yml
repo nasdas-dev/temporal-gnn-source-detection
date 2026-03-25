@@ -1,0 +1,22 @@
+model: temporal_gnn
+
+eval:
+  min_outbreak: 2
+  top_k: [1, 3, 5]
+  inverse_rank_offset: [0]
+  n_truth: 1000
+
+train:
+  n_mc: 500
+  reps: 3
+  test_size: 0.30
+  batch_size: 64
+  epochs: 500
+  patience: 10
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 42
+
+temporal_gnn:
+  hidden_channels: 64
+  group_by_time: 6      # group 6 hours → ~46 snapshots (274 / 6)

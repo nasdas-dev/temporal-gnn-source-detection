@@ -1,0 +1,50 @@
+\chapter{Limitations}
+\label{c:limitations}
+
+The results reported in this thesis are obtained exclusively from synthetic
+epidemic simulations governed by the SIR compartmental model. While the SIR
+framework is a well-established abstraction for a broad class of infectious
+diseases, it makes several simplifying assumptions that may not hold in
+practice: infection probability is constant along each contact edge and does
+not vary with dose or duration, every individual recovers with equal probability
+per unit time, and there is no latency period between exposure and
+infectiousness. Consequently, GNN models that learn to exploit the statistical
+regularities of SIR dynamics---such as the characteristic shape of the
+infected component at a given recovery ratio---may not generalise to outbreaks
+driven by SEIR, SEIRS, or otherwise more complex dynamics. Performance on real
+contact-tracing datasets, where the true source, spreading rate $\beta$, and
+recovery rate $\mu$ are all unknown, could differ substantially from the
+benchmarks reported here. Validation against real-world outbreaks with a known
+index case, such as carefully documented laboratory or household transmission
+studies, is therefore an important step that lies outside the scope of the
+present work.
+
+Scalability is a second significant limitation, affecting the two more
+expressive temporal architectures in particular. The De Bruijn graph at order
+$k$ has a node set whose size grows as $O(|E|^k)$ with the number of temporal
+contacts $|E|$, and the De Bruijn GNN (DBGNN) \cite{Qarkaxhija2022} was
+evaluated only on networks with at most a few thousand nodes and tens of
+thousands of temporal contacts. The Temporal Event Graph (TEG) underlying the
+DAG-GNN can contain $O(|E|^2)$ directed edges in the worst case, since every
+pair of temporally adjacent contacts involving a shared node generates a link.
+Neither architecture has been stress-tested on the large-scale contact networks
+that arise in hospital surveillance or mobile-phone proximity studies, where
+$|E|$ may reach millions. The static GNN and BN are considerably more
+computationally tractable, but even these models face memory bottlenecks when
+the number of Monte Carlo simulation runs used to construct node features is
+large.
+
+All four architectures share the single-source assumption: they assign a
+probability to each node under the hypothesis that exactly one patient-zero
+initiated the outbreak. This assumption simplifies training and evaluation but
+is routinely violated in practice---many real-world epidemics are seeded by
+multiple independent introduction events, particularly at the early stages of
+an emerging pandemic. Models trained under the single-source assumption have no
+mechanism to represent or detect such scenarios and will produce misleading
+rankings when the true source set has cardinality greater than one. Finally,
+while we follow the evaluation protocol recommended by \cite{Sterchi2025} to
+mitigate inflated comparisons between learned methods and the Soft-Margin
+Estimator baseline---which can achieve near-oracle performance when the
+simulation model matches the data-generating process exactly---the comparison
+remains constrained by the finite simulation budget, and differences between
+architectures that are small in absolute terms should be interpreted with care.

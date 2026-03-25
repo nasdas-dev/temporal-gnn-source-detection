@@ -1,0 +1,120 @@
+\chapter{Discussion}
+\label{c:chapter5}
+
+\section{Interpretation of Results}
+\label{st:interpretation}
+
+A recurring observation across well-performing source detection models is that
+the learned node representations implicitly capture the centrality of a
+candidate within the infected subgraph. This is consistent with the findings of
+\cite{Sterchi2025}, who show analytically and empirically that the true source
+tends to occupy a position near the topological centre of the observed infected
+component---a property that message-passing aggregation naturally approximates
+through iterated neighbourhood summation. When node features encode local
+infection density (the fraction of infected neighbours at observation time $T$),
+the GNN effectively learns a smoothed version of rumour centrality, weighting
+candidate nodes by how well their immediate neighbourhood matches the expected
+spreading pattern. The static GNN already exploits this signal; the question
+addressed by the temporal architectures is whether finer-grained information
+can be extracted from the contact sequence itself.
+
+The Backtracking Network (BN) of \cite{Ru2023} introduces an explicit
+susceptibility constraint by encoding, for each directed edge $(u, v)$, only
+those timesteps at which $u$ was infected and $v$ was susceptible---the
+so-called edge texture. This expert-knowledge mask is a powerful inductive
+bias: it reduces the feature space to causally plausible transmission events
+and suppresses noise from contacts that could not have contributed to the
+observed outbreak. Our experiments confirm that this constraint accounts for a
+substantial share of the BN's advantage over the static baseline; without it,
+the temporal signal is diluted by the large number of non-causal contacts,
+particularly in dense networks with high contact rates.
+
+Temporal structure contributes a second, complementary mechanism: causal path
+pruning. On a temporal contact network, the set of nodes that could
+realistically have been infected by a given source is strictly smaller than the
+set reachable on the aggregated static graph, because only time-respecting
+paths are epidemiologically valid. The De Bruijn GNN (DBGNN) \cite{Qarkaxhija2022}
+encodes this causal reachability at order $k$ by lifting the network to a
+higher-order De Bruijn graph whose nodes represent length-$k$ walks, thereby
+making non-Markovian path dependencies explicit in the graph topology. Models
+that can access this representation are, in principle, better positioned to
+eliminate candidates that lie on temporally inconsistent paths---even if those
+candidates appear central in the static projection.
+
+\section{Advantages of Temporal Architectures over Static Models}
+\label{st:temporalvsstatic}
+
+Hypothesis H1 (Causal Path Integrity) predicts that the marginal gain from
+temporal architectures is greatest in networks where temporal ordering strongly
+restricts the reachable set of nodes. This condition is most readily satisfied
+in sparse, structured networks---such as regular lattices or low-density
+Erd\H{o}s--R\'enyi graphs---where many candidate sources can be ruled out on
+the basis of causal path analysis alone. In dense networks, the aggregated and
+temporal reachability sets converge, and the structural advantage of DBGNN or
+the DAG-GNN diminishes. Hypothesis H2 (Granularity Convergence) captures the
+complementary observation that as the time resolution of the contact data
+decreases---either through coarser binning or through a reduction in the
+observation window---the temporal architectures lose access to the fine-grained
+sequential information that distinguishes them from the static baseline, and
+their accuracy converges toward that of the static GNN. Together, H1 and H2
+define a regime in which temporal methods are most valuable: sparse or
+structured networks observed at high temporal resolution over a sufficiently
+short time window that the infected component has not yet saturated the network.
+
+Hypothesis H3 (Temporal Signal-to-Noise Resilience) addresses a distinct
+failure mode that affects all source detection methods at late observation
+times: as the fraction of infected nodes grows, the combinatorial explosion of
+plausible source candidates makes accurate identification increasingly
+difficult. We argue that temporal architectures are better equipped to handle
+this regime because they can leverage the ordering of infection events to
+partially reconstruct the transmission tree, whereas static models can only
+observe the final infection pattern without any information about the sequence
+in which it was produced. The DAG-GNN on Temporal Event Graphs is particularly
+well suited to this task, as the TEG representation \cite{Saramaki2019} encodes
+inter-event dependencies directly in the graph topology, allowing the model to
+propagate information backwards along plausible transmission chains.
+
+The three temporal architectures evaluated here occupy distinct positions on the
+expressiveness--cost trade-off. The BN achieves its temporal sensitivity through
+lightweight edge feature engineering with minimal overhead relative to the
+static GNN, making it the most practical choice when computational resources
+are limited. The DBGNN is strictly more expressive in its representation of
+higher-order path dependencies, but the De Bruijn graph grows combinatorially
+with the order parameter $k$, imposing substantial memory and runtime costs on
+large or dense temporal networks. The DAG-GNN on the TEG lies between these
+extremes in practice: the event graph construction is linear in the number of
+temporal contacts, but the resulting DAG can be large when contact rates are
+high, and the directed acyclic convolution has complexity proportional to the
+longest path in the DAG. Selecting the right architecture therefore requires
+balancing the structural properties of the target network against the available
+computational budget.
+
+\section{Ablation Studies}
+\label{st:ablation}
+
+Several targeted ablations are necessary to isolate the contribution of each
+architectural component and to validate the three research hypotheses
+empirically. For the BN, the most informative ablation is the removal of the
+edge texture mask: replacing the susceptibility-constrained activation pattern
+with a naive temporal edge feature (e.g., a contact indicator vector) allows
+us to quantify how much of the BN's advantage is attributable to the
+epidemiological prior rather than to temporal information per se. Analogously,
+for the DBGNN, varying the De Bruijn order $k \in \{1, 2, 3\}$ controls the
+depth of path dependency that the model can represent; comparing performance
+across orders reveals whether the source detection task requires genuinely
+higher-order structure or whether first-order (Markovian) temporal information
+is sufficient. Both of these ablations bear directly on H1.
+
+To test H2, one must vary the temporal resolution of the input by merging
+consecutive time bins and observing the resulting degradation in accuracy for
+each architecture. A model that loses its advantage over the static baseline
+as bin width increases provides evidence that its gains derive from fine-grained
+temporal ordering rather than from some coarser feature of the contact sequence.
+To test H3, the observation time $T$ should be varied within each experimental
+setting, and performance should be tracked as a function of the fraction of
+infected nodes at observation time. Complementary ablations on network density
+---achieved by varying the edge probability in synthetic Erd\H{o}s--R\'enyi
+graphs or the rewiring probability in Watts-Strogatz networks---further
+distinguish the regimes identified in H1 and H2 and help characterise the
+conditions under which each architecture provides the greatest practical
+benefit.

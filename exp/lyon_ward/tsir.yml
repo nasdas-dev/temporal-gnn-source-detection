@@ -1,0 +1,12 @@
+nwk:
+  type: empirical
+  name: lyon_ward
+  t_max: 96          # full network (time_steps = 96 hours)
+
+sir:
+  beta: 0.30
+  mu: 0.20
+  start_t: 0
+  end_t: 96
+  n_runs: 5000
+  mc_runs: 500

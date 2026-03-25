@@ -1,0 +1,71 @@
+\documentclass[enabledeprecatedfontcommands]{ddis-thesis}
+\usepackage{amsmath, amsthm, amssymb}
+\usepackage[utf8]{inputenc}
+%\usepackage{program}  % disabled: conflicts with math mode handling
+\usepackage{mathrsfs}
+\usepackage{amsfonts}
+
+\usepackage{fancyvrb}
+\DefineVerbatimEnvironment{code}{Verbatim}{fontsize=\small}
+\DefineVerbatimEnvironment{example}{Verbatim}{fontsize=\small}
+
+
+\usepackage{fancyhdr}% fancyhdr related command; details in its documentation
+\pagestyle{fancy}
+\fancyhead{}
+\fancyhead[LE,RO]{\thepage}
+\fancyhead[RE]{\leftmark}
+\fancyhead[LO]{\rightmark}
+
+
+\usepackage{graphicx}
+\author{name}
+\title{Thesis title}
+\begin{document}
+
+% *************** Front matter ***************
+
+\frontmatter
+\input{section-title/title.tex}
+
+\input{section-acknowledgements/acknowledgements.tex}
+\input{section-abstract/zusammenfassung.tex}
+\input{section-abstract/abstract.tex}
+
+\tableofcontents
+
+% *************** Main matter ***************
+\mainmatter
+
+\input{section-chapter1-introduction/chapter1-introduction}
+\input{section-chapter2-foundations/chapter2-foundations}
+\input{section-chapter3-relatedwork/chapter3-relatedwork}
+\input{section-chapter3-methodology/chapter3-methodology}
+\input{section-chapter4-modelarchitecture/chapter4-modelarchitecture}
+\input{section-chapter5-evaluation/chapter5-evaluation}
+\input{section-chapter6-discussion/chapter6-discussion}
+
+\input{section-limitations/limitations.tex}
+\input{section-futurework/futurework.tex}
+\input{section-conclusions/conclusions.tex}
+
+% *************** Bibliography ***************
+\bibliographystyle{apalike}
+\bibliography{section-references/thesisbib}
+
+% *************** Appendixes ***************
+\appendix
+\input{section-appendix/appendix.tex}
+
+% *************** Back matter ***************
+\backmatter
+
+\normalfont
+\clearpage
+\listoffigures
+
+\clearpage
+\listoftables
+
+
+\end{document}

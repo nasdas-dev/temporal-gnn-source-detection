@@ -1,0 +1,12 @@
+nwk:
+  type: empirical
+  name: test
+  t_max: 10          # use full network (t_max from CSV = 10)
+
+sir:
+  beta: 0.50         # high beta for such a tiny network
+  mu: 0.10
+  start_t: 0
+  end_t: 10
+  n_runs: 200        # ground-truth runs per source
+  mc_runs: 100       # Monte Carlo training runs per source

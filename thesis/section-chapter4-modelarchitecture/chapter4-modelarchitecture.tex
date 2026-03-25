@@ -1,0 +1,200 @@
+\chapter{Model Architectures and Implementation}
+\label{c:chapter5}
+
+This chapter describes the four GNN architectures evaluated in this thesis. The static projection baseline operates on the time-aggregated contact graph and serves as the lower bound against which temporal methods are compared. The three temporal architectures---the Backtracking Network, the De Bruijn GNN, and the DAG-GNN on Temporal Event Graphs---each encode the temporal contact history under a different inductive bias, as motivated in Chapter~3.
+
+\section{Evaluated GNN Models}
+\label{st:gnnmodels}
+
+\subsection{Static Projection (Baseline)}
+\label{ssst:baselinemodel}
+
+The static projection baseline collapses the temporal contact network into a single static graph and applies a standard GNN for source detection. This model intentionally discards all temporal information and serves as the primary reference point for quantifying the benefit of temporal representations.
+
+\subsubsection{Graph Construction}
+
+Given the temporal contact network $\mathcal{G} = \{G_0, G_1, \ldots, G_T\}$, the aggregated static graph $G_a = (\mathcal{V}, E_a)$ is obtained by taking the union of all snapshot edge sets:
+\[
+    E_a = \bigcup_{t=0}^{T} E_t.
+\]
+Each edge $(u, v) \in E_a$ may optionally carry a contact-count weight $w_{uv} = |\{t : (u,v) \in E_t\}|$, reflecting the number of time steps at which the contact was active. Node features are the one-hot encoded final SIR states $\mathbf{C} \in \{0,1\}^{N \times 3}$, identical to those used by the Backtracking Network.
+
+\subsubsection{GNN Architecture}
+
+The static GNN applies $L$ graph convolutional layers to the aggregated graph. Following Sterchi et al.~\cite{Sterchi2025}, a standard GCN layer update is used:
+\[
+    \mathbf{h}_v^{(l)} = \mathrm{ReLU}\!\left(\mathbf{W}^{(l)} \sum_{u \in \mathcal{N}(v) \cup \{v\}} \frac{\mathbf{h}_u^{(l-1)}}{\sqrt{\tilde{d}_v\, \tilde{d}_u}}\right), \qquad l = 1, \ldots, L,
+\]
+where $\tilde{d}_v$ is the degree of node $v$ augmented by one to account for the self-loop. After $L$ layers, a final linear projection maps each node embedding to a scalar score, and the expert knowledge mask suppresses susceptible nodes before the softmax, as described in Section~\ref{sssec:bn-expert}. By ignoring temporal ordering, the static projection provides a controlled lower bound on source detection performance and isolates the marginal contribution of temporal information in the architectures that follow.
+
+\subsection{De Bruijn Graph Neural Networks (DBGNN)}
+\label{ssst:debruijnmodel}
+
+Standard GNNs operate under the Markovian assumption, whereby node influence depends only on immediate neighbours. The De Bruijn Graph Neural Network (DBGNN) proposed by Qarkaxhija et al.~\cite{Qarkaxhija2022} overcomes this limitation by lifting the temporal network into a higher-order state space that explicitly represents causal walks and non-Markovian dynamics.
+
+\subsubsection{Causal Walks and Higher-Order Graph Construction}
+\label{sssec:dbgnn-construction}
+
+A sequence of timestamped contacts $((v_0, v_1, t_1), (v_1, v_2, t_2), \ldots, (v_{k-1}, v_k, t_k))$ is a \textit{causal walk} of length $k$ if contacts occur in strictly increasing order, $t_1 < t_2 < \cdots < t_k$, and consecutive contacts occur within a maximum inter-event time $\delta$, i.e.\ $t_{i+1} - t_i \leq \delta$ for all $i$. The set of all causal walks characterises which transmission chains are temporally feasible given the contact ordering.
+
+The $k$-th order De Bruijn graph $G^{(k)} = (V^{(k)}, E^{(k)})$ is constructed from all causal walks of length $k-1$. Each node $u \in V^{(k)}$ represents one such walk, and $\pi(u) = \{v_0, \ldots, v_{k-1}\}$ denotes its projection onto constituent vertices. A directed edge exists from $u \in V^{(k)}$ to $w \in V^{(k)}$ if and only if
+\[
+    (v_1, \ldots, v_{k-1}) = (w_0, \ldots, w_{k-2}) \quad \text{and} \quad t_{u, k-1} < t_{w, k-1},
+\]
+where $t_{u, k-1}$ denotes the timestamp of the final contact in walk $u$. The initial feature of node $u$ is
+\[
+    \mathbf{h}_u^{(0)} = \mathrm{MLP}\!\left(\mathbf{x}_{v_0}, \ldots, \mathbf{x}_{v_{k-1}}\right),
+\]
+where $\mathbf{x}_{v_i} \in \{0,1\}^3$ is the one-hot SIR state of node $v_i$ at the final observation time $T$.
+
+\subsubsection{Message Passing}
+\label{sssec:dbgnn-mp}
+
+The hidden state of node $u \in V^{(k)}$ at layer $l+1$ is updated via a GraphSAGE-style mean aggregation over its causal-walk neighbours:
+\[
+    \mathbf{h}_u^{(l+1)} = \sigma\!\left(\mathbf{W}^{(l)} \cdot \mathrm{MEAN}\!\left(\{\mathbf{h}_u^{(l)}\} \cup \{\mathbf{h}_w^{(l)} : w \in \mathcal{N}_{G^{(k)}}(u)\}\right)\right),
+\]
+where $\sigma$ denotes a non-linear activation function and $\mathbf{W}^{(l)} \in \mathbb{R}^{d_l \times d_{l-1}}$ is a learnable weight matrix.
+
+\subsubsection{Readout and Source Prediction}
+\label{sssec:dbgnn-readout}
+
+The higher-order embeddings must be mapped back to original nodes $v \in V$ to produce a distribution over candidate sources. This is achieved via scaled dot-product attention pooling over all walks containing $v$:
+\[
+    \mathbf{h}_v^{\mathrm{final}} = \sum_{\substack{u \in V^{(k)},\; v \in \pi(u)}} \alpha_u\, \mathbf{h}_u^{(L)}, \qquad \alpha_u = \frac{\exp\!\left(\dfrac{\mathbf{q}^\top \mathbf{h}_u^{(L)}}{\sqrt{d_L}}\right)}{\displaystyle\sum_{\substack{u' \in V^{(k)},\; v \in \pi(u')}} \exp\!\left(\dfrac{\mathbf{q}^\top \mathbf{h}_{u'}^{(L)}}{\sqrt{d_L}}\right)},
+\]
+where $\mathbf{q} \in \mathbb{R}^{d_L}$ is a global learnable query vector and $d_L$ is the hidden dimension at the final layer. A linear layer followed by the susceptibility mask and softmax produces the output source distribution.
+\subsection{Kernel-based GNN / Backtracking Network (BN)}
+\label{ssst:kernelmodel}
+
+The Backtracking Network (BN) of Ru et al.~\cite{Ru2023} is the first graph neural network method designed specifically for epidemic source detection on temporal contact networks. It is the primary temporal GNN baseline in this thesis and the architecture against which the De Bruijn GNN and the TEG-DAG-GNN are evaluated.
+
+\subsubsection{Problem Formulation}
+\label{sssec:bn-problem}
+
+The temporal contact network is represented as a sequence of static snapshot graphs $\mathcal{G} = \{G_0, G_1, \ldots, G_T\}$ sharing a common node set $\mathcal{V}$ of size $N$. Each snapshot $G_t = (\mathcal{V}, E_t)$ records which pairs of nodes were in contact at discrete time step $t$. The epidemic spreading process follows the SIR model: at each time step, an infected node $i$ transmits the pathogen to each susceptible neighbour $j \in \mathcal{N}(i)$ with probability $p$, and independently recovers with probability $q$.
+
+In practice the exact start time of the outbreak is not known. The posited temporal network $\tilde{\mathcal{G}}$ encompasses a window $[t_{\min}, t_{\max}]$ that is estimated to contain the true index event, but the precise start time $t_0 \in [t_{\min}, t_{\max}]$ is treated as a latent variable. The source detection task is then: given the observed final state $S_T$ and the posited network $\tilde{\mathcal{G}}$, infer the initial source node $S_0$ (patient zero). Ru et al.\ express this as the learned mapping
+\[
+    S_0 = \mathbf{BN}(S_T,\; \tilde{\mathcal{G}}).
+\]
+
+\subsubsection{Encoding Available Information}
+\label{sssec:bn-encoding}
+
+Two sources of information are provided to the model as input features.
+
+\textbf{Node features---final state $S_T$.} Each node's SIR state at time $T$ is one-hot encoded as a three-dimensional feature vector $C_i \in \{0,1\}^3$, with susceptible nodes represented as $[1, 0, 0]$, infectious nodes as $[0, 1, 0]$, and recovered nodes as $[0, 0, 1]$. The full node feature matrix is $\mathbf{C} \in \{0,1\}^{N \times 3}$.
+
+\textbf{Edge features---binary activation patterns (edge textures).} The temporal structure of the contact network is encoded by first constructing the aggregated static graph $\tilde{G}_a = (\mathcal{V}, E_a)$, where $E_a = \bigcup_{t=0}^{T} E_t$ contains every edge that appears in at least one snapshot. Each edge $e \in E_a$ is assigned a binary activation vector $X_e \in \{0,1\}^T$, where entry $t$ equals one if and only if the edge was active in snapshot $G_t$. The full edge feature matrix is $X_a = \{X_e \mid e \in E_a\} \in \{0,1\}^{|E_a| \times T}$. This representation, which Ru et al.\ call an \textit{edge texture}, compresses the full temporal contact history into a fixed-length binary descriptor attached to each edge in the aggregated graph.
+
+\subsubsection{Architecture}
+\label{sssec:bn-architecture}
+
+The BN processes the input through three sequential components: initial feature projections, a stack of $L$ kernel-based convolutional layers, and a final projection to scalar per-node scores.
+
+\textbf{Initial projections.} The raw node and edge features are projected into a common $D$-dimensional hidden space. The node projection $p^v : \mathbb{R}^3 \rightarrow \mathbb{R}^D$ and edge projection $p^e : \mathbb{R}^T \rightarrow \mathbb{R}^D$ are each a single linear layer followed by a ReLU activation:
+\[
+    h^0_i = p^v(C_i), \qquad g^0_{(i,j)} = p^e\!\left(X_{(i,j)}\right),
+\]
+where $h^0_i \in \mathbb{R}^D$ and $g^0_{(i,j)} \in \mathbb{R}^D$ denote the initial hidden representations of node $i$ and edge $(i,j)$, respectively.
+
+\textbf{Kernel-based convolutional layers.} Each of the $L$ layers applies a kernel-based convolutional operator~\cite{Gilmer2017,Simonovsky2017} consisting of two interdependent update equations. The edge update reads the current edge hidden state together with the hidden state of the source node and produces a new edge representation:
+\[
+    g^{l+1}_{(i,j)} = f^e\!\left(\left[g^l_{(i,j)},\; h^l_i\right]\right),
+\]
+where $[\cdot, \cdot]$ denotes concatenation and $f^e$ is a fully connected layer with ReLU activation. The node update then aggregates the newly computed incoming edge messages and applies a self-transformation:
+\[
+    h^{l+1}_i = \mathrm{ReLU}\!\left(f^v\!\left(h^l_i\right) + \sum_{j \in \mathcal{N}(i)} g^{l+1}_{(j,i)}\right),
+\]
+where $f^v$ is an independent fully connected layer with ReLU activation. The design couples edge and node representations across layers: edge states are informed by the source node's embedding, and node states are informed by all incoming edge messages.
+
+\textbf{Final projection.} After $L$ convolutional layers, the node hidden state $h^L_i \in \mathbb{R}^D$ is projected to a scalar score $h_i \in \mathbb{R}$ via a final linear layer.
+
+\subsubsection{Expert Knowledge and Output Distribution}
+\label{sssec:bn-expert}
+
+A key design feature of the BN is the injection of domain knowledge as a hard constraint on the output distribution. A node that is susceptible at the final observation time $T$ cannot logically be the epidemic source: the source must have been infected at $t_0 \leq T$, and under SIR dynamics a susceptible node has never been infected. The BN enforces this constraint by setting the output logit of every susceptible node to negative infinity before the softmax:
+\[
+    h_s \leftarrow -\infty \quad \forall\, s \in \mathcal{V} \text{ such that } C_s = [1, 0, 0].
+\]
+The per-node log-probabilities are then computed as
+\[
+    \log \hat{p}_i = \log \frac{\exp(h_i)}{\sum_{j=1}^{N} \exp(h_j)},
+\]
+which assigns probability zero to all susceptible nodes without modifying any network weights.
+
+\subsubsection{Training Objective and Procedure}
+\label{sssec:bn-training}
+
+The model is trained by minimising the cross-entropy between the predicted log-probabilities and the one-hot label indicating the true source:
+\[
+    \mathcal{L} = -\sum_{i=1}^{N} y_i \log \hat{p}_i,
+\]
+where $y_i = 1$ if node $i$ is the true patient zero and $y_i = 0$ otherwise. The loss is minimised using the Adam optimiser~\cite{Kingma2015} with a learning rate of $10^{-3}$ and a batch size of 128. Ru et al.\ report that optimal performance is achieved at $L = 5$ convolutional layers; performance saturates or degrades at higher layer counts, consistent with the over-smoothing phenomenon in GNNs.
+
+Training samples are generated by Monte Carlo simulation of the SIR spreading process on the temporal network. For each sample, a start time $t_0$ is drawn uniformly at random from $[t_{\min}, t_{\max}]$, a patient zero is selected from the set of nodes active at $t_0$, and the SIR process is simulated until $t_{\text{end}}$. This procedure is implemented using an adapted version of Holme's fast C-based temporal SIR simulation engine~\cite{Holme2020}, wrapped in the project's \texttt{tsir/} module, with data logged as versioned artefacts via Weights and Biases.
+
+\subsubsection{Robustness to Missing Information}
+\label{sssec:bn-robustness}
+
+Ru et al.\ evaluate the BN under two degraded-information scenarios. In the first, a random fraction of edges is removed from each snapshot, simulating incomplete knowledge of the contact network structure. In the second, only a random fraction of node states is observed in the final snapshot $S_T$, with the remaining nodes assigned an unknown state. The BN maintains a Top-5 accuracy of approximately 0.7 even when 80\% of final node states are unobserved, suggesting that the edge texture representation provides a strong structural prior. Performance degrades more sharply when the contact network structure itself is incomplete, as the edge texture is the primary carrier of temporal information in the model.
+
+\subsubsection{Critical Assessment}
+\label{sssec:bn-assessment}
+
+Sterchi et al.~\cite{Sterchi2025} raise an important concern about the evaluation in Ru et al.: the comparison with SME uses only 200 Monte Carlo simulations per candidate source, a strongly sub-optimal configuration that likely underestimates SME's true accuracy. The reported advantage of the BN over SME may therefore be overstated. This thesis addresses this limitation by evaluating all baselines, including SME, with a substantially larger number of simulations. At a deeper architectural level, the edge texture representation is a lossy encoding of the temporal contact history: it encodes temporal ordering implicitly through the binary pattern, but does not explicitly model causal walk structure. This is precisely the limitation that the De Bruijn GNN and the TEG-DAG-GNN are designed to address.
+
+\subsection{Directed Acyclic Graph GNN (DAG-GNN) on Temporal Event Graphs}
+\label{ssst:dagmodel}
+
+The DAG-GNN combines the Temporal Event Graph (TEG) representation of Saram\"aki et al.~\cite{Saramaki2019} with the Directed Acyclic Graph Convolutional Network (DCN) of Rey et al.~\cite{Rey2025}. Rather than attaching temporal information as edge features on a static graph (as the BN does), this approach transforms the temporal network into a new graph whose structure directly encodes causal relationships between contact events.
+
+\subsubsection{Temporal Event Graph Construction}
+\label{sssec:teg-construction}
+
+Given the temporal contact network $\mathcal{G} = \{G_0, \ldots, G_T\}$, the TEG is a directed graph $\mathcal{H} = (\mathcal{V}_{\mathcal{H}}, \mathcal{E}_{\mathcal{H}})$ in which each node $e_i \in \mathcal{V}_{\mathcal{H}}$ corresponds to a contact event $(u_i, v_i, t_i) \in \bigcup_t E_t$. A directed edge exists from event $e_j$ to event $e_i$ if $e_j$ is the most recent contact involving the node $u_i$ before the event $e_i$ occurs. Formally, the predecessor set of event $e_i = (u_i, v_i, t_i)$ is
+\[
+    \mathrm{Pre}(e_i) = \bigl\{e_j = (w,\, u_i,\, t_j) \in \mathcal{V}_{\mathcal{H}} : t_j < t_i \;\wedge\; \nexists\, e_k = (z,\, u_i,\, t_k)\text{ s.t. }t_j < t_k < t_i\bigr\}.
+\]
+This construction ensures that directed edges in the TEG trace the immediate temporal predecessors of each contact, producing a DAG whose topological order respects the causal structure of the spreading process. The TEG has $|\bigcup_t E_t|$ nodes and encodes the full sequence of inter-event dependencies without any loss of temporal ordering.
+
+\subsubsection{Feature Encoding}
+\label{sssec:teg-features}
+
+Each event node $e_i \in \mathcal{V}_{\mathcal{H}}$ is initialised with a feature vector concatenating the one-hot SIR states of its two constituent nodes at the observation time $T$ and a sinusoidal temporal encoding of the event timestamp:
+\[
+    \mathbf{x}_{e_i} = \Bigl[\mathbf{C}_{u_i} \;\big\|\; \mathbf{C}_{v_i} \;\big\|\; \mathrm{TE}(t_i)\Bigr],
+\]
+where $\mathbf{C}_{u_i}, \mathbf{C}_{v_i} \in \{0,1\}^3$ are the one-hot states and $\mathrm{TE}(t_i)$ is the sinusoidal positional encoding
+\[
+    \mathrm{TE}(t_i) = \Bigl[\sin\!\Bigl(\tfrac{t_i}{10000^{2k/d}}\Bigr),\; \cos\!\Bigl(\tfrac{t_i}{10000^{2k/d}}\Bigr)\Bigr]_{k=1}^{d/2}.
+\]
+This encoding allows the model to distinguish events not only by the SIR states of the involved nodes but also by their absolute position in the temporal sequence.
+
+\subsubsection{DAG Convolutional Layers}
+\label{sssec:dag-layers}
+
+The DAG-GNN processes event nodes in topological order, propagating information forward through the causal event chain. At each layer $l$, the hidden state of event $e_i$ is updated by aggregating messages from its predecessors:
+\[
+    \mathbf{z}_{e_i}^{(l+1)} = \mathrm{MLP}_{\mathrm{upd}}\!\left(\left[\mathbf{x}_{e_i} \;\Big\|\; \sum_{e_j \in \mathrm{Pre}(e_i)} \mathrm{MLP}_{\mathrm{msg}}\!\left(\left[\mathbf{z}_{e_j}^{(l)} \;\big\|\; e^{-\lambda\, \Delta t_{ji}}\right]\right)\right]\right),
+\]
+where $\Delta t_{ji} = t_i - t_j$ is the inter-event temporal gap and $\lambda$ is a learnable non-negative decay parameter that down-weights temporally distant predecessors. Processing in topological order is critical here: each event's hidden state is fully determined before it is used as a message for subsequent events, a property guaranteed by the acyclic structure of the TEG. This is the key distinction from standard GNNs, in which circular message passing across iterations can mix information from temporally incompatible contact sequences.
+
+\subsubsection{Readout and Source Prediction}
+\label{sssec:dag-readout}
+
+After $L$ layers, the final event embeddings $\{\mathbf{z}_{e_i}^{(L)}\}$ are aggregated back to original network nodes $v \in \mathcal{V}$ by mean-pooling over all events in which $v$ participated:
+\[
+    \mathbf{h}_v = \frac{1}{|\{e_i : v \in \{u_i, v_i\}\}|} \sum_{\substack{e_i \in \mathcal{V}_{\mathcal{H}} \\ v \in \{u_i, v_i\}}} \mathbf{z}_{e_i}^{(L)}.
+\]
+A final linear layer maps $\mathbf{h}_v \in \mathbb{R}^D$ to a scalar score, the susceptibility mask suppresses impossible sources, and the softmax produces the output distribution over candidate source nodes.
+
+\section{Hyperparameter Optimisation and Training Setup}
+\label{st:hyperparameter}
+
+All four model architectures are trained within a common experimental framework to ensure comparability. Models are optimised using the Adam optimiser~\cite{Kingma2015} with a fixed learning rate of $10^{-3}$ and weight decay $10^{-4}$. Training proceeds for a maximum of 500 epochs with early stopping: if the validation loss does not improve for 30 consecutive epochs, training is terminated and the checkpoint with the lowest validation loss is restored. All models use a batch size of 128 training samples drawn uniformly at random from the pool of Monte Carlo simulations. The training and validation sets are split 80/20 stratified by source node, ensuring that each source is represented in both partitions.
+
+Model-specific hyperparameters --- including the number of layers $L$, hidden dimension $D$, and dropout rate --- are tuned per architecture using a grid search over a small held-out validation set derived from the training data. The layer count for the Backtracking Network follows Ru et al.\ and is fixed at $L = 5$. The De Bruijn GNN order $k$ is set to 2 for all experiments; the maximum inter-event time $\delta$ is set to the 90th percentile of inter-event gaps in the training network. The DAG-GNN uses $L = 4$ layers with a hidden dimension of $D = 64$. The static GNN baseline uses the same hidden dimension and layer count as the BN for a fair comparison. All hyperparameters and training configurations are recorded in YAML files under \texttt{exp/} and logged automatically to Weights and Biases at the start of each training run.
+
+

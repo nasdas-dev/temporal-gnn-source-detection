@@ -1,0 +1,5 @@
+directed: yes
+original_start: '2014-01-01'
+original_end: '2022-12-31'
+time_steps: 3286
+time_granularity: days

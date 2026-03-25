@@ -1,0 +1,13 @@
+eval:
+  min_outbreak: 2        # minimum I+R nodes for a run to be counted
+  top_k: [1, 3, 5]       # top-k accuracy thresholds
+  inverse_rank_offset: [0]  # rank score offset (0 = 1/rank)
+  n_truth: 1000          # ground-truth runs to evaluate per rep
+
+baselines:
+  - uniform              # uniform over possible sources
+  - random               # random draw from possible sources
+  - degree               # highest degree in infected subgraph
+  - closeness            # highest closeness centrality
+  - betweenness          # highest betweenness centrality
+  - jordan_center        # Jordan center of infected subgraph

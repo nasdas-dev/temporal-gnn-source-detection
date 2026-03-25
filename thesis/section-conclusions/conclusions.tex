@@ -1,0 +1,119 @@
+\chapter{Conclusions}
+\label{c:conclusions}
+
+Identifying the origin of an epidemic outbreak from a snapshot of the infection
+state is a problem of both scientific and practical importance. On temporal
+contact networks, the task is complicated by the fact that transmission
+follows time-respecting causal paths---a structure that static graph
+representations erase. This thesis has examined whether graph neural network
+architectures that explicitly encode temporal information can exploit this
+structure to improve source detection accuracy, and under what conditions such
+improvements are most pronounced.
+
+\section{Summary of Contributions}
+\label{st:summary}
+
+The first contribution of this thesis is a faithful re-implementation of the
+Backtracking Network (BN) of \cite{Ru2023} within a unified training and
+evaluation framework based on Monte Carlo SIR simulation. The original BN was
+demonstrated on a specific class of contact networks; our re-implementation
+generalises the edge texture encoding to arbitrary temporal networks and
+integrates it with the wandb-tracked experimental pipeline described in
+Chapter~\ref{c:chapter5}, facilitating direct comparison against other methods
+under identical data conditions.
+
+The second contribution is the adaptation of the De Bruijn Graph Neural Network
+(DBGNN) \cite{Qarkaxhija2022} and the DAG-GNN on Temporal Event Graphs for the
+source detection task. Both architectures were originally proposed for
+classification or prediction problems on temporal networks and required
+non-trivial modification---in particular, the replacement of their output heads
+and loss functions with a node-ranking formulation appropriate for source
+detection, and the development of dedicated data preprocessing pipelines
+(De Bruijn graph construction and temporal event graph construction,
+respectively) that interface with the shared \texttt{TSIRData} dataclass.
+
+The third and central contribution is the first systematic multi-architecture
+comparison of temporal GNN methods for epidemic source detection. By evaluating
+the static GNN, BN, DBGNN, and DAG-GNN under identical simulation budgets,
+network families, and evaluation metrics---top-$k$ accuracy, average error
+distance, and reciprocal rank---we provide a principled empirical basis for
+architectural choice in this domain. The comparison also includes classical
+heuristics (Jordan center, degree centrality, uniform random, and the
+Soft-Margin Estimator baseline of \cite{Sterchi2025}), enabling assessment of
+whether learned methods offer genuine advantages over analytical alternatives.
+
+The fourth contribution is a robustness analysis structured around three
+falsifiable hypotheses. H1 (Causal Path Integrity) predicts that temporal
+architectures gain most in sparse, structured networks; H2 (Granularity
+Convergence) predicts that their advantage diminishes as temporal resolution
+decreases; and H3 (Temporal Signal-to-Noise Resilience) predicts that they
+maintain accuracy at late observation times better than static models do. The
+experimental results provide partial or full support for each hypothesis,
+qualifying the conditions under which temporal GNNs constitute the preferred
+approach and identifying the regimes in which the additional computational cost
+of higher-order representations is justified.
+
+\section{Limitations}
+\label{st:limitations_ch}
+
+The primary limitation of this work is that all results are obtained from
+synthetic SIR simulations. Although the SIR model captures the essential
+compartmental dynamics of many real infectious diseases, it abstracts away
+heterogeneous infectivity, latency periods, reinfection, and the imperfect
+contact-rate assumptions inherent in any recorded contact dataset. The models
+trained and evaluated here may therefore exhibit different performance
+characteristics when applied to real-world outbreaks where the true spreading
+parameters are unknown and the observed infection states are subject to
+reporting delays or under-ascertainment. Evaluating on real outbreaks with
+known ground truth---such as well-documented laboratory or household
+transmission studies---remains an important direction for future validation.
+
+A further limitation concerns the scalability of the more expressive temporal
+architectures. The De Bruijn graph at order $k$ has a node set of size
+$O(|E|^k)$ where $|E|$ is the number of temporal edges, and the Temporal Event
+Graph can contain $O(|E|^2)$ directed links in the worst case; neither
+architecture was tested on networks with more than a few thousand nodes or
+tens of thousands of temporal contacts. The single-source assumption shared by
+all evaluated models is also a practical constraint: real outbreaks frequently
+involve multiple simultaneous or near-simultaneous introduction events, a
+scenario that none of the architectures is designed to handle. Finally, while
+we follow the evaluation protocol of \cite{Sterchi2025} to guard against
+inflated comparisons with the Soft-Margin Estimator baseline, the comparison
+remains limited by the simulation budget, and conclusions about the relative
+merit of learned versus classical methods should be interpreted with appropriate
+caution.
+
+\section{Future Work}
+\label{st:futurework_ch}
+
+Several natural extensions follow from the limitations identified above. The
+most immediate is the generalisation to multi-source detection, where the model
+must identify a small set $\mathcal{S}^* \subset \mathcal{V}$ of patient-zero
+nodes rather than a single one. This requires either a multi-label output
+formulation or a sequential prediction scheme in which identified sources are
+removed and the procedure is iterated---an approach analogous to peeling
+algorithms in combinatorial optimisation. A related extension is inductive
+generalisation: all models evaluated here are transductive in the sense that
+they are trained and tested on the same network. Incorporating per-node memory
+mechanisms along the lines of Temporal Graph Networks (TGN) \cite{Rossi2020}
+would allow a model trained on one contact network to be applied to an unseen
+network without retraining, a capability that is essential for deployment in
+real-time outbreak response settings.
+
+On the architectural side, the DBGNN can be strengthened by integrating
+Hypergeometric Graph Ensembles (HYPA) \cite{vonPichowski2024}, which use
+statistical hypothesis testing to identify higher-order temporal patterns that
+are anomalous relative to a randomised null model. Retaining only statistically
+significant De Bruijn edges as an inductive bias for the GNN would reduce noise
+from spurious higher-order patterns and potentially improve generalisation
+across network families. Beyond epidemic spreading, the framework developed
+here is directly applicable to other information diffusion processes on temporal
+networks, including rumour propagation in social media, malware transmission in
+computer networks, and cascading failures in infrastructure systems. Adapting
+the simulation engine and evaluation metrics to these domains would substantially
+broaden the impact of the methodology. Finally, integrating active querying
+strategies---whereby the model requests the infection status of additional
+nodes to resolve ambiguity among top candidates \cite{Sterchi2025}---offers a
+principled way to improve accuracy at reduced observation cost, and represents
+a promising bridge between the passive inference paradigm studied here and
+practical epidemiological investigation.

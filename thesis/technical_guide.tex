@@ -1,0 +1,2050 @@
+% !TEX program = pdflatex
+\documentclass[12pt,a4paper]{report}
+
+% ============================================================
+% PREAMBLE
+% ============================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+
+% Listings for code
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{orange!80!black},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  breaklines=true,
+  showstringspaces=false,
+  frame=single,
+  rulecolor=\color{black!20},
+  backgroundcolor=\color{gray!5},
+  captionpos=b,
+  tabsize=4,
+  language=Python,
+}
+
+% tcolorbox for definitions and key insights
+\usepackage{tcolorbox}
+\tcbuselibrary{theorems,skins,breakable}
+
+\newtcolorbox{definition}[2][]{
+  colback=blue!5!white,
+  colframe=blue!60!black,
+  fonttitle=\bfseries,
+  title={Definition: #2},
+  #1,
+  breakable
+}
+
+\newtcolorbox{insight}[2][]{
+  colback=green!5!white,
+  colframe=green!50!black,
+  fonttitle=\bfseries,
+  title={Key Insight: #2},
+  #1,
+  breakable
+}
+
+\newtcolorbox{codebox}[2][]{
+  colback=gray!5!white,
+  colframe=black!40,
+  fonttitle=\bfseries,
+  title={#2},
+  #1,
+  breakable
+}
+
+% Algorithm
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+
+% TikZ for diagrams
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes,fit,backgrounds,calc}
+
+% Math operators
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\bh}{\mathbf{h}}
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\bg}{\mathbf{g}}
+\newcommand{\bW}{\mathbf{W}}
+\newcommand{\calV}{\mathcal{V}}
+\newcommand{\calE}{\mathcal{E}}
+\newcommand{\calG}{\mathcal{G}}
+\newcommand{\calL}{\mathcal{L}}
+\newcommand{\calN}{\mathcal{N}}
+\newcommand{\calB}{\mathcal{B}}
+
+% Headers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\leftmark}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ============================================================
+\begin{document}
+% ============================================================
+
+\begin{titlepage}
+  \centering
+  \vspace*{2cm}
+  {\LARGE\bfseries Technical Guide\par}
+  \vspace{0.5cm}
+  {\Large GNN-Based Epidemic Source Detection\\on Temporal Contact Networks\par}
+  \vspace{1.5cm}
+  {\large Master's Thesis — Implementation Reference\par}
+  \vspace{0.5cm}
+  {\large Author: [Your Name]\par}
+  \vspace{0.5cm}
+  {\large\today\par}
+  \vspace{2cm}
+  \begin{abstract}
+    \noindent
+    This document is a self-contained technical reference for the master's thesis
+    project on graph neural network (GNN) based epidemic source detection on
+    temporal contact networks. It covers every layer of the software stack: the
+    stochastic SIR epidemic model and its C-based simulation engine, the five
+    distinct graph representations derived from a temporal contact sequence, the
+    five GNN architectures (StaticGNN, TemporalGNN, BacktrackingNetwork, DBGNN,
+    and DAG-GNN), the training pipeline with its loss function and early-stopping
+    scheme, the evaluation metrics, the non-ML baselines, and the experimental
+    design including the two parameter sweeps. Mathematical derivations are given
+    in full, code listings are drawn directly from the implementation, and the
+    rationale behind every design decision is explained.
+  \end{abstract}
+  \vfill
+\end{titlepage}
+
+\tableofcontents
+\clearpage
+
+% ============================================================
+\chapter{Introduction and Problem Formulation}
+\label{chap:intro}
+% ============================================================
+
+\section{Motivation}
+
+Epidemic source detection is the problem of identifying, after an outbreak has
+partially or fully unfolded, which individual node in a contact network most
+likely initiated the spreading process. The practical stakes are high: in a
+hospital ward an unidentified index patient can sustain a nosocomial infection
+chain; in an organisation an undetected patient zero prolongs quarantine
+decisions; in digital contagion (misinformation, computer malware) source
+identification enables targeted countermeasures. Classical network epidemiology
+provides analytical upper bounds and centrality heuristics, but these are
+derived under strong structural assumptions (trees, homogeneous mixing,
+infinite-graph limits) that break down on real finite contact networks.
+
+Graph neural networks offer a data-driven alternative: by training on many
+simulated outbreaks one can learn a discriminative function that maps an
+observed SIR snapshot directly to a probability distribution over candidate
+sources without assuming any particular network structure.
+
+\section{The Temporal Dimension}
+
+Standard GNN-based source detection approaches operate on the \emph{static
+projection} of the contact network, aggregating all contacts across time into a
+single undirected graph. This discards the most informative signal: the
+\emph{ordering} of contacts. On a temporal contact network the set of causally
+possible transmission paths is strictly smaller than the set of paths in the
+static projection, because a chain $u \to v \to w$ can only transmit an
+infection if the contact $(u,v)$ precedes the contact $(v,w)$ in real time. An
+architecture that is unaware of this constraint must learn to ignore spurious
+paths from data alone, which is both data-inefficient and prone to
+generalisation failures when the temporal ordering changes.
+
+Three of the five architectures in this project — BacktrackingNetwork,
+DBGNN, and DAG-GNN — incorporate temporal ordering explicitly, either through
+edge feature encoding (BacktrackingNetwork), a higher-order De Bruijn graph
+(DBGNN), or a temporal event directed acyclic graph (DAG-GNN).
+
+\section{Formal Problem Statement}
+
+Let $G = (\calV, \calE^t)$ be a temporal contact network where $\calV =
+\{1,\ldots,N\}$ is a fixed node set and $\calE^t = \{(u,v,t)\}$ is a
+multi-set of timestamped undirected contact events. We assume discrete time
+$t \in \{0,1,\ldots,T\}$.
+
+\begin{definition}{Source Detection Problem}
+Given:
+\begin{itemize}[noitemsep]
+  \item The temporal contact network $G = (\calV, \calE^t)$,
+  \item An observed compartmental state $\mathbf{O} = (\mathbf{S}_{\text{obs}},
+    \mathbf{I}_{\text{obs}}, \mathbf{R}_{\text{obs}}) \in \{0,1\}^{N \times 3}$
+    recorded at time $t_{\text{end}}$, where $O_{v,k}=1$ iff node $v$ is in
+    compartment $k \in \{\mathrm{S},\mathrm{I},\mathrm{R}\}$,
+\end{itemize}
+Find the most probable source node:
+\begin{equation}
+  s^* = \argmax_{v \in \calV} \; P(\text{source} = v \mid \mathbf{O}, G).
+  \label{eq:source_detection}
+\end{equation}
+\end{definition}
+
+Because computing the exact posterior in~\eqref{eq:source_detection} is
+\#P-hard for general networks (requiring marginalisation over all stochastic
+trajectories), we instead train a discriminative neural network
+$f_\theta: \mathbf{O} \mapsto \log P_\theta(\text{source} = v \mid \mathbf{O})$
+using synthetic ground-truth labels from Monte Carlo (MC) SIR simulations.
+
+\section{Pipeline Overview}
+
+The full codebase implements a three-stage pipeline:
+
+\begin{enumerate}
+  \item \textbf{Simulation} (\texttt{main\_tsir.py}): Run the C-based temporal
+    SIR simulator for every possible source node $v \in \calV$ with $n_{\text{runs}}$
+    stochastic realisations (ground-truth data) and $n_{\text{mc}}$ MC realisations
+    (training data). Results are stored as binary arrays and logged as a versioned
+    \texttt{wandb} artefact.
+  \item \textbf{Training and Inference} (\texttt{main\_train.py}): Load the
+    artefact, build the appropriate graph representation, train a GNN model on
+    the MC simulations (cross-entropy loss), then run inference on the
+    ground-truth simulations to produce per-run source probability vectors.
+  \item \textbf{Evaluation} (\texttt{main\_eval.py}): Compute rank scores,
+    top-$k$ accuracy, Brier scores, and credible set sizes, both for GNN models
+    and for non-ML baselines.
+\end{enumerate}
+
+\section{Research Hypotheses}
+
+The experiments are designed to test three specific hypotheses:
+
+\begin{description}
+  \item[H1 -- Causal Path Integrity.] Models that preserve higher-order causal
+    paths (DBGNN, DAG-GNN) will outperform models that operate on the static
+    projection (StaticGNN), because temporal ordering strictly constrains which
+    transmission paths are causally feasible.
+  \item[H2 -- Granularity Convergence.] As the transmission probability $\beta$
+    decreases, outbreaks become sparser and more dependent on the precise sequence
+    of contacts. The performance gap between temporally-aware models and the
+    static baseline therefore increases with decreasing $\beta$.
+  \item[H3 -- Temporal Signal-to-Noise Resilience.] When observations are made
+    early (small fraction of $T$ elapsed), models that exploit temporal structure
+    degrade more gracefully than static models, because they can use partial
+    causal chain information even when the infection has not yet spread widely.
+\end{description}
+
+% ============================================================
+\chapter{The SIR Epidemic Model}
+\label{chap:sir}
+% ============================================================
+
+\section{Compartmental Models}
+
+The SIR model partitions the node population at every time step into three
+mutually exclusive compartments:
+
+\begin{itemize}[noitemsep]
+  \item $\mathbf{S}$ (Susceptible): healthy nodes that can acquire the infection.
+  \item $\mathbf{I}$ (Infectious): infected nodes that can transmit to susceptible
+    neighbours.
+  \item $\mathbf{R}$ (Recovered / Removed): nodes that have recovered and are
+    permanently immune.
+\end{itemize}
+
+On a network the mean-field ordinary differential equations are replaced by
+stochastic individual-level transition rules. On temporal contact sequences the
+transitions are further conditioned on whether the relevant edge is active at
+the time of each potential event.
+
+\section{Continuous-Time SIR on Static Networks}
+
+On a static network with adjacency matrix $\mathbf{A}$, the continuous-time SIR
+process assigns two independent Poisson processes to each pair of nodes:
+
+\begin{align}
+  S_v \xrightarrow{\beta \cdot \mathbf{A}_{uv}} I_v & \quad \text{(infection from neighbour } u \text{)} \\
+  I_v \xrightarrow{\mu} R_v & \quad \text{(spontaneous recovery)}
+\end{align}
+
+Each $S$-$I$ contact edge fires at rate $\beta$; each $I$ node recovers at rate
+$\mu$. The basic reproduction number for a homogeneous random network is:
+\begin{equation}
+  R_0 = \frac{\beta}{\mu} \langle k \rangle,
+  \label{eq:r0}
+\end{equation}
+where $\langle k \rangle$ is the mean degree. An outbreak is sustained (endemic)
+when $R_0 > 1$.
+
+\section{Discrete-Time SIR on Temporal Contact Sequences}
+
+The simulation engine in \texttt{tsir/} uses the discrete-time, event-driven
+formulation of Holme (2020). At each contact event $(u, v, t)$ drawn from the
+temporal sequence:
+
+\begin{enumerate}
+  \item If $u \in I$ and $v \in S$: node $v$ is infected with probability $\beta$
+    (Bernoulli trial).
+  \item If $v \in I$ and $u \in S$: node $u$ is infected with probability $\beta$
+    (contacts are undirected).
+  \item After processing all contacts at time $t$: each $I$ node recovers with
+    probability $\mu$ (a single Bernoulli trial per infectious node per time step).
+\end{enumerate}
+
+\begin{insight}{Why Bernoulli, not Poisson?}
+In continuous time infection and recovery are Poisson processes. The discrete
+approximation replaces each infinitesimal time interval $dt$ with a single time
+step. The per-contact transmission probability $\beta$ is therefore the
+probability that a transmission event occurs at one specific contact, not the
+rate of a Poisson process. The two are equivalent in the limit $dt \to 0$. The
+discrete formulation is exact for event-driven temporal contact sequences where
+each contact is an instantaneous event.
+\end{insight}
+
+\subsection{The Temporal Constraint}
+
+The critical difference from a static network model is that node $v$ can only
+be infected by node $u$ at a contact event $(u,v,t)$ if $u$ is currently in
+the $I$ compartment at time $t$. This means:
+
+\begin{itemize}[noitemsep]
+  \item A contact $(u,v,t_1)$ where $u \in S$ at $t_1$ is harmless even if $u$
+    later becomes infected.
+  \item A contact $(u,v,t_2)$ where $u \in I$ at $t_2$ can transmit, but only
+    if $v \in S$ at $t_2$ — it cannot retroactively infect $v$ for contacts at
+    $t < t_2$.
+\end{itemize}
+
+This temporal constraint is precisely what the causally-aware graph
+representations (De Bruijn graph, temporal event DAG) encode explicitly.
+
+\section{SIR Parameters Used in Experiments}
+
+\begin{table}[H]
+\centering
+\caption{Default SIR simulation parameters for the \texttt{france\_office}
+  network. Other networks use identical parameters unless noted.}
+\label{tab:sir_params}
+\begin{tabular}{lll}
+\toprule
+Parameter & Symbol & Value \\
+\midrule
+Transmission probability & $\beta$ & 0.30 \\
+Recovery probability & $\mu$ & 0.20 \\
+Ground-truth runs per source & $n_{\text{runs}}$ & 5000 \\
+Monte Carlo training runs per source & $n_{\text{mc}}$ & 500 \\
+Observation window start & $t_{\text{start}}$ & 0 \\
+Observation window end & $t_{\text{end}}$ & 274 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The $\beta$-sweep experiment varies $\beta \in \{0.10, 0.20, 0.30, 0.50,
+0.70\}$ while keeping $\mu = 0.20$ fixed, altering the effective reproduction
+number $R_0$ accordingly.
+
+\section{Source Filtering: Possible Sources}
+
+Not every simulation run produces a useful training sample. Two binary masks
+are computed:
+
+\begin{description}
+  \item[\texttt{maximal\_outbreak}{$[s,v]$}:] 1 if node $v$ became infected
+    (i.e., is in $I \cup R$) in the \emph{maximal} (deterministic) outbreak
+    starting from source $s$. A maximal outbreak ignores stochasticity and
+    follows every possible contact edge — it is an upper bound on reachability.
+  \item[\texttt{possible}{$[s,r,v]$}:] 1 if node $v$ is a \emph{possible
+    source} for the observed state in run $r$. Formally, $v$ is a possible
+    source if the observed infected set $I \cup R$ is contained in the reachable
+    set from $v$ under the contact sequence.
+\end{description}
+
+The \texttt{lik\_possible} array encodes a log-likelihood correction:
+\begin{equation}
+  \texttt{lik\_possible}[s, r, v] =
+  \begin{cases} 0 & \text{if } \texttt{possible}[s,r,v] = 1 \\ +\infty & \text{otherwise.} \end{cases}
+\end{equation}
+This term is subtracted from the model's log-probability scores during
+inference, driving the score of topologically impossible sources to $-\infty$.
+
+% ============================================================
+\chapter{Temporal Contact Networks}
+\label{chap:temporal_networks}
+% ============================================================
+
+\section{Formal Definition}
+
+\begin{definition}{Temporal Contact Network}
+A temporal contact network is a tuple $G = (\calV, \calE^t)$ where $\calV =
+\{0,\ldots,N-1\}$ is a set of nodes and $\calE^t = \{(u,v,t) : u,v \in \calV,
+t \in \mathbb{Z}_{\geq 0}\}$ is a multi-set of timestamped contact events. Each
+event $(u,v,t)$ records that nodes $u$ and $v$ were in physical (or digital)
+proximity at discrete time step $t$.
+\end{definition}
+
+In the implementation, temporal networks are stored as NetworkX graphs where
+each edge $(u,v)$ carries a \texttt{times} list attribute containing all time
+steps at which that pair was in contact:
+\begin{lstlisting}[caption={Edge data structure for temporal graphs.}]
+# H.edges(data=True) yields:
+# (u, v, {'times': [t1, t2, t3, ...]})
+for u, v, data in H.edges(data=True):
+    contact_times = data['times']  # list of int
+\end{lstlisting}
+
+\section{Causal Walks}
+
+\begin{definition}{Time-Respecting Path (Causal Walk)}
+A time-respecting path (also called a causal walk) from node $s$ to node $v$
+is a sequence of contact events $(v_0, v_1, t_1), (v_1, v_2, t_2), \ldots,
+(v_{k-1}, v_k, t_k)$ such that $v_0 = s$, $v_k = v$, and $t_1 \leq t_2 \leq
+\cdots \leq t_k$ (strictly: $t_i < t_{i+1}$ for transmission to be possible).
+\end{definition}
+
+Causal walks define which infection transmission paths are physically possible.
+The static projection of a temporal network has far more paths than the causal
+walk set, because the static graph ignores temporal ordering. The ratio of
+causal walks to static paths grows smaller as the network becomes more temporal
+(i.e., as the temporal ordering is more constraining). This motivates the
+design of architectures that operate on the causal walk structure directly.
+
+\section{Real-World Networks Used}
+
+\begin{table}[H]
+\centering
+\caption{Networks used in experiments. All are empirical face-to-face contact
+  networks from the SocioPatterns project unless noted otherwise.}
+\label{tab:networks}
+\begin{tabular}{llrrp{6cm}}
+\toprule
+Name & Key & $N$ & $|\calE^t|$ & Description \\
+\midrule
+toy\_holme & toy & $\sim$50 & $\sim$500 & Synthetic Holme-Kim network, used for
+  fast debugging \\
+karate\_static & karate & 34 & 78 & Zachary's Karate Club; static network used
+  as a temporal network with all contacts at $t=0$ \\
+france\_office & office & 232 & $\sim$9\,600 & InVS13 workplace contacts,
+  274 hourly time steps \\
+lyon\_ward & lyon & 75 & $\sim$32\,400 & Hospital ward contacts \\
+malawi & malawi & 86 & $\sim$10\,000 & Rural village contacts, Malawi \\
+students & students & 666 & $\sim$185\,000 & High-school student contacts \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+\chapter{Source Detection: Problem Definition and Likelihood}
+\label{chap:source_detection}
+% ============================================================
+
+\section{Bayesian Formulation}
+
+Applying Bayes' theorem to the source detection problem:
+\begin{equation}
+  P(\text{source} = s \mid \mathbf{O}) = \frac{P(\mathbf{O} \mid \text{source} = s) \, P(\text{source} = s)}{P(\mathbf{O})}.
+  \label{eq:bayes}
+\end{equation}
+Under the uniform prior $P(\text{source} = s) = 1/N$ for all $s$, the
+posterior is proportional to the likelihood $P(\mathbf{O} \mid \text{source} =
+s)$. Computing this likelihood exactly requires summing over all stochastic
+trajectories from source $s$ that are consistent with $\mathbf{O}$, which is
+\#P-hard.
+
+\section{Discriminative Surrogate}
+
+Rather than computing the likelihood, we train a discriminative model:
+\begin{equation}
+  f_\theta : \mathbf{O} \longrightarrow \log \hat{P}_\theta(\text{source} = v \mid \mathbf{O}) \in \R^N,
+\end{equation}
+parameterised by $\theta$. The model is trained with the cross-entropy
+(negative log-likelihood) loss:
+\begin{equation}
+  \calL(\theta) = -\frac{1}{|\mathcal{D}|} \sum_{(\mathbf{O}^{(i)}, s^{(i)}) \in \mathcal{D}} \log \hat{P}_\theta(\text{source} = s^{(i)} \mid \mathbf{O}^{(i)}),
+  \label{eq:nll_loss}
+\end{equation}
+where $\mathcal{D}$ is the set of (observation, true source) pairs from the MC
+simulations. This is identical to \texttt{F.nll\_loss} in PyTorch when the
+model outputs log-probabilities.
+
+\section{The Susceptible Masking Constraint}
+
+A node $v$ that is observed in state $S$ (susceptible) at $t_{\text{end}}$
+\emph{cannot} be the epidemic source, because the source by definition became
+infectious at time $t=0$ and must therefore have left the $S$ compartment.
+This hard constraint is enforced by:
+\begin{equation}
+  \text{score}(v) \leftarrow -\infty \quad \forall\, v : O_{v,S} = 1.
+  \label{eq:susceptible_mask}
+\end{equation}
+All five models apply this mask before the final \texttt{log\_softmax},
+guaranteeing zero probability for susceptible nodes. In code:
+\begin{lstlisting}[caption={Susceptible masking (identical in all models).}]
+# x: [B, N, 3], channel 0 = S state
+susceptible_mask = x[..., 0].bool()   # True where node is S
+scores = scores.masked_fill(susceptible_mask, float('-inf'))
+return F.log_softmax(scores, dim=-1)  # [B, N]
+\end{lstlisting}
+
+\section{Log-Likelihood Correction}
+
+After inference, the raw model log-probabilities are corrected by the
+\texttt{lik\_possible} term:
+\begin{equation}
+  \tilde{\ell}(s \mid \mathbf{O}^{(r)}) = \log \hat{P}_\theta(s \mid \mathbf{O}^{(r)}) - \texttt{lik\_possible}[r, s].
+  \label{eq:lik_correction}
+\end{equation}
+Since \texttt{lik\_possible} is $+\infty$ for topologically impossible sources
+and $0$ for possible ones, this correction drives impossible sources to $-\infty$
+and leaves possible sources unchanged. It implements an approximation to the
+prior $P(\text{source} = s)$ based on network reachability.
+
+% ============================================================
+\chapter{Graph Neural Networks: Foundations}
+\label{chap:gnn_foundations}
+% ============================================================
+
+\section{The Message Passing Framework}
+
+All GNN architectures in this project are instances of the message passing
+neural network (MPNN) framework of Gilmer et al. (2017). In the MPNN framework,
+each layer $\ell$ updates node embeddings $\bh_v^{(\ell)}$ according to:
+
+\begin{equation}
+  \bh_v^{(\ell+1)} = \text{UPDATE}^{(\ell)}\!\left(\bh_v^{(\ell)},\;
+    \bigoplus_{u \in \calN(v)} \text{MSG}^{(\ell)}\!\left(\bh_v^{(\ell)}, \bh_u^{(\ell)}, \mathbf{e}_{uv}\right)\right),
+  \label{eq:mpnn}
+\end{equation}
+where:
+\begin{itemize}[noitemsep]
+  \item $\calN(v)$ is the set of neighbours of node $v$,
+  \item $\mathbf{e}_{uv}$ is an optional edge feature vector,
+  \item $\bigoplus$ is a permutation-invariant aggregation operator (sum, mean, or max),
+  \item MSG and UPDATE are learnable functions (typically MLPs or linear layers).
+\end{itemize}
+
+After $L$ layers, the embedding $\bh_v^{(L)}$ aggregates information from the
+$L$-hop neighbourhood of $v$.
+
+\section{Specific Convolution Variants}
+
+\subsection{GraphSAGE (SAGEConv)}
+
+The mean-aggregator variant of GraphSAGE (Hamilton et al., 2017) is:
+\begin{equation}
+  \bh_v^{(\ell+1)} = \bW_1^{(\ell)} \bh_v^{(\ell)} + \bW_2^{(\ell)} \cdot \frac{1}{|\calN(v)|} \sum_{u \in \calN(v)} \bh_u^{(\ell)}.
+  \label{eq:sage}
+\end{equation}
+SAGEConv is used in StaticGNN (optionally), TemporalGNN, DBGNN, and DAG-GNN.
+
+\subsection{GraphConv}
+
+The GraphConv layer (Morris et al., 2019), as implemented in PyTorch Geometric:
+\begin{equation}
+  \bh_v^{(\ell+1)} = \bW_1^{(\ell)} \bh_v^{(\ell)} + \bW_2^{(\ell)} \sum_{u \in \calN(v)} \bh_u^{(\ell)}.
+  \label{eq:graphconv}
+\end{equation}
+This differs from SAGEConv only in the absence of mean-normalisation on the
+neighbour sum, making it sensitive to node degree. StaticGNN defaults to
+GraphConv with sum aggregation (\texttt{aggr: sum}).
+
+\subsection{Why Output Log-Probabilities?}
+
+All models output $\log \hat{P}(s \mid \mathbf{O}) \in \R^N$ (log-softmax).
+This has two advantages:
+\begin{enumerate}[noitemsep]
+  \item The cross-entropy training loss (\texttt{F.nll\_loss}) expects
+    log-probabilities and computes $-\log \hat{P}$ directly without an
+    additional \texttt{log} call, improving numerical stability.
+  \item Multiplying probabilities over independent runs (unlikely to be
+    needed here, but standard practice) is equivalent to adding their
+    logarithms, avoiding floating-point underflow.
+\end{enumerate}
+
+% ============================================================
+\chapter{Graph Representations for Temporal Networks}
+\label{chap:representations}
+% ============================================================
+
+Each GNN architecture requires a specific graph representation of the temporal
+network $G = (\calV, \calE^t)$. All five representations are built once per
+network (not per sample) by functions in \texttt{gnn/graph\_builder.py} and
+stored in a \texttt{dict} of pre-computed tensors.
+
+\section{Representation 1: Static Projection}
+\label{sec:static_rep}
+
+The static projection collapses all temporal edges into a single undirected
+graph:
+\begin{equation}
+  \calE_{\text{static}} = \{(u,v) : \exists\, t \text{ s.t. } (u,v,t) \in \calE^t\}.
+\end{equation}
+
+The optional edge weight $w_{uv}$ counts the number of temporal contacts between
+$u$ and $v$, normalised to $[0,1]$:
+\begin{equation}
+  w_{uv} = \frac{|\{t : (u,v,t) \in \calE^t\}|}{\max_{(u',v') \in \calE_{\text{static}}} |\{t : (u',v',t) \in \calE^t\}|}.
+\end{equation}
+
+The output dict has keys \texttt{edge\_index} $\in \mathbb{Z}^{2 \times 2|\calE|}$
+(both directions) and optionally \texttt{edge\_weight} $\in \R^{2|\calE|}$.
+
+\textbf{Loss of information}: The static projection loses all information about
+\emph{when} each contact occurred. Two networks with identical static
+projections but different contact orderings are indistinguishable to a GNN
+operating on this representation.
+
+\section{Representation 2: Temporal Activation Patterns}
+\label{sec:activation_rep}
+
+For the BacktrackingNetwork, each edge $(u,v)$ in the static projection is
+additionally annotated with a binary activation vector:
+\begin{equation}
+  \mathbf{a}_{uv} \in \{0,1\}^T, \quad (\mathbf{a}_{uv})_t = \mathbf{1}[(u,v,t) \in \calE^t],
+\end{equation}
+where $T = t_{\max} + 1$ and $t_{\max} = \max_{(u,v,t) \in \calE^t} t$.
+
+This gives the model access to \emph{which time steps} each edge was active, but
+not directly to the ordering relative to other edges. The edge attribute matrix
+is $\mathbf{A} \in \{0,1\}^{2|\calE| \times T}$.
+
+For the \texttt{france\_office} network with $T=275$, each edge carries a
+$275$-dimensional binary vector.
+
+\section{Representation 3: Time-Sliced Snapshots}
+\label{sec:snapshot_rep}
+
+The temporal contact sequence is partitioned into non-overlapping time windows
+of width $\Delta t$ (\texttt{group\_by\_time}):
+\begin{equation}
+  \text{snapshot } s = \{(u,v) : (u,v,t) \in \calE^t,\; \lfloor t/\Delta t \rfloor = s\}.
+\end{equation}
+
+The output is a dict \texttt{edge\_indeces}$[s]$ mapping each snapshot index $s$
+to its edge\_index tensor. The TemporalGNN iterates over these snapshots in
+\emph{reverse} temporal order (from $s = S-1$ down to $s = 0$), applying a
+separate SAGEConv weight matrix per snapshot.
+
+\section{Representation 4: De Bruijn Graph}
+\label{sec:db_rep}
+
+The De Bruijn graph $\mathcal{B}$ encodes higher-order causal paths in the
+temporal network. It was introduced for temporal network analysis by
+Qarkaxhija et al. (2022).
+
+\subsection{Construction}
+
+\begin{definition}{De Bruijn Graph of a Temporal Network}
+Given temporal contact sequence $\calE^t$, the De Bruijn graph $\calB =
+(\calV_\calB, \calE_\calB)$ is defined as:
+\begin{itemize}
+  \item \textbf{Event nodes}: For each contact $(u,v,t) \in \calE^t$, add a
+    node $(u,v,t)$ to $\calV_\calB$.
+  \item \textbf{Sentinel nodes}: For each original node $n \in \calV$ and each
+    time $t \in \{t_{\min}, t_{\max}\}$, add a sentinel node $(n,n,t)$.
+  \item \textbf{Causal edges}: Add directed edge $(x,y,t_1) \to (y,z,t_2)$
+    whenever $t_2 > t_1$ (the walk $x \to y \to z$ is time-respecting).
+  \item \textbf{Sentinel connections}: Sentinel node $(n,n,t)$ connects to all
+    event nodes that start or end at node $n$.
+\end{itemize}
+\end{definition}
+
+The De Bruijn graph is a \emph{line graph of the temporal network}: each node in
+$\calB$ corresponds to a temporal edge (contact) in $G$, and each edge in $\calB$
+corresponds to a time-respecting path of length 2 in $G$.
+
+\subsection{Why Sentinel Nodes?}
+
+Sentinel nodes $(n,n,t)$ serve as \emph{readout anchors}. After message passing
+on $\calB$, the embedding of the end-time sentinel $(n,n,t_{\max})$ aggregates
+all causal walk information that \emph{terminates at} node $n$ by time
+$t_{\max}$. This provides a natural per-node readout without requiring a
+separate pooling step.
+
+\subsection{Tensor Layout}
+
+The output dict contains:
+\begin{itemize}[noitemsep]
+  \item \texttt{db\_node\_to\_original} $\in \mathbb{Z}^{|\calV_\calB| \times 2}$:
+    maps De Bruijn node $i$ to its original node pair $(u_{\text{orig}},
+    v_{\text{orig}})$. For event node $(u,v,t)$: entry is $(u,v)$. For sentinel
+    $(n,n,t)$: entry is $(n,n)$.
+  \item \texttt{sentinel\_end\_indices} $\in \mathbb{Z}^N$:
+    \texttt{sentinel\_end\_indices}$[n]$ is the integer index of De Bruijn node
+    $(n,n,t_{\max})$ in $\calV_\calB$.
+  \item \texttt{is\_sentinel} $\in \{0,1\}^{|\calV_\calB|}$: boolean mask; True
+    for sentinel nodes (where $u_{\text{orig}} = v_{\text{orig}}$).
+  \item \texttt{edge\_index} $\in \mathbb{Z}^{2 \times |\calE_\calB|}$: directed
+    De Bruijn edges.
+\end{itemize}
+
+\section{Representation 5: Temporal Event DAG}
+\label{sec:dag_rep}
+
+The temporal event graph (TEG) of Saramäki et al. (2019) maps each directed
+contact event to a node and connects causally compatible events by directed edges.
+
+\subsection{Construction}
+
+\begin{definition}{Temporal Event Graph (TEG)}
+Given $\calE^t$ (treating undirected edges as two directed events), the TEG
+$\mathcal{T} = (\calV_\mathcal{T}, \calE_\mathcal{T})$ is:
+\begin{itemize}
+  \item \textbf{Event nodes}: For each directed event $(u \to v, t)$ (both
+    directions for undirected contacts), add a node $e_{uvt}$ to $\calV_\mathcal{T}$.
+  \item \textbf{Causal edges}: Add directed edge $e_{uvt_1} \to e_{vwt_2}$ if
+    $t_2 > t_1$ (and $t_2 - t_1 \leq \delta t$ if a maximum gap $\delta t$ is
+    specified). The events share intermediate node $v$, so the infection could
+    travel $u \to v$ at $t_1$ and then $v \to w$ at $t_2$.
+\end{itemize}
+\end{definition}
+
+Because $t_2 > t_1$ strictly, the TEG has no directed cycles: it is a DAG.
+This is the property that DAG-GNN exploits for backward propagation.
+
+\subsection{Tensor Layout}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{dag\_edge\_index} $\in \mathbb{Z}^{2 \times |\calE_\mathcal{T}|}$:
+    forward causal edges $e_1 \to e_2$ with $t(e_1) < t(e_2)$.
+  \item \texttt{event\_src\_node} $\in \mathbb{Z}^{|\calV_\mathcal{T}|}$:
+    departing node $u$ for each event $e_{uvt}$.
+  \item \texttt{event\_to\_node} $\in \mathbb{Z}^{|\calV_\mathcal{T}|}$:
+    arriving node $v$ for each event $e_{uvt}$.
+  \item \texttt{event\_times} $\in \mathbb{Z}^{|\calV_\mathcal{T}|}$: time $t$
+    of each event.
+\end{itemize}
+
+\subsection{Complexity}
+
+The number of event nodes is $|\calV_\mathcal{T}| = 2|\calE^t|$ (two directed
+events per undirected contact). The number of DAG edges can be $O(|\calV_\mathcal{T}|^2)$
+in the worst case (all events at the same node), but is typically much smaller
+for real contact sequences. The $\delta t$ parameter limits the causal horizon
+and reduces edge density.
+
+\begin{table}[H]
+\centering
+\caption{Summary of the five graph representations and their properties.}
+\label{tab:representations}
+\begin{tabular}{lllll}
+\toprule
+Representation & Used by & Node count & Temporal info & Edge features \\
+\midrule
+Static projection & StaticGNN & $N$ & No & Optional weights \\
+Activation patterns & BacktrackingNetwork & $N$ & Partial & $\mathbf{a}_{uv} \in \{0,1\}^T$ \\
+Snapshots & TemporalGNN & $N$ & Ordering & None \\
+De Bruijn graph & DBGNN & $\leq 2|\calE^t| + N$ & Full (causal walks) & None \\
+Temporal event DAG & DAG-GNN & $2|\calE^t|$ & Full (DAG) & None \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+\chapter{StaticGNN: Baseline Architecture}
+\label{chap:static_gnn}
+% ============================================================
+
+\section{Motivation}
+
+StaticGNN provides the static-projection baseline: it is the strongest possible
+GNN that ignores temporal ordering. All temporal information (contact times) is
+discarded; the model sees only the aggregated static graph plus the SIR state
+snapshot $\mathbf{O}$. If temporally-aware models do not outperform StaticGNN,
+it suggests that temporal ordering is not needed for source detection on the
+tested networks.
+
+\section{Architecture}
+
+The StaticGNN is a configurable module with four stages (implemented in
+\texttt{gnn/static\_gnn.py}):
+
+\begin{enumerate}
+  \item \textbf{Preprocessing MLP}: $L_{\text{pre}}$ layers mapping node
+    features $\bx_v \in \R^3$ to embeddings $\bh_v^{(0)} \in \R^{D_{\text{pre}}}$.
+  \item \textbf{Graph Convolutions}: $L_{\text{conv}}$ GraphConv layers,
+    each followed by optional batch normalization, PReLU activation, and dropout.
+  \item \textbf{Postprocessing MLP}: $L_{\text{post}}$ fully-connected layers
+    at dimension $D_{\text{hidden}}$ (identity in dimension).
+  \item \textbf{Final Linear Layer}: Projects each node embedding to a scalar
+    score, then reshapes to $[B, N]$ and applies log-softmax.
+\end{enumerate}
+
+\subsection{Input Representation}
+
+The input to StaticGNN is a batch of SIR snapshots
+$\mathbf{X} \in \R^{B \times N \times 3}$. Each node $v$ in batch item $b$ has
+features:
+\begin{equation}
+  \bx_{b,v} = \bigl[O_{b,v,S},\; O_{b,v,I},\; O_{b,v,R}\bigr]^\top \in \{0,1\}^3.
+\end{equation}
+This is a one-hot encoding of the SIR state.
+
+For PyTorch Geometric (PyG) style batching, the $[B, N, 3]$ tensor is
+flattened to $[B \cdot N, 3]$ with a batch vector $\mathbf{b} \in \{0,\ldots,B-1\}^{B \cdot N}$
+and the edge index is replicated $B$ times with appropriate offsets.
+
+\subsection{Graph Convolution}
+
+The default aggregation in the experiments is \texttt{aggr: sum} (GraphConv):
+\begin{equation}
+  \bh_v^{(\ell+1)} = \text{PReLU}\!\left(\text{BN}\!\left(\bW_1^{(\ell)} \bh_v^{(\ell)} + \bW_2^{(\ell)} \sum_{u \in \calN(v)} \bh_u^{(\ell)}\right)\right).
+  \label{eq:static_gnn_conv}
+\end{equation}
+With batch normalization and PReLU, a dropout mask is applied after each layer
+during training.
+
+\subsection{Skip Connection}
+
+When \texttt{skip: true} is set, the raw input features $\bx_v$ are
+concatenated to the post-processed node embedding before the final linear layer:
+\begin{equation}
+  \text{score}(v) = \bW_{\text{out}} \cdot \bigl[\bh_v^{(L)},\, \bx_v\bigr]^\top.
+\end{equation}
+This allows the final layer to directly combine topological evidence (from $\bh_v^{(L)}$)
+with the node's own observed state (from $\bx_v$). In practice this consistently
+improves performance because the susceptible masking constraint means the node's
+own state is highly informative.
+
+\subsection{Output}
+
+After applying the final layer to each node, the tensor is reshaped from
+$[B \cdot N, 1]$ to $[B, N]$, the susceptible mask is applied, and
+log-softmax is computed row-wise:
+\begin{equation}
+  \hat{\ell}_{b,v} = \log \hat{P}_\theta(\text{source} = v \mid \mathbf{O}_b).
+\end{equation}
+
+\section{Configuration}
+
+\begin{lstlisting}[language=bash,caption={StaticGNN config for \texttt{france\_office} (from \texttt{exp/france\_office/static\_gnn.yml}).}]
+model: static_gnn
+
+train:
+  n_mc: 500
+  reps: 3
+  test_size: 0.30
+  batch_size: 128
+  epochs: 500
+  patience: 10
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 42
+
+static_gnn:
+  num_preprocess_layers: 0
+  embed_dim_preprocess: 16
+  num_postprocess_layers: 0
+  num_conv_layers: 4
+  aggr: sum
+  hidden_channels: 64
+  dropout_rate: 0.2
+  batch_norm: true
+  skip: true
+  use_edge_weights: false
+\end{lstlisting}
+
+\section{Complexity}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{Parameters}: $O(D^2)$ per convolution layer, where $D = 64$ (hidden channels).
+  \item \textbf{Forward pass time}: $O(B \cdot (N \cdot D^2 + |\calE| \cdot D))$ per layer.
+  \item \textbf{Memory}: $O(B \cdot N \cdot D)$ for node embeddings, $O(|\calE|)$ for
+    the static edge index (shared across all batch items).
+\end{itemize}
+
+% ============================================================
+\chapter{TemporalGNN: Time-Slice Approach}
+\label{chap:temporal_gnn}
+% ============================================================
+
+\section{Motivation}
+
+TemporalGNN (implemented in \texttt{gnn/temporal\_gnn.py}) introduces temporal
+information through \emph{snapshot processing}: it applies a separate SAGEConv
+layer to each time-slice of the contact sequence. The key idea is that the
+network topology at each time step is different, so information should propagate
+along the graph structure that was actually present at that time.
+
+\section{Architecture}
+
+\begin{equation}
+  \bh_v^{(t)} = \text{SAGEConv}_t\!\left(\bh_v^{(t-1)},\; \{(u,v) \in \text{snapshot } t\}\right),
+  \quad t = S-1, S-2, \ldots, 0,
+\end{equation}
+where $S$ is the total number of snapshots and the convolutions are applied in
+\emph{reverse} temporal order. Reverse ordering means that the model first
+processes the contacts that occurred latest (close to $t_{\text{end}}$ when the
+observation is made) and then propagates backward through earlier contacts. This
+matches the direction of source detection: from the observed state backward
+toward the probable source.
+
+\subsection{Layer Structure}
+
+\begin{enumerate}
+  \item \textbf{Pre-linear}: $\bh_v^{(-1)} = \text{ReLU}(\bW_{\text{pre}} \bx_v)$,
+    projecting from 3 to \texttt{hidden\_channels}.
+  \item \textbf{Snapshot convolutions}: For each snapshot $t$ in reverse order,
+    apply $\text{SAGEConv}_t$ (each has its own weight matrices $\bW_1^{(t)},
+    \bW_2^{(t)}$).
+  \item \textbf{Post-linear}: $\text{score}(v) = \bW_{\text{post}} \bh_v^{(0)}$,
+    projecting to a scalar. Output shape $[B, N, 1]$ is squeezed to $[B, N]$.
+  \item Log-softmax over nodes.
+\end{enumerate}
+
+\subsection{Implementation Note}
+
+The model has \emph{one SAGEConv layer per snapshot}, so the number of parameters
+scales with the number of snapshots. For the \texttt{france\_office} network with
+274 time steps and \texttt{group\_by\_time}=1, this means 274 separate SAGEConv
+layers. In practice, the \texttt{group\_by\_time} parameter is used to reduce
+this to a manageable number of snapshots.
+
+\begin{lstlisting}[caption={TemporalGNN forward pass (from \texttt{gnn/temporal\_gnn.py}).}]
+def forward(self, x, edge_indeces, edge_attr=None):
+    x = F.relu(self.lin_pre(x))
+    count = 0
+    for t in reversed(edge_indeces.keys()):
+        x = F.relu(self.convs[count](x, edge_indeces[t], edge_attr))
+        count += 1
+    x = self.lin_post(x)
+    return F.log_softmax(x, dim=1)
+\end{lstlisting}
+
+\subsection{Key Design Decision: Shared vs. Separate Weights}
+
+TemporalGNN uses \emph{separate} weight matrices per snapshot
+(\texttt{ModuleList} of SAGEConv layers). An alternative would be to share
+weights across snapshots (a single SAGEConv applied at each step). The
+separate-weight design allows the model to learn snapshot-specific aggregation
+patterns — for example, that contacts early in the epidemic are more informative
+about the source than late contacts.
+
+\section{Configuration}
+
+\begin{lstlisting}[language=bash,caption={TemporalGNN config (\texttt{exp/france\_office/temporal\_gnn.yml}).}]
+model: temporal_gnn
+
+temporal_gnn:
+  hidden_channels: 64
+  group_by_time: 1
+\end{lstlisting}
+
+% ============================================================
+\chapter{BacktrackingNetwork: Temporal Activation Kernels}
+\label{chap:backtracking}
+% ============================================================
+
+\section{Paper Reference}
+
+Ru et al., ``Inferring Patient Zero on Temporal Networks via Graph Neural
+Networks,'' AAAI 2023. The implementation in \texttt{gnn/backtracking\_network.py}
+follows Figure 2 and Equations 3--6 of the paper.
+
+\section{Motivation}
+
+The BacktrackingNetwork (BN) enriches the static-graph message passing with
+\emph{edge textures}: binary vectors $\mathbf{a}_{uv} \in \{0,1\}^T$ encoding
+\emph{when} each edge was active. The intuition is that the temporal activation
+pattern of an edge is informative about whether transmission along that edge is
+plausible given the observed SIR state: if edge $(u,v)$ was only active at
+$t < t_{\text{infection of } u}$, it cannot have transmitted the infection from
+$u$ to $v$.
+
+\section{Architecture}
+
+\subsection{Initialisation}
+
+\begin{align}
+  \bh_v^{(0)} &= p^v(\bx_v) = \text{ReLU}(\bW_v \bx_v), \quad \bW_v \in \R^{D \times 3},
+  \label{eq:bn_init_node} \\
+  \bg_{(u,v)}^{(0)} &= p^e(\mathbf{a}_{uv}) = \text{ReLU}(\bW_e \mathbf{a}_{uv}), \quad \bW_e \in \R^{D \times T}.
+  \label{eq:bn_init_edge}
+\end{align}
+
+Node features $\bx_v \in \{0,1\}^3$ are projected to a $D$-dimensional hidden
+space. Edge activation patterns $\mathbf{a}_{uv} \in \{0,1\}^T$ are projected
+to the same hidden dimension.
+
+Note that the edge projections $\bg_{(u,v)}^{(0)}$ are \emph{shared across the
+batch} at initialisation, because the activation patterns are network properties
+(not sample-specific). They become sample-specific at layer 1 when the node
+features $\bh_v^{(0)}$ (which \emph{are} sample-specific) enter the edge update.
+
+\subsection{Layer Update (Equations 3 and 4)}
+
+For layer $\ell = 0, \ldots, L-1$:
+
+\textbf{Edge update} (Eq.~3 of the paper):
+\begin{equation}
+  \bg_{(u,v)}^{(\ell+1)} = f^e\!\left(\bigl[\bg_{(u,v)}^{(\ell)},\, \bh_u^{(\ell)}\bigr]\right),
+  \label{eq:bn_edge_update}
+\end{equation}
+where $f^e: \R^{2D} \to \R^D$ is a fully-connected layer with ReLU. The edge
+embedding incorporates the current embedding of its \emph{source} node.
+
+\textbf{Node update} (Eq.~4 of the paper):
+\begin{equation}
+  \bh_v^{(\ell+1)} = \text{ReLU}\!\left(f^v\!\left(\bh_v^{(\ell)}\right) + \sum_{u \in \calN(v)} \bg_{(u,v)}^{(\ell+1)}\right),
+  \label{eq:bn_node_update}
+\end{equation}
+where $f^v: \R^D \to \R^D$ is a separate fully-connected layer with ReLU. The
+node embedding accumulates incoming edge messages via sum aggregation.
+
+\subsection{Why Sum Aggregation?}
+
+The paper uses sum (not mean) aggregation. This makes the node embedding
+sensitive to the degree of the node: a node with many incoming edges has a
+larger aggregation term. For source detection this is appropriate because the
+source typically has more infected neighbours (higher effective out-degree in
+the infection tree).
+
+\subsection{Output}
+
+\begin{equation}
+  \text{score}(v) = \bW_{\text{final}} \bh_v^{(L)} \in \R,
+\end{equation}
+then susceptible masking and log-softmax produce $\hat{\ell} \in \R^{B \times N}$.
+
+\section{Complete Forward Pass}
+
+\begin{lstlisting}[caption={BacktrackingNetwork forward pass (from \texttt{gnn/backtracking\_network.py}).}]
+def forward(self, x, edge_index, edge_attr):
+    # x: [B, N, 3], edge_attr: [E, T]
+    B, N, _ = x.shape
+
+    # 1. Initial projections
+    h = self.p_v(x)                                 # [B, N, D]
+    g = self.p_e(edge_attr)                         # [E,  D]
+    g = g.unsqueeze(0).expand(B, -1, -1).contiguous()  # [B, E, D]
+
+    # 2. L layers of BN convolution
+    for conv in self.convs:
+        h, g = conv(h, g, edge_index)
+
+    # 3. Final projection to scalar score per node
+    scores = self.final(h).squeeze(-1)              # [B, N]
+
+    # 4. Expert knowledge: susceptible nodes -> -inf
+    susceptible_mask = x[..., 0].bool()
+    scores = scores.masked_fill(susceptible_mask, float('-inf'))
+    return F.log_softmax(scores, dim=-1)            # [B, N]
+\end{lstlisting}
+
+\section{Configuration}
+
+\begin{lstlisting}[language=bash,caption={BacktrackingNetwork config (\texttt{exp/france\_office/backtracking.yml}).}]
+model: backtracking
+
+train:
+  n_mc: 500
+  reps: 3
+  test_size: 0.20
+  batch_size: 128
+  epochs: 500
+  patience: 30
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+
+backtracking:
+  hidden_dim: 32
+  num_layers: 6
+\end{lstlisting}
+
+\section{Memory and Complexity}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{Edge projection}: $\bW_e \in \R^{D \times T}$ has $D \cdot T$
+    parameters. For $D=32$, $T=275$: approximately 8\,800 parameters just for
+    the edge projection.
+  \item \textbf{Per-layer}: Each BNConvLayer has $f^e \in \R^{2D \times D}$ and
+    $f^v \in \R^{D \times D}$, so $3D^2$ parameters. With $L=6$ layers: $18D^2$.
+  \item \textbf{Memory}: The edge hidden tensor $\bg \in \R^{B \times E \times D}$
+    grows linearly in batch size $B$ and edge count $E$. For large temporal
+    networks (many edges), this can dominate memory usage.
+\end{itemize}
+
+% ============================================================
+\chapter{DBGNN: De Bruijn Graph Neural Networks}
+\label{chap:dbgnn}
+% ============================================================
+
+\section{Paper Reference}
+
+Qarkaxhija, Perri, and Scholtes, ``De Bruijn Goes Neural: Causality-Aware
+Graph Neural Networks for Time Series Data on Dynamic Graphs,''
+arXiv:2209.08311 (2022). Our implementation in \texttt{gnn/dbgnn.py} adapts
+this architecture for epidemic source detection.
+
+\section{Core Idea: Higher-Order Causal Paths}
+
+The central observation motivating DBGNN is that standard GNNs on the static
+projection aggregate information from the \emph{topological} $k$-hop
+neighbourhood, whereas for temporal networks the relevant neighbourhood is the
+\emph{causal} $k$-hop neighbourhood — the set of nodes reachable by
+time-respecting paths of length at most $k$.
+
+By operating on the De Bruijn graph, whose nodes represent individual contact
+events (temporal edges), DBGNN performs message passing along \emph{causal walks
+of length 2}. A node $(x,y,t_1)$ in the De Bruijn graph can send messages to
+$(y,z,t_2)$ if and only if $t_2 > t_1$, enforcing the causal constraint
+directly in the graph structure.
+
+\section{Feature Initialisation}
+
+Each De Bruijn node $i$ with original node pair $(u_{\text{orig}},
+v_{\text{orig}})$ is initialised differently depending on whether it is a
+sentinel or an event node:
+
+\textbf{Sentinel nodes} (where $u_{\text{orig}} = v_{\text{orig}} = n$):
+\begin{equation}
+  \bh_i^{(0)} = \text{ReLU}\!\left(\bW_{\text{sent}} \cdot \bx_{n}\right), \quad \bW_{\text{sent}} \in \R^{D \times 3}.
+  \label{eq:db_init_sent}
+\end{equation}
+The projection uses only the SIR state of the single associated original node.
+
+\textbf{Event nodes} (where $u_{\text{orig}} \neq v_{\text{orig}}$):
+\begin{equation}
+  \bh_i^{(0)} = \text{ReLU}\!\left(\bW_{\text{evt}} \cdot \bigl[\bx_{u_{\text{orig}}},\, \bx_{v_{\text{orig}}}\bigr]^\top\right), \quad \bW_{\text{evt}} \in \R^{D \times 6}.
+  \label{eq:db_init_evt}
+\end{equation}
+The projection concatenates the SIR states of both endpoints of the contact
+event, giving the model access to the states of both nodes that participated
+in the contact.
+
+In code, both projections are computed for all nodes, then blended using the
+boolean mask \texttt{is\_sentinel}:
+\begin{lstlisting}[caption={DBGNN feature initialisation.}]
+x_u = x[:, u_orig, :]               # [B, db_N, 3]
+x_v = x[:, v_orig, :]               # [B, db_N, 3]
+
+h_sent  = F.relu(self.proj_sentinel(x_u))           # [B, db_N, D]
+h_event = F.relu(self.proj_event(
+    torch.cat([x_u, x_v], dim=-1)))                 # [B, db_N, D]
+
+mask = is_sentinel.view(1, db_N, 1).expand(B, db_N, D)
+h = torch.where(mask, h_sent, h_event)              # [B, db_N, D]
+\end{lstlisting}
+
+\section{DBGNNLayer: Message Passing on the De Bruijn Graph}
+
+Each DBGNN layer implements a SAGEConv-style update directly on $[B, |\calV_\calB|, D]$
+tensors, without PyTorch Geometric overhead:
+\begin{equation}
+  \bh_i^{(\ell+1)} = \text{ReLU}\!\left(\bW_{\text{self}}^{(\ell)} \bh_i^{(\ell)} + \bW_{\text{agg}}^{(\ell)} \cdot \frac{1}{\deg^-(i)} \sum_{j : j \to i} \bh_j^{(\ell)}\right),
+  \label{eq:db_layer}
+\end{equation}
+where $\deg^-(i) = |\{j : (j,i) \in \calE_\calB\}|$ is the in-degree of De
+Bruijn node $i$.
+
+\subsection{Scatter-Add Implementation}
+
+The mean aggregation is implemented via \texttt{scatter\_add\_} on a preallocated
+buffer, avoiding any Python loops over edges:
+\begin{lstlisting}[caption={DBGNNLayer forward (from \texttt{gnn/dbgnn.py}).}]
+def forward(self, h, edge_index):  # h: [B, db_N, D]
+    B, db_N, D = h.shape
+    src, dst = edge_index[0], edge_index[1]
+
+    h_src = h[:, src, :]                        # [B, E, D]
+    dst_idx = dst.view(1, -1, 1).expand(B, -1, D)
+    agg_sum = h.new_zeros(B, db_N, D)
+    agg_sum.scatter_add_(1, dst_idx, h_src)
+
+    deg = h.new_zeros(db_N)
+    deg.scatter_add_(0, dst, torch.ones(E, device=h.device))
+    deg = deg.clamp(min=1).view(1, db_N, 1)
+
+    agg_mean = agg_sum / deg
+    return F.relu(self.W_self(h) + self.W_agg(agg_mean))
+\end{lstlisting}
+
+\section{Readout}
+
+After $L$ layers of message passing, the embedding of the \emph{end-time
+sentinel} $(n, n, t_{\max})$ is used as the representation of original node $n$:
+\begin{equation}
+  \bh_n^{\text{node}} = \bh_{\text{sentinel\_end\_indices}[n]}^{(L)}.
+  \label{eq:db_readout}
+\end{equation}
+This is a direct index lookup, not a pooling operation. The end-time sentinel
+receives messages from all event nodes that terminate at node $n$ by time
+$t_{\max}$, aggregating the full causal walk evidence for that node.
+
+\begin{equation}
+  \text{score}(n) = \bW_{\text{out}} \bh_n^{\text{node}} \in \R,
+\end{equation}
+then susceptible masking and log-softmax.
+
+\section{Configuration}
+
+\begin{lstlisting}[language=bash,caption={DBGNN config (\texttt{exp/france\_office/dbgnn.yml}).}]
+model: dbgnn
+
+train:
+  n_mc: 500
+  reps: 3
+  test_size: 0.20
+  batch_size: 64
+  epochs: 500
+  patience: 20
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 42
+
+dbgnn:
+  hidden_channels: 64
+  num_conv_layers: 3
+  conv_type: sage
+  dropout_rate: 0.2
+\end{lstlisting}
+
+\section{Complexity Discussion}
+
+The De Bruijn graph has $|\calV_\calB| = O(|\calE^t|)$ nodes (one per contact
+event plus sentinels). For the \texttt{france\_office} network with
+$|\calE^t| \approx 9\,600$ unique temporal edges (counting both directions), this
+gives approximately 19\,200 event nodes plus $N = 232$ sentinel nodes. The De
+Bruijn edge count is bounded by $|\calE_\calB| \leq |\calV_\calB|^2$ in the
+worst case but is typically $O(|\calV_\calB| \cdot \bar{d})$ where $\bar{d}$ is
+the mean in-degree in $\calB$. The per-batch memory footprint is $O(B \cdot
+|\calV_\calB| \cdot D)$, which can be large for high-resolution temporal networks.
+
+% ============================================================
+\chapter{DAG-GNN: Temporal Event Graph GNN}
+\label{chap:dag_gnn}
+% ============================================================
+
+\section{Paper References}
+
+\begin{enumerate}
+  \item Rey, Shi, Buciluä, and Smola, ``Directed Acyclic Graph Convolutional
+    Networks,'' arXiv:2506.12218 (2025).
+  \item Saramäki and Holme, ``Weighted Temporal Event Graphs,''
+    arXiv:1912.03904 (2019).
+\end{enumerate}
+
+The implementation in \texttt{gnn/dag\_gnn.py} adapts Rey et al.'s DAG
+convolution to the temporal event graph representation of Saramäki et al.
+
+\section{Motivation: Why a DAG?}
+
+The temporal event graph (TEG) is naturally a DAG because causal edges point
+strictly forward in time. This has important consequences for message passing:
+
+\begin{enumerate}
+  \item \textbf{No cycles}: Information cannot loop back through earlier events.
+    This means we can process the graph in a single topological sweep.
+  \item \textbf{Backward propagation}: By reversing the DAG edges, information
+    flows from \emph{late events} (near $t_{\text{end}}$) toward \emph{early
+    events} (near $t=0$, where the source is). This aligns the information flow
+    with the source detection task.
+  \item \textbf{Exact inference}: On a DAG, belief propagation is exact (no
+    loops to iterate over). While our model is approximate (learned weights,
+    fixed layers), the DAG structure removes one source of approximation error.
+\end{enumerate}
+
+\section{Feature Initialisation}
+
+Each event node $e_{uvt}$ (representing the directed contact $u \to v$ at time
+$t$) is initialised by concatenating the SIR states of the source and
+destination nodes:
+\begin{equation}
+  \bh_e^{(0)} = \text{ReLU}\!\left(\bW_{\text{proj}} \cdot [\bx_u, \bx_v]^\top\right), \quad \bW_{\text{proj}} \in \R^{D \times 6}.
+  \label{eq:dag_init}
+\end{equation}
+
+\begin{lstlisting}[caption={DAG-GNN event feature initialisation.}]
+x_src = x[:, ev_src, :]              # [B, n_events, 3]
+x_dst = x[:, ev_dst, :]              # [B, n_events, 3]
+h = F.relu(self.proj_event(
+    torch.cat([x_src, x_dst], dim=-1)))  # [B, n_events, D]
+\end{lstlisting}
+
+\section{DAG Reversal and Backward Propagation}
+
+The forward causal edges are reversed before message passing:
+\begin{equation}
+  \text{rev\_edge\_index} = \text{flip}(\text{dag\_edge\_index},\, \text{dim}=0),
+\end{equation}
+so an edge $e_1 \to e_2$ in the forward DAG (meaning $t(e_1) < t(e_2)$) becomes
+$e_2 \to e_1$ in the reversed DAG. In the reversed DAG, information flows from
+late events to early events.
+
+\section{DAGConvLayer}
+
+\begin{equation}
+  \bh_e^{(\ell+1)} = \text{ReLU}\!\left(\bW_{\text{self}}^{(\ell)} \bh_e^{(\ell)} + \bW_{\text{agg}}^{(\ell)} \cdot \frac{1}{\deg^-_{\text{rev}}(e)} \sum_{e' : e' \to e \text{ in rev}} \bh_{e'}^{(\ell)}\right).
+  \label{eq:dag_layer}
+\end{equation}
+
+In the reversed DAG, the in-neighbours of event $e$ are all events $e'$ such
+that $e \to e'$ in the \emph{forward} DAG (i.e., $e'$ happens after $e$ and is
+causally enabled by $e$). Thus, the aggregation at $e$ collects evidence from
+all events that $e$ could have caused.
+
+The implementation is structurally identical to DBGNNLayer, operating on the
+reversed edge index.
+
+\section{Readout: Events to Original Nodes}
+
+After $L$ DAGConv layers, event embeddings are aggregated back to original
+nodes. For node $v$, we aggregate all events where node $v$ was the
+\emph{arriving} node (i.e., $v$ received the contact):
+\begin{equation}
+  \bh_v^{\text{node}} = \frac{1}{|\{e : \text{event\_to\_node}[e] = v\}|} \sum_{e : \text{event\_to\_node}[e] = v} \bh_e^{(L)}.
+  \label{eq:dag_readout}
+\end{equation}
+
+The rationale for aggregating over \emph{arriving} events (not departing) is
+that the source node $s$ is the origin of transmission chains — all events in
+which information from $s$ eventually propagates will be on paths leading
+\emph{to} the infected nodes. Aggregating over arriving events at each node
+captures the accumulated causal evidence pointing toward that node as a
+potential source.
+
+\begin{lstlisting}[caption={DAG-GNN readout: events to nodes.}]
+node_emb = torch.zeros(B, N, D, device=x.device)
+dst_idx  = ev_dst.view(1, -1, 1).expand(B, n_events, D)
+node_emb.scatter_add_(1, dst_idx, h)        # sum over arriving events
+
+# Mean normalisation
+count = torch.zeros(N, device=x.device)
+count.scatter_add_(0, ev_dst, torch.ones(n_events, device=x.device))
+count = count.clamp(min=1).view(1, N, 1)
+node_emb = node_emb / count
+\end{lstlisting}
+
+\section{Handling Isolated Nodes}
+
+Nodes that have no arriving events (i.e., no temporal contacts pointed at them)
+receive a zero embedding from the scatter-add. The \texttt{clamp(min=1)} in the
+mean normalisation prevents division by zero. Their score after the final linear
+layer will be zero before the susceptible mask is applied; if they are
+susceptible they will be masked to $-\infty$, otherwise they will receive a
+finite but relatively low score.
+
+\section{Configuration}
+
+\begin{lstlisting}[language=bash,caption={DAG-GNN config (\texttt{exp/france\_office/dag\_gnn.yml}).}]
+model: dag_gnn
+
+train:
+  n_mc: 500
+  reps: 3
+  test_size: 0.20
+  batch_size: 64
+  epochs: 500
+  patience: 20
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 42
+
+dag_gnn:
+  hidden_channels: 64
+  num_conv_layers: 3
+  dropout_rate: 0.2
+  agg: mean
+  delta_t: null
+\end{lstlisting}
+
+\section{Effect of the $\delta t$ Parameter}
+
+When \texttt{delta\_t} is set to a finite integer $\delta$, only causal edges
+$(e_1, e_2)$ with $t(e_2) - t(e_1) \leq \delta$ are included in the DAG. This
+limits the temporal reach of causal connections and can significantly reduce the
+edge count for dense contact sequences. Setting $\delta t = 1$ restricts to
+\emph{immediately consecutive} events, which is the most conservative
+interpretation of causality in a discrete-time model.
+
+% ============================================================
+\chapter{Training Pipeline}
+\label{chap:training}
+% ============================================================
+
+\section{Data Structures}
+
+\subsection{TSIRData}
+
+The \texttt{TSIRData} dataclass (defined in \texttt{setup/data\_loader.py}) holds
+all simulation outputs for a single network and set of SIR parameters:
+
+\begin{lstlisting}[caption={TSIRData dataclass fields.}]
+@dataclass
+class TSIRData:
+    config: dict            # original YAML config dict
+    n_nodes: int            # N
+    n_runs: int             # ground-truth runs per source
+    mc_runs: int            # MC training runs per source
+    mc_S:    np.ndarray     # [N, mc_runs, N] int8 -- S state
+    mc_I:    np.ndarray     # [N, mc_runs, N] int8 -- I state
+    mc_R:    np.ndarray     # [N, mc_runs, N] int8 -- R state
+    truth_S: np.ndarray     # [N, n_runs, N] int8 -- S state
+    truth_I: np.ndarray     # [N, n_runs, N] int8 -- I state
+    truth_R: np.ndarray     # [N, n_runs, N] int8 -- R state
+    maximal_outbreak: np.ndarray  # [N, N]
+    possible: np.ndarray    # [N, n_runs, N]
+    lik_possible: np.ndarray      # [N, n_runs, N]
+\end{lstlisting}
+
+The index convention for all three-dimensional arrays is
+\texttt{[source, run, node]}: entry \texttt{mc\_S[s, r, v]} equals 1 if node
+$v$ is in state $S$ in run $r$ of the MC simulation started from source $s$.
+
+\subsection{SIRDataset: Constructing Training Samples}
+
+The MC simulations are unrolled into a flat dataset of (observation, label)
+pairs:
+\begin{lstlisting}[caption={Flattening MC simulations into training samples.}]
+# mc_S: [N, mc_runs, N] -> reshape to [N*mc_runs, N]
+n_total = n_nodes * mc_runs
+S = mc_S.reshape(n_total, n_nodes)
+I = mc_I.reshape(n_total, n_nodes)
+R = mc_R.reshape(n_total, n_nodes)
+X = np.stack([S, I, R], axis=-1)   # [N*mc_runs, N, 3]
+
+# Source label: repeat each source index mc_runs times
+y = np.repeat(np.arange(n_nodes), mc_runs)  # [N*mc_runs]
+# y[s * mc_runs + r] = s (source index)
+\end{lstlisting}
+
+The dataset has $N \times n_{\text{mc}}$ samples. Each sample is a tuple
+$(\mathbf{X}_i, y_i)$ where $\mathbf{X}_i \in \{0,1\}^{N \times 3}$ is the
+SIR state snapshot and $y_i \in \{0,\ldots,N-1\}$ is the true source index.
+
+\section{Train/Validation Split}
+
+The dataset is split with a stratified train/test split (scikit-learn
+\texttt{train\_test\_split}) with \texttt{test\_size=0.20} or \texttt{0.30}
+depending on the model config. Stratification is by source node index $y$,
+ensuring that each source is represented in both train and validation sets.
+
+Index pairs $(s, r)$ are the unit of splitting, not individual samples,
+preserving the dependency structure within a run.
+
+\section{Training Loop}
+
+\begin{algorithm}[H]
+\caption{Training Loop with Early Stopping}
+\SetAlgoLined
+\KwIn{Dataset $(X, y)$, model $f_\theta$, epochs $E$, patience $P$, batch size $B$}
+\KwOut{Best model parameters $\theta^*$}
+Split $(X_{\text{train}}, y_{\text{train}}), (X_{\text{val}}, y_{\text{val}})$ from $(X, y)$\;
+$\theta^* \leftarrow \theta$, $\mathcal{L}^*_{\text{val}} \leftarrow +\infty$, counter $\leftarrow 0$\;
+\For{epoch $= 1, \ldots, E$}{
+  Shuffle $X_{\text{train}}$\;
+  \For{each mini-batch $\{(\mathbf{X}_i, y_i)\}_{i \in \mathcal{B}}$}{
+    $\hat{\ell}_i = f_\theta(\mathbf{X}_i)$ \tcp*{forward pass}
+    $\mathcal{L} = -\frac{1}{|\mathcal{B}|}\sum_i \hat{\ell}_i[y_i]$ \tcp*{NLL loss}
+    $\theta \leftarrow \theta - \eta \nabla_\theta \mathcal{L}$ \tcp*{Adam step}
+  }
+  $\mathcal{L}_{\text{val}} = \frac{1}{|X_{\text{val}}|}\sum_i -\hat{\ell}_i[y_i]$\;
+  \If{$\mathcal{L}_{\text{val}} < \mathcal{L}^*_{\text{val}}$}{
+    $\theta^* \leftarrow \theta$, $\mathcal{L}^*_{\text{val}} \leftarrow \mathcal{L}_{\text{val}}$, counter $\leftarrow 0$\;
+  }
+  \Else{
+    counter $\leftarrow$ counter $+ 1$\;
+    \If{counter $\geq P$}{
+      Restore $\theta^*$\; \textbf{break}\;
+    }
+  }
+}
+\Return $\theta^*$\;
+\end{algorithm}
+
+The Adam optimiser is used with weight decay (L2 regularisation):
+\begin{equation}
+  \theta_{t+1} = \theta_t - \eta \cdot \hat{m}_t / (\sqrt{\hat{v}_t} + \epsilon) - \lambda \theta_t,
+\end{equation}
+with $\eta = 0.001$, $\lambda = 0.0005$ (or $0.0001$ for BacktrackingNetwork).
+
+\section{Inference on Ground-Truth Simulations}
+
+After training, the model is evaluated on the ground-truth simulations. The
+$N \times n_{\text{runs}}$ snapshots from \texttt{truth\_S/I/R} are stacked into
+a tensor $\mathbf{X}_{\text{truth}} \in \{0,1\}^{N \cdot n_{\text{runs}} \times N \times 3}$
+and passed through the model in batches of 64 to produce log-probabilities.
+
+The log-probabilities are exponentiated to obtain probabilities and then
+corrected by \texttt{lik\_possible} (see Equation~\ref{eq:lik_correction}).
+
+\section{Repetitions}
+
+Each experiment is run \texttt{reps: 3} times with different random seeds for
+weight initialisation and data shuffling. Evaluation metrics are reported as
+mean and standard deviation across repetitions.
+
+% ============================================================
+\chapter{Evaluation Metrics}
+\label{chap:metrics}
+% ============================================================
+
+All metrics are computed in \texttt{eval/scores.py}. Let $\mathbf{p}^{(r)} \in
+[0,1]^N$ be the predicted probability vector for run $r$, and let $s^{(r)}$ be
+the true source for run $r$. Let $\text{rank}^{(r)}$ be the rank (1-indexed) of
+the true source $s^{(r)}$ in the descending ordering of $\mathbf{p}^{(r)}$:
+\begin{equation}
+  \text{rank}^{(r)} = 1 + |\{v : p_v^{(r)} > p_{s^{(r)}}^{(r)}\}|.
+\end{equation}
+
+Let $\text{sel}$ be the set of valid runs (those with at least
+\texttt{min\_outbreak} infected nodes, default 2).
+
+\section{Top-$k$ Accuracy}
+
+\begin{equation}
+  \text{Top-}k = \frac{1}{|\text{sel}|} \sum_{r \in \text{sel}} \mathbf{1}[\text{rank}^{(r)} \leq k].
+\end{equation}
+Reported for $k \in \{1, 3, 5\}$. Top-1 is the fraction of runs where the model
+identifies the correct source as the single most probable candidate.
+
+\section{Inverse Rank Score}
+
+\begin{equation}
+  \text{InvRank}(\delta) = \frac{1}{|\text{sel}|} \sum_{r \in \text{sel}} \frac{1 + \delta}{\text{rank}^{(r)} + \delta},
+\end{equation}
+where $\delta \geq 0$ is an offset parameter (\texttt{inverse\_rank\_offset}).
+With $\delta = 0$: perfect score (rank 1) gives 1.0, rank 2 gives 0.5, rank
+$N$ gives $1/N$.
+
+\section{Normalised Brier Score}
+
+\begin{equation}
+  \text{BS}_{\text{norm}} = \frac{1}{|\text{sel}|} \sum_{r \in \text{sel}} \frac{1}{2/N} \cdot \frac{1}{N} \sum_v (p_v^{(r)} - \mathbf{1}[v = s^{(r)}])^2.
+\end{equation}
+The normalisation by $2/N$ makes the score 1.0 for a uniform distribution and
+0 for a perfect prediction. Smaller is better.
+
+\section{Credible Set Coverage}
+
+The $p$-credible set for run $r$ is the smallest set $C_r$ of nodes such that
+$\sum_{v \in C_r} p_v^{(r)} \geq p$. The credible set score is:
+\begin{equation}
+  \text{CS}(p) = \frac{1}{|\text{sel}|} \sum_{r \in \text{sel}} \mathbf{1}[s^{(r)} \in C_r],
+\end{equation}
+measuring the fraction of runs where the true source is contained in the
+$p$-credible set. A well-calibrated model with $p=0.90$ should achieve
+$\text{CS}(0.90) \approx 0.90$.
+
+\section{Normalised Entropy}
+
+\begin{equation}
+  H_{\text{norm}} = \frac{1}{|\text{sel}|} \sum_{r \in \text{sel}} \frac{-\sum_v p_v^{(r)} \log p_v^{(r)}}{\log N}.
+\end{equation}
+This measures the concentration of the predicted distribution. Uniform gives
+$H_{\text{norm}} = 1.0$; a point mass gives $H_{\text{norm}} = 0$.
+
+\section{Practical Reporting}
+
+In the \texttt{wandb} logs, metrics are reported under keys such as:
+\begin{itemize}[noitemsep]
+  \item \texttt{eval/top\_1}, \texttt{eval/top\_3}, \texttt{eval/top\_5}
+  \item \texttt{eval/rank\_score\_off0} (inverse rank with $\delta=0$)
+  \item \texttt{eval/brier\_score}, \texttt{eval/entropy}
+\end{itemize}
+
+% ============================================================
+\chapter{Baselines}
+\label{chap:baselines}
+% ============================================================
+
+Non-ML baselines are evaluated in \texttt{main\_eval.py} on the same
+\texttt{TSIRData} artefact as the GNN models, ensuring a fair comparison.
+
+\section{Uniform}
+
+\begin{equation}
+  p_v^{\text{unif}} = \frac{1}{N} \quad \forall\, v \in \calV.
+\end{equation}
+This is the trivial baseline (random guessing without information). Expected
+Top-1 accuracy is $1/N$.
+
+\section{Degree Centrality}
+
+\begin{equation}
+  p_v^{\text{deg}} = \frac{\deg_{\text{inf}}(v)}{\sum_u \deg_{\text{inf}}(u)},
+\end{equation}
+where $\deg_{\text{inf}}(v)$ is the degree of node $v$ in the subgraph induced
+by infected nodes ($I \cup R$). The rationale is that epidemic sources tend to
+be highly connected; high-degree nodes in the infected subgraph are more likely
+to have initiated the spread.
+
+\section{Closeness Centrality}
+
+\begin{equation}
+  p_v^{\text{close}} \propto \frac{N_{\text{inf}} - 1}{\sum_{u \in I \cup R} d(v, u)},
+\end{equation}
+where $d(v, u)$ is the shortest-path distance on the infected subgraph. Sources
+are expected to be central (short paths to all infected nodes).
+
+\section{Jordan Center}
+
+\begin{definition}{Jordan Center}
+The Jordan center of the infected subgraph is the node minimising the
+eccentricity (maximum distance to any infected node):
+\begin{equation}
+  v^* = \argmin_{v \in I \cup R} \max_{u \in I \cup R} d(v, u).
+  \label{eq:jordan_center}
+\end{equation}
+\end{definition}
+
+The Jordan center is the standard network-science heuristic for source
+detection, inspired by the result of Shah \& Zaman (2011) that rumour centrality
+is maximised at the centroid of the infected subgraph on regular trees. On
+irregular or temporal networks it is an approximation.
+
+\section{Betweenness Centrality}
+
+\begin{equation}
+  p_v^{\text{betw}} \propto \sum_{s \neq v \neq t} \frac{\sigma_{st}(v)}{\sigma_{st}},
+\end{equation}
+where $\sigma_{st}$ is the number of shortest paths from $s$ to $t$ on the
+infected subgraph and $\sigma_{st}(v)$ is the number of those passing through
+$v$. Nodes controlling many shortest paths may be structural ``gatekeepers''
+that are more likely to have seeded the epidemic.
+
+\begin{table}[H]
+\centering
+\caption{Summary of non-ML baselines.}
+\label{tab:baselines}
+\begin{tabular}{lll}
+\toprule
+Baseline & Score & Complexity \\
+\midrule
+Uniform & $1/N$ for all nodes & $O(1)$ \\
+Degree & Degree in infected subgraph & $O(|I \cup R|)$ \\
+Closeness & Closeness centrality & $O(|I \cup R|^2)$ \\
+Betweenness & Betweenness centrality & $O(|I \cup R|^3)$ \\
+Jordan center & Minimise eccentricity & $O(|I \cup R|^2)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+\chapter{Experimental Setup and Hypotheses}
+\label{chap:experiments}
+% ============================================================
+
+\section{Network and SIR Parameter Combinations}
+
+Each network in Table~\ref{tab:networks} is paired with a YAML config directory
+under \texttt{exp/}. For example, \texttt{exp/france\_office/} contains
+\texttt{tsir.yml}, \texttt{static\_gnn.yml}, \texttt{backtracking.yml},
+\texttt{temporal\_gnn.yml}, \texttt{dbgnn.yml}, \texttt{dag\_gnn.yml}, and
+\texttt{eval.yml}.
+
+\subsection{Standard Experiments}
+
+For each network, each of the five GNN models and five non-ML baselines is
+evaluated under the default SIR parameters. The \texttt{france\_office} network
+is the primary benchmark network because it is large enough to be non-trivial
+($N=232$) but small enough to run all models in reasonable time.
+
+\subsection{Sweep: Varying Transmission Rate $\beta$ (H2)}
+
+\begin{table}[H]
+\centering
+\caption{$\beta$-sweep experimental conditions (all on \texttt{france\_office},
+  $\mu = 0.20$ fixed).}
+\label{tab:beta_sweep}
+\begin{tabular}{lll}
+\toprule
+Directory & $\beta$ & Effective $R_0$ (approx.) \\
+\midrule
+\texttt{sweep\_vary\_beta/beta010} & 0.10 & $\sim$0.75 \\
+\texttt{sweep\_vary\_beta/beta020} & 0.20 & $\sim$1.50 \\
+\texttt{sweep\_vary\_beta/beta030} & 0.30 & $\sim$2.25 \\
+\texttt{sweep\_vary\_beta/beta050} & 0.50 & $\sim$3.75 \\
+\texttt{sweep\_vary\_beta/beta070} & 0.70 & $\sim$5.25 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+At $\beta = 0.10$ with $\mu = 0.20$, the effective $R_0 < 1$ and most outbreaks
+die out quickly (sparse, localised spread). At $\beta = 0.70$, nearly the entire
+network is infected in every run, making the true source difficult to identify
+from network structure alone.
+
+\textbf{Expected outcome (H2)}: At low $\beta$, only a small subset of the
+causal paths was activated. Preserving the ordering (DBGNN, DAG-GNN) should
+give a larger advantage over StaticGNN than at high $\beta$, where the static
+projection is sufficient to capture the widespread infection.
+
+\subsection{Sweep: Varying Observation Time (H3)}
+
+\begin{table}[H]
+\centering
+\caption{Observation time sweep (all on \texttt{france\_office}).}
+\label{tab:obs_sweep}
+\begin{tabular}{lll}
+\toprule
+Directory & $t_{\text{end}}$ (fraction of $T$) & Fraction of time elapsed \\
+\midrule
+\texttt{sweep\_vary\_observation/t25} & 68 & 25\% \\
+\texttt{sweep\_vary\_observation/t50} & 137 & 50\% \\
+\texttt{sweep\_vary\_observation/t75} & 205 & 75\% \\
+\texttt{sweep\_vary\_observation/t100} & 274 & 100\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Early observation (25\% of $T$ elapsed) means the epidemic has just started;
+the infected set is small and the causal chains are short. Late observation
+(100\%) means the epidemic has run its full course; many nodes are in $R$ and
+the infected subgraph is large.
+
+\textbf{Expected outcome (H3)}: At 25\% observation, temporal models should
+retain relatively high accuracy because the short causal chains are captured
+well by the De Bruijn or DAG structure. StaticGNN may degrade more severely
+because the infected subgraph is too sparse to provide centrality signals.
+
+\section{Wandb Artefact Lineage}
+
+Every run in the pipeline is tracked in the \texttt{source-detection} wandb
+project. The data flow follows:
+
+\begin{enumerate}
+  \item \texttt{main\_tsir.py} produces an artefact (e.g.,
+    \texttt{france\_office:v0}) containing binary SIR arrays and the network
+    pickle.
+  \item Each model training run (\texttt{main\_train.py}) loads this artefact,
+    trains, logs metrics, and saves probability tensors to
+    \texttt{data/<run\_id>/probs\_rep\{n\}.pt}.
+  \item Baseline evaluation (\texttt{main\_eval.py}) loads the same artefact
+    and logs its metrics alongside the model runs.
+\end{enumerate}
+
+All runs are tagged with their model name (e.g., \texttt{model:dbgnn}) and
+network name (e.g., \texttt{france\_office}) for easy filtering in the wandb
+dashboard.
+
+% ============================================================
+\chapter{Implementation Details and Code Architecture}
+\label{chap:implementation}
+% ============================================================
+
+\section{Model Registry}
+
+The model registry (\texttt{gnn/registry.py}) provides a unified interface for
+instantiating and running all five models. Each model is registered as a
+\texttt{ModelSpec} containing four callables:
+
+\begin{lstlisting}[caption={ModelSpec dataclass (from \texttt{gnn/registry.py}).}]
+@dataclass
+class ModelSpec:
+    cls:        Type[torch.nn.Module]  # model class
+    forward_fn: Callable               # (model, x_batch, graph_data, device) -> [B,N]
+    builder_fn: Callable               # (H, **kwargs) -> dict
+    build_fn:   Callable               # (model_cfg, n_nodes, graph_data) -> model
+\end{lstlisting}
+
+The training loop accesses a model only through its \texttt{ModelSpec}, keeping
+the training code agnostic to model-specific details:
+\begin{lstlisting}[caption={Generic training call via registry.}]
+spec = get_model_spec(cfg.model)        # e.g. "dbgnn"
+graph_data = spec.builder_fn(H)         # build graph representation
+model = spec.build_fn(cfg.dbgnn, n_nodes, graph_data)
+# ...
+for x_batch, y_batch in loader:
+    log_probs = spec.forward_fn(model, x_batch, graph_data, device)
+    loss = F.nll_loss(log_probs, y_batch)
+\end{lstlisting}
+
+\section{Configuration System}
+
+YAML configuration files are loaded into a \texttt{Config} object
+(\texttt{setup/read\_config.py}) supporting dot-notation access:
+\begin{lstlisting}[language=bash,caption={Structure of a complete experiment config.}]
+model: dbgnn
+
+nwk:
+  type: empirical
+  name: france_office
+  t_max: 274
+
+sir:
+  beta: 0.30
+  mu: 0.20
+  start_t: 0
+  end_t: 274
+  n_runs: 5000
+  mc_runs: 500
+
+eval:
+  min_outbreak: 2
+  top_k: [1, 3, 5]
+  inverse_rank_offset: [0]
+  n_truth: 1000
+
+train:
+  n_mc: 500
+  reps: 3
+  test_size: 0.20
+  batch_size: 64
+  epochs: 500
+  patience: 20
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 42
+
+dbgnn:
+  hidden_channels: 64
+  num_conv_layers: 3
+  conv_type: sage
+  dropout_rate: 0.2
+\end{lstlisting}
+
+\section{Binary Data Storage}
+
+SIR state arrays are stored as flat binary files with \texttt{int8} dtype to
+minimise disk space. For the \texttt{france\_office} network with $N=232$,
+$n_{\text{mc}}=500$:
+\begin{itemize}[noitemsep]
+  \item \texttt{monte\_carlo\_S.bin}: $232 \times 500 \times 232 = 26\,912\,000$ bytes $\approx 25.7$ MB.
+  \item Same for \texttt{\_I} and \texttt{\_R}.
+  \item Ground-truth files: $232 \times 5000 \times 232 \approx 257$ MB each.
+\end{itemize}
+
+Loading is done with \texttt{np.fromfile} and immediate reshape:
+\begin{lstlisting}[caption={Binary array loading (from \texttt{setup/data\_loader.py}).}]
+mc_S = np.fromfile(f"data/{run_id}/monte_carlo_S.bin",
+                   dtype=np.int8).reshape(n_nodes, -1, n_nodes)
+# Shape: [N, mc_runs, N]
+\end{lstlisting}
+
+\section{Batching Strategies}
+
+The five models use two different batching strategies:
+
+\textbf{PyG-style batching} (StaticGNN): Node features are flattened to
+$[B \cdot N, F]$ and the edge index is replicated $B$ times with offsets $\{0,
+N, 2N, \ldots, (B-1)N\}$. A batch vector $\mathbf{b} \in \{0,\ldots,B-1\}^{B \cdot N}$
+is used for graph-level pooling operations.
+
+\textbf{Dense batching} (BacktrackingNetwork, DBGNN, DAG-GNN, TemporalGNN):
+Node/event features are kept in $[B, N, D]$ tensors. The graph structure
+(\texttt{edge\_index}) is shared and applied identically to each batch item.
+Aggregations use \texttt{scatter\_add\_} on the batch dimension. This avoids
+the overhead of PyG's sparse batching and is more memory-efficient when the
+batch size is moderate.
+
+\section{Device Management}
+
+All models are written to be device-agnostic: graph data tensors (edge indices,
+activation patterns) are moved to the appropriate device inside \texttt{forward\_fn},
+and the training loop passes a \texttt{device} argument. The standard device
+selection is:
+\begin{lstlisting}
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+\end{lstlisting}
+
+\section{Reproducibility}
+
+Each training run sets three random seeds:
+\begin{itemize}[noitemsep]
+  \item \texttt{torch.manual\_seed(cfg.train.seed)}: PyTorch CPU operations.
+  \item \texttt{torch.cuda.manual\_seed\_all(cfg.train.seed)}: GPU operations.
+  \item \texttt{random.seed(cfg.train.seed)}: Python random (used in data shuffling).
+\end{itemize}
+With \texttt{reps: 3}, three independent repetitions are run with seeds
+\texttt{cfg.train.seed}, \texttt{cfg.train.seed + 1}, and
+\texttt{cfg.train.seed + 2}.
+
+\section{Directory Structure Summary}
+
+\begin{codebox}{Codebase Layout}
+\begin{verbatim}
+project-thesis-agents/
++-- gnn/
+|   +-- static_gnn.py        # StaticGNN model
+|   +-- temporal_gnn.py      # TemporalGNN model
+|   +-- backtracking_network.py  # BacktrackingNetwork (Ru et al.)
+|   +-- dbgnn.py             # DBGNN (Qarkaxhija et al.)
+|   +-- dag_gnn.py           # DAG-GNN (Rey et al.)
+|   +-- graph_builder.py     # Graph representation builders
+|   +-- registry.py          # ModelSpec and MODEL_REGISTRY
+|   +-- training.py          # Training loop utilities
+|   `-- predict.py           # Inference utilities
++-- setup/
+|   +-- data_loader.py       # TSIRData dataclass + wandb loading
+|   +-- read_config.py       # YAML -> Config object
+|   `-- read_network.py      # NetworkX graph loading
++-- eval/
+|   `-- scores.py            # rank_score, top_k_score, etc.
++-- tsir/                    # C SIR simulator + Python wrapper
++-- exp/                     # Experiment configs (YAML)
+|   +-- france_office/
+|   +-- sweep_vary_beta/
+|   `-- sweep_vary_observation/
++-- nwk/                     # Network data files
++-- data/                    # Simulation outputs (binary arrays)
++-- main_tsir.py             # Step 1: Run simulations
++-- main_train.py            # Step 2: Train GNN models
+`-- main_eval.py             # Step 3: Evaluate baselines
+\end{verbatim}
+\end{codebox}
+
+% ============================================================
+\chapter{Conclusion}
+\label{chap:conclusion}
+% ============================================================
+
+\section{Summary of Technical Content}
+
+This guide has covered the complete technical stack of the master's thesis
+project. The following is a condensed summary of the key points.
+
+\textbf{Problem}: Given a temporal contact network and a snapshot of an SIR
+epidemic state at $t_{\text{end}}$, identify the most probable source node.
+This is a posterior inference problem that we solve discriminatively using
+supervised GNNs trained on Monte Carlo simulations.
+
+\textbf{Data}: The C-based temporal SIR simulator (adapted from Holme 2020)
+produces ground-truth and MC simulation runs for every possible source node.
+Data is stored as binary \texttt{int8} arrays and versioned via wandb artefacts.
+
+\textbf{Representations}: Five graph representations are derived from the
+temporal contact sequence, ranging from the fully information-losing static
+projection to the causally-exact temporal event DAG. The representations form
+a hierarchy of temporal information: static projection $\subset$ activation
+patterns $\subset$ snapshots $\subset$ De Bruijn graph $\approx$ temporal event
+DAG.
+
+\textbf{Models}: All five models (StaticGNN, TemporalGNN, BacktrackingNetwork,
+DBGNN, DAG-GNN) output $\log P(\text{source} = v \mid \mathbf{O}) \in \R^N$,
+apply a hard susceptible mask, and are trained with NLL loss. They differ in
+which graph representation they consume and how they implement message passing.
+
+\textbf{Training}: Adam optimiser, early stopping on validation NLL, stratified
+train/val split, 3 independent repetitions per experiment.
+
+\textbf{Evaluation}: Five metrics (Top-$k$, inverse rank, Brier score, credible
+set coverage, entropy) computed on 1000 ground-truth test runs, compared against
+five non-ML baselines (uniform, degree, closeness, betweenness, Jordan center).
+
+\textbf{Experiments}: Standard per-network evaluation plus two parameter sweeps
+testing hypotheses H2 (varying $\beta$) and H3 (varying observation time).
+
+\section{Model Comparison at a Glance}
+
+\begin{table}[H]
+\centering
+\caption{Comparison of the five GNN architectures.}
+\label{tab:model_comparison}
+\begin{tabular}{llllp{4cm}}
+\toprule
+Model & Representation & Temporal info & Node count & Distinguishing feature \\
+\midrule
+StaticGNN & Static graph & None & $N$ & Flexible MLP + GConv, skip connections \\
+TemporalGNN & Snapshots & Ordering & $N$ & Separate conv per snapshot \\
+BacktrackingNet & Activation patterns & Partial & $N$ & Edge textures $\mathbf{a}_{uv} \in \{0,1\}^T$ \\
+DBGNN & De Bruijn graph & Full causal walks & $O(|\calE^t|)$ & Higher-order causal paths \\
+DAG-GNN & Temporal event DAG & Full DAG & $2|\calE^t|$ & Backward propagation on DAG \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Open Questions and Future Directions}
+
+\begin{enumerate}
+  \item \textbf{Scalability}: DBGNN and DAG-GNN both have $O(|\calE^t|)$ nodes
+    in their expanded graphs. For the \texttt{students} network with
+    $|\calE^t| \approx 185\,000$, this produces $\approx 370\,000$ event nodes,
+    potentially exceeding GPU memory for reasonable batch sizes. Sampling
+    strategies or sparse approximations may be needed.
+  \item \textbf{Unknown observation time}: The current formulation assumes
+    $t_{\text{end}}$ is known. In practice one may observe a snapshot without
+    knowing how long the epidemic has been running. Marginalising over $t_{\text{end}}$
+    is an open problem.
+  \item \textbf{Partial observation}: Only a fraction of nodes may have known
+    states (sparse observation). Pinto et al. (2012) address this for Gaussian
+    infection time models; the extension to GNNs is unexplored.
+  \item \textbf{Multiple sources}: The current setup assumes a single source.
+    Dong et al. (2019) study multi-source detection; temporal extensions are
+    open.
+  \item \textbf{HYPA-DBGNN}: Von Pichowski et al. (2024) propose using
+    Hypergeometric Graph Ensembles to identify statistically anomalous temporal
+    patterns in the De Bruijn graph, which could serve as a better inductive
+    bias for source detection than the vanilla DBGNN.
+\end{enumerate}
+
+% ============================================================
+% BIBLIOGRAPHY (abbreviated; expand with full BibTeX entries)
+% ============================================================
+\begin{thebibliography}{99}
+
+\bibitem{holme2020}
+  P.~Holme,
+  ``Fast and general simulation of SIR epidemics on temporal contact networks,''
+  \emph{PLoS Computational Biology}, 2021.
+
+\bibitem{qarkaxhija2022}
+  L.~Qarkaxhija, V.~Perri, and I.~Scholtes,
+  ``De Bruijn Goes Neural: Causality-Aware Graph Neural Networks for Time Series
+  Data on Dynamic Graphs,''
+  arXiv:2209.08311, 2022.
+
+\bibitem{rey2025}
+  M.~Rey, Y.~Shi, O.~Buciluä, and A.~Smola,
+  ``Directed Acyclic Graph Convolutional Networks,''
+  arXiv:2506.12218, 2025.
+
+\bibitem{saramaki2019}
+  J.~Saramäki and P.~Holme,
+  ``Weighted Temporal Event Graphs,''
+  arXiv:1912.03904, 2019.
+
+\bibitem{ru2023}
+  Y.~Ru, A.~Hayhoe, and A.~Ortega,
+  ``Inferring Patient Zero on Temporal Networks via Graph Neural Networks,''
+  \emph{AAAI 2023}.
+
+\bibitem{shah2011}
+  D.~Shah and T.~Zaman,
+  ``Rumors in a Network: Who's the Culprit?,''
+  \emph{IEEE Transactions on Information Theory}, 57(8), 2011.
+
+\bibitem{pinto2012}
+  P.~C.~Pinto, P.~Thiran, and M.~Vetterli,
+  ``Locating the Source of Diffusion in Large-Scale Networks,''
+  \emph{Physical Review Letters}, 109:068702, 2012.
+
+\bibitem{dong2019}
+  M.~Dong, T.~Zheng, N.~Duffield, and T.~He,
+  ``Multiple Rumor Source Detection with Graph Convolutional Networks,''
+  \emph{ACM CIKM}, 2019.
+
+\bibitem{hamilton2017}
+  W.~Hamilton, Z.~Ying, and J.~Leskovec,
+  ``Inductive Representation Learning on Large Graphs (GraphSAGE),''
+  \emph{NeurIPS}, 2017.
+
+\bibitem{gilmer2017}
+  J.~Gilmer, S.~S.~Schütt, F.~Becker, M.~Müller, and K.-R.~Müller,
+  ``Neural Message Passing for Quantum Chemistry (MPNN),''
+  \emph{ICML}, 2017.
+
+\bibitem{sterchi2025}
+  M.~Sterchi, P.~Brack, and R.~Hilfiker,
+  ``GNNs for Source Detection: Review and Benchmark,'' 2025.
+
+\bibitem{vonpichowski2024}
+  A.~von~Pichowski, I.~Scholtes, and collaborators,
+  ``Inference of Sequential Patterns for Higher-Order Analysis of Temporal Event
+  Data,'' 2024.
+
+\end{thebibliography}
+
+\end{document}

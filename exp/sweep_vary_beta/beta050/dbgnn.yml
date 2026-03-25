@@ -1,0 +1,21 @@
+model: dbgnn
+eval:
+  min_outbreak: 2
+  top_k: [1, 3, 5]
+  inverse_rank_offset: [0]
+  n_truth: 1000
+train:
+  n_mc: 500
+  reps: 3
+  test_size: 0.20
+  batch_size: 64
+  epochs: 500
+  patience: 20
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 42
+dbgnn:
+  hidden_channels: 64
+  num_conv_layers: 3
+  conv_type: sage
+  dropout_rate: 0.2

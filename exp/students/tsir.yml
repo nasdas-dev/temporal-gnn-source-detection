@@ -1,0 +1,12 @@
+nwk:
+  type: empirical
+  name: students
+  t_max: 671         # 671 time steps
+
+sir:
+  beta: 0.10         # lower beta for larger network to avoid trivial outbreaks
+  mu: 0.05
+  start_t: 0
+  end_t: 671
+  n_runs: 1000       # reduced for 666-node network (memory)
+  mc_runs: 200
