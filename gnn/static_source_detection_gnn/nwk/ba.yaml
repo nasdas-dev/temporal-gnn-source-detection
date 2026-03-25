@@ -1,0 +1,4 @@
+graph: BA
+n: 100
+m: 4
+weights: false

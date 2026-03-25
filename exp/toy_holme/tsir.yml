@@ -1,0 +1,12 @@
+nwk:
+  type: empirical
+  name: toy_holme
+  t_max: 7           # full network (time_steps = 7)
+
+sir:
+  beta: 0.30
+  mu: 0.20
+  start_t: 0
+  end_t: 7
+  n_runs: 5000       # ground-truth runs per source
+  mc_runs: 500       # Monte Carlo training runs per source

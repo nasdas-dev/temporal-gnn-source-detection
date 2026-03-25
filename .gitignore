@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Data and artifacts (large binary files)
+data/
+wandb/
+*.bin
+*.npy
+*.npz
+
+# C compiled artifacts
+tsir/o/
+tsir/tsir
+iba/o/
+iba/iba
+gnn/static_source_detection_gnn/sir/o/
+gnn/static_source_detection_gnn/sir/sir
+**/*.o
+**/*.so
+
+# LaTeX build artifacts
+thesis/*.aux
+thesis/*.log
+thesis/*.out
+thesis/*.toc
+thesis/*.lof
+thesis/*.lot
+thesis/*.synctex*
+thesis/test.*
+thesis/technical_guide.aux
+thesis/technical_guide.log
+thesis/technical_guide.out
+thesis/technical_guide.toc
+
+# Windows Zone.Identifier files
+*Zone.Identifier
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Memory (local only)
+memory/
+
+# OS
+.DS_Store

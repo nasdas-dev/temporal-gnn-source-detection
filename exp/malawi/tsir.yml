@@ -1,0 +1,12 @@
+nwk:
+  type: empirical
+  name: malawi
+  t_max: 321         # full network (t_max from CSV)
+
+sir:
+  beta: 0.30
+  mu: 0.20
+  start_t: 0
+  end_t: 321
+  n_runs: 5000
+  mc_runs: 500
