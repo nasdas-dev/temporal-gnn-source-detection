@@ -26,6 +26,7 @@ import wandb
 import yaml
 
 from eval import compute_ranks, top_k_score, rank_score
+from eval.benchmark import soft_margin as _soft_margin, mcs_mean_field as _mcs_mean_field
 from setup import setup_methods_run, load_tsir_data
 
 
@@ -114,7 +115,8 @@ def compute_baseline_probs(
     ----------
     baseline:
         One of ``uniform``, ``random``, ``degree``, ``closeness``,
-        ``betweenness``, ``jordan_center``.
+        ``betweenness``, ``jordan_center``, ``soft_margin``,
+        ``mcs_mean_field``.
     H_static:
         Static (undirected) projection of the temporal network.
 
@@ -187,6 +189,26 @@ def compute_baseline_probs(
                 scores_dict = {n: float(max_ecc - e) for n, e in ecc.items()}
             except Exception:
                 scores_dict = {n: 1.0 for n in G_sub.nodes()}
+
+        elif baseline == "soft_margin":
+            probs[flat_idx] = _soft_margin(
+                H_static=H_static,
+                truth_S=S_snap,
+                truth_I=I_snap,
+                truth_R=R_snap,
+                possible=poss,
+            )
+            continue
+
+        elif baseline == "mcs_mean_field":
+            probs[flat_idx] = _mcs_mean_field(
+                H_static=H_static,
+                truth_S=S_snap,
+                truth_I=I_snap,
+                truth_R=R_snap,
+                possible=poss,
+            )
+            continue
 
         else:
             raise ValueError(f"Unknown baseline: '{baseline}'")

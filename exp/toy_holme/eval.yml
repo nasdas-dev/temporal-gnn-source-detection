@@ -1,6 +1,6 @@
 eval:
   min_outbreak: 2
-  top_k: [1, 3]          # 4-node network, top-3 = top-75%
+  top_k: [1, 3, 5]       # standardized across all model configs
   inverse_rank_offset: [0]
   n_truth: 1000
 
@@ -11,3 +11,5 @@ baselines:
   - closeness
   - betweenness
   - jordan_center
+  - soft_margin
+  - mcs_mean_field
