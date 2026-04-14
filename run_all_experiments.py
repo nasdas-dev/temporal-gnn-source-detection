@@ -281,6 +281,7 @@ def stage_train(
         f"sir.mc_runs={MC_RUNS}",
         f"sir.n_runs={N_RUNS}",
         f"train.n_mc={MC_RUNS}",
+        f"eval.n_truth={N_RUNS}",
     ]
 
     rc, stdout = _run(cmd, log_path=log_path, dry_run=dry_run)
@@ -323,6 +324,7 @@ def stage_eval(
         "python", "main_eval.py",
         "--cfg",  cfg_path,
         "--data", f"{artifact_name}:latest",
+        "--override", f"eval.n_truth={N_RUNS}",
     ]
 
     rc, stdout = _run(cmd, log_path=log_path, dry_run=dry_run)
