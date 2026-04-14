@@ -44,7 +44,32 @@ def parse_args() -> argparse.Namespace:
                    help="Eval config YAML, e.g. exp/toy_holme/eval.yml")
     p.add_argument("--data", required=True,
                    help="W&B artifact reference, e.g. toy_holme:latest")
+    p.add_argument("--override", nargs="*", default=[],
+                   metavar="KEY=VALUE",
+                   help="Override config values, e.g. --override eval.n_truth=50")
     return p.parse_args()
+
+
+def _apply_overrides(cfg_dict: dict, overrides: list[str]) -> None:
+    """Apply ``key.subkey=value`` overrides to a nested config dict in-place."""
+    for item in overrides:
+        if "=" not in item:
+            raise ValueError(f"Override '{item}' must be in key=value or key.subkey=value format")
+        key_path, raw_val = item.split("=", 1)
+        keys = key_path.strip().split(".")
+        for cast in (int, float):
+            try:
+                raw_val = cast(raw_val)
+                break
+            except ValueError:
+                pass
+        else:
+            if raw_val.lower() in ("true", "false"):
+                raw_val = raw_val.lower() == "true"
+        node = cfg_dict
+        for k in keys[:-1]:
+            node = node.setdefault(k, {})
+        node[keys[-1]] = raw_val
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +256,8 @@ def main() -> None:
     # -----------------------------------------------------------------------
     with open(args.cfg) as f:
         cfg_dict = yaml.safe_load(f)
+
+    _apply_overrides(cfg_dict, args.override)
 
     eval_cfg  = cfg_dict["eval"]
     baselines = cfg_dict["baselines"]
