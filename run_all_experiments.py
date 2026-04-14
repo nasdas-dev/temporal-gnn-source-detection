@@ -65,10 +65,11 @@ import yaml
 # Networks that have a complete exp/<name>/tsir.yml config.
 # pig_data / test are excluded: no proper exp configs yet.
 #
-# NOTE: escort has 14 783 nodes — its tsir.yml uses n_runs=2 / mc_runs=5.
-# The global N_RUNS=50 / MC_RUNS=1000 overrides applied below will produce
-# arrays that are ~10 GB each and will almost certainly OOM.  escort is
-# therefore listed last; use --networks to exclude it if memory is limited:
+# NOTE: escort (14 783 nodes) and pig_data (12 352 nodes) have per-network
+# tsir.yml configs with n_runs=2 / mc_runs=5.  The global N_RUNS=50 /
+# MC_RUNS=1000 overrides applied below will produce arrays that are ~10 GB
+# each and will almost certainly OOM.  Both are listed last; exclude them
+# if memory is limited:
 #   python run_all_experiments.py --networks france_office karate_static ...
 NETWORKS: list[str] = [
     "france_office",
@@ -78,6 +79,7 @@ NETWORKS: list[str] = [
     "students",
     "toy_holme",
     "escort",
+    "pig_data",
 ]
 
 # GNN models (each has exp/<network>/<model>.yml)

@@ -1,0 +1,23 @@
+model: temporal_gnn
+
+eval:
+  min_outbreak: 3
+  top_k: [1, 3, 5, 10]
+  credible_p: [0.80, 0.90]
+  inverse_rank_offset: [0]
+  n_truth: 50
+
+train:
+  n_mc: 5
+  reps: 2
+  test_size: 0.20
+  batch_size: 16
+  epochs: 200
+  patience: 20
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 42
+
+temporal_gnn:
+  hidden_channels: 32
+  group_by_time: 250    # bin 3 286 days into ~13 snapshots

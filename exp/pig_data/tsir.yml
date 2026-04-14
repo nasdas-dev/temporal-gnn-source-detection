@@ -1,0 +1,29 @@
+# SIR simulation config — pig_data network (livestock trade contacts, ~12 352 nodes)
+#
+# !! MEMORY WARNING !!
+# Ground-truth arrays are shaped [n_nodes × n_runs, n_nodes] int8.
+# At 12 352 nodes each n_run adds ~153 MB per array (×3 = 459 MB per run).
+#
+#   n_runs=2  → truth S/I/R  ≈ 0.9 GB on disk
+#   mc_runs=5 → mc    S/I/R  ≈ 2.3 GB on disk
+#
+# Do NOT use the global N_RUNS=50 / MC_RUNS=1000 overrides from
+# run_all_experiments.py for this network.  Run pig_data standalone:
+#
+#   python main_tsir.py --cfg exp/pig_data/tsir.yml --data pig_data
+
+nwk:
+  type: empirical
+  name: pig_data
+  t_max: 3286         # full network (time_steps = 3 286 days, ~9 years)
+
+sir:
+  # β=0.10, μ=0.01 → 10 % per-contact transmission, ~100-day infectious period.
+  # Models a livestock disease (e.g. ASF) spreading through directed trade links.
+  # Mean degree ≈ 77; contacts are sparse per day (~0.012 per node per step).
+  beta: 0.10
+  mu: 0.01
+  start_t: 0
+  end_t: 3286
+  n_runs: 2           # ground-truth runs per source node — keep ≤ 5 (see above)
+  mc_runs: 5          # Monte Carlo training runs per source — keep ≤ 10 (see above)
