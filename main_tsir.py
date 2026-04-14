@@ -21,7 +21,7 @@ Output artifact contents (``data/<wandb_run_id>/``)
 ``possible_sources.bin``       — shape [n_nodes, n_runs, n_nodes] int8
 ``network.gpickle``            — NetworkX temporal graph
 ``ground_truth.txt``           — per-source SIR log
-``monte_carlo.txt``            — Monte Carlo SIR log
+``monte_carlo.txt``            — Monte Carlo SIR log/
 ``maximal_outbreak.txt``       — maximal outbreak SIR log
 """
 
