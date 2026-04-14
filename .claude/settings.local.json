@@ -6,7 +6,8 @@
       "Bash(grep:*)",
       "Bash(python3:*)",
       "Bash(ls:*)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(WANDB_MODE=offline timeout 300 python -u main_eval.py --cfg exp/toy_holme/eval.yml --data l5s6bop3)"
     ]
   }
 }
