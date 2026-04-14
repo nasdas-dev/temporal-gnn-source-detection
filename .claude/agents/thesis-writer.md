@@ -86,6 +86,20 @@ Write thesis sections as markdown files in `thesis/chapters/`. Use:
 - Citations as `\cite{authorYear}`
 - Cross-references as `\ref{sec:label}`
 
+## Evaluation Metrics Reference
+When writing results sections, these are the canonical metrics (all in `eval/metrics.py`):
+
+| Metric | Key | Range | Better |
+|--------|-----|-------|--------|
+| Mean Reciprocal Rank (MRR) | `eval/mrr` | (0, 1] | ↑ higher |
+| Top-k accuracy | `eval/top_1`, `top_3`, `top_5`, `top_10` | [0, 1] | ↑ higher |
+| Proper Brier score | `eval/brier` | [0, 2] | ↓ lower |
+| Normalised Brier | `eval/norm_brier` | [0, ∞) | 1.0 = uniform baseline; < 1.0 is good |
+| Normalised entropy | `eval/norm_entropy` | [0, 1] | lower = more confident predictions |
+| Credible set coverage | `eval/cred_cov_90` | [0, 1] | ↑ higher (true source in 90% credible set) |
+
+W&B summary keys follow pattern `eval/{metric}_mean` and `eval/{metric}_std` (averaged over reps).
+
 ## What NOT to Do
 - Do NOT invent results or statistics — only report what's in the data/logs
 - Do NOT plagiarize from papers — paraphrase and cite

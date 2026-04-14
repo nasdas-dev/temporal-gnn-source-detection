@@ -24,13 +24,17 @@ For implementing a new model from a paper:
 All experiments follow the same pipeline. Step 1 must run before the others.
 ```bash
 # 1. Generate SIR simulations → stored as wandb artifact
-python main_tsir.py --cfg exp/exp_1_vary_n/erdos_renyi/tsir.yml --data exp_1_vary_n.erdos_renyi
+python main_tsir.py --cfg exp/toy_holme/tsir.yml --data toy_holme
 
-# 2. Run inference methods (each loads the artifact from step 1 via wandb)
-python main_gnn.py   # config embedded in wandb sweep / yml
+# 2. Train GNN model (logs MRR, Top-k, Brier, entropy, credible coverage to wandb)
+#    Saves eval_arrays_rep{r}.npz alongside probs for lightweight viz loading
+python main_train.py --cfg exp/toy_holme/backtracking.yml --data toy_holme:latest
+#    Override individual config values without editing YAML:
+python main_train.py --cfg exp/toy_holme/backtracking.yml --data toy_holme:latest \
+    --override train.n_mc=100 train.reps=1
 
-# 3. Evaluate baselines (uniform, random, degree, Jordan center)
-python main_eval.py --cfg exp/exp_1_vary_n/erdos_renyi/eval.yml --data <artifact_reference>
+# 3. Evaluate baselines (all metrics logged, eval_arrays_{baseline}.npz saved)
+python main_eval.py --cfg exp/toy_holme/eval.yml --data toy_holme:latest
 
 # Visualize results
 python viz/plot_vary_n.py
@@ -69,8 +73,32 @@ run_bn_toy_example.py
 | `tsir/` | C implementation of temporal SIR + Python wrapper |
 | `gnn/` | PyTorch Geometric models: `StaticGNN`, `TemporalGNN`, `BacktrackingNetwork` |
 | `setup/` | Config loading, network reading, wandb run setup, artifact loading |
-| `eval/` | Scoring functions: rank_score, top_k_score, etc. |
+| `eval/` | Scoring functions + centralised metric computation |
 | `viz/` | Plotting utilities |
+
+### Evaluation module (`eval/`)
+All metric computation is centralised in `eval/metrics.py`:
+
+- **`compute_all_metrics(probs, lik_possible, truth_S_flat, eval_cfg, n_nodes, n_runs)`**
+  Returns a flat `dict[str, float]` with the full metric suite:
+  `eval/mrr`, `eval/top_{k}`, `eval/rank_score_off{o}`, `eval/brier`,
+  `eval/norm_brier`, `eval/norm_entropy`, `eval/cred_cov_{p_int}`, `eval/n_valid`.
+  Called by both `main_train.py` and `main_eval.py`.
+
+- **`per_sample_arrays(probs, lik_possible, truth_S_flat, eval_cfg, n_nodes, n_runs)`**
+  Returns `{ranks, outbreak_sizes, sel, true_sources}` as numpy arrays.
+  Saved as `data/<run_id>/eval_arrays_rep{r}.npz` (training) or
+  `data/<run_id>/eval_arrays_{baseline}.npz` (baselines) for viz scripts.
+
+### Eval config keys (all `exp/*/eval.yml` and model YAMLs)
+```yaml
+eval:
+  min_outbreak: 2           # minimum infected nodes for a valid run
+  top_k: [1, 3, 5, 10]     # top-k accuracy thresholds
+  inverse_rank_offset: [0]  # rank score offset (0 = pure MRR)
+  n_truth: 1000             # ground-truth runs to evaluate per rep
+  credible_p: [0.80, 0.90]  # credible set coverage thresholds
+```
 
 ### Configuration system
 YAML configs (under `exp/`) are loaded into `Config` objects (`setup/read_config.py`) that support dot-notation access (e.g. `cfg.nwk.name`, `cfg.sir.beta`). Key top-level sections:

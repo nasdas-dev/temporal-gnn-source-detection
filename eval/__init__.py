@@ -3,3 +3,4 @@ from .factorized_likelihood import log_likelihood, source_probabilities
 from .benchmark import average_rank, sampled_rank, uniform_probabilities
 from .ranks import compute_ranks
 from .independent_nodes import independent_nodes
+from .metrics import compute_all_metrics, per_sample_arrays

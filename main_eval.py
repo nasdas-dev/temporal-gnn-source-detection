@@ -18,6 +18,7 @@ configs) and a ``baselines`` list selecting which heuristics to run.
 from __future__ import annotations
 
 import argparse
+import os
 from typing import Iterator
 
 import networkx as nx
@@ -25,7 +26,7 @@ import numpy as np
 import wandb
 import yaml
 
-from eval import compute_ranks, top_k_score, rank_score
+from eval import compute_all_metrics, per_sample_arrays
 from eval.benchmark import soft_margin as _soft_margin, mcs_mean_field as _mcs_mean_field
 from setup import setup_methods_run, load_tsir_data
 
@@ -234,8 +235,6 @@ def main() -> None:
     eval_cfg  = cfg_dict["eval"]
     baselines = cfg_dict["baselines"]
     n_truth   = eval_cfg["n_truth"]
-    top_k_vals = eval_cfg["top_k"]
-    offsets    = eval_cfg["inverse_rank_offset"]
 
     # -----------------------------------------------------------------------
     # 2. W&B initialisation
@@ -301,18 +300,40 @@ def main() -> None:
             n_truth   = n_truth,
         )   # [n_nodes * n_truth, n_nodes]
 
-        log_probs = np.log(np.clip(probs, 1e-12, 1.0)) - lik_possible
-        ranks = compute_ranks(log_probs, n_nodes=n_nodes, n_runs=n_truth)
+        metrics = compute_all_metrics(
+            probs        = probs,
+            lik_possible = lik_possible,
+            truth_S_flat = truth_S_flat,
+            eval_cfg     = eval_cfg,
+            n_nodes      = n_nodes,
+            n_runs       = n_truth,
+        )
+        metrics["model"] = baseline
 
-        metrics: dict[str, float] = {"model": baseline}
+        top_k_vals = eval_cfg["top_k"]
+        offsets    = eval_cfg["inverse_rank_offset"]
+        n_valid    = int(metrics["eval/n_valid"])
+        print(f"  Valid outbreaks: {n_valid} / {n_nodes * n_truth}")
+        print(f"  MRR           : {metrics['eval/mrr']:.4f}")
         for k in top_k_vals:
-            score = float(top_k_score(ranks, sel, k))
-            metrics[f"eval/top_{k}"] = score
-            print(f"  top-{k}: {100 * score:.1f}%")
-        for o in offsets:
-            rs = float(rank_score(ranks, sel, o))
-            metrics[f"eval/rank_score_off{o}"] = rs
-            print(f"  rank_score (offset={o}): {rs:.4f}")
+            print(f"  top-{k:<2}         : {100 * metrics[f'eval/top_{k}']:.1f}%")
+        print(f"  Norm. Brier   : {metrics['eval/norm_brier']:.4f}")
+        print(f"  Norm. Entropy : {metrics['eval/norm_entropy']:.4f}")
+
+        # Save per-sample arrays for viz scripts
+        os.makedirs(f"data/{wandb.run.id}", exist_ok=True)
+        arrays = per_sample_arrays(
+            probs        = probs,
+            lik_possible = lik_possible,
+            truth_S_flat = truth_S_flat,
+            eval_cfg     = eval_cfg,
+            n_nodes      = n_nodes,
+            n_runs       = n_truth,
+        )
+        np.savez_compressed(
+            f"data/{wandb.run.id}/eval_arrays_{baseline}.npz",
+            **arrays,
+        )
 
         # Log this baseline as its own W&B step (keyed by baseline name)
         wandb.log({
@@ -325,27 +346,45 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # 5. Summary table
     # -----------------------------------------------------------------------
+    top_k_vals = eval_cfg["top_k"]
+    offsets    = eval_cfg["inverse_rank_offset"]
+    credible_ps = eval_cfg.get("credible_p", [0.90])
+
     print("\n" + "=" * 60)
     print("Summary")
     print("=" * 60)
-    header = ["baseline"] + [f"top_{k}" for k in top_k_vals] + [f"rs_off{o}" for o in offsets]
+    col_keys = (
+        ["model"]
+        + [f"eval/mrr"]
+        + [f"eval/top_{k}" for k in top_k_vals]
+        + [f"eval/rank_score_off{o}" for o in offsets]
+        + ["eval/norm_brier", "eval/norm_entropy"]
+        + [f"eval/cred_cov_{int(round(p*100))}" for p in credible_ps]
+    )
+    header = (
+        ["baseline", "MRR"]
+        + [f"top_{k}" for k in top_k_vals]
+        + [f"rs_off{o}" for o in offsets]
+        + ["norm_brier", "norm_entropy"]
+        + [f"cred_{int(round(p*100))}" for p in credible_ps]
+    )
     print("  " + "  ".join(f"{h:>12}" for h in header))
     for row in summary_rows:
         vals = [row["model"]]
-        for k in top_k_vals:
-            vals.append(f"{100 * row[f'eval/top_{k}']:.1f}%")
-        for o in offsets:
-            vals.append(f"{row[f'eval/rank_score_off{o}']:.4f}")
+        for key in col_keys[1:]:
+            v = row.get(key, float("nan"))
+            if "top_" in key:
+                vals.append(f"{100 * v:.1f}%")
+            else:
+                vals.append(f"{v:.4f}")
         print("  " + "  ".join(f"{v:>12}" for v in vals))
 
-    # Log comparison table to wandb
+    # Log expanded comparison table to wandb
     table = wandb.Table(columns=header)
     for row in summary_rows:
         table_row = [row["model"]]
-        for k in top_k_vals:
-            table_row.append(row[f"eval/top_{k}"])
-        for o in offsets:
-            table_row.append(row[f"eval/rank_score_off{o}"])
+        for key in col_keys[1:]:
+            table_row.append(row.get(key, float("nan")))
         table.add_data(*table_row)
     wandb.log({"baselines_comparison": table})
 

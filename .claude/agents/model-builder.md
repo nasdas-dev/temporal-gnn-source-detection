@@ -91,7 +91,8 @@ After implementing any model:
 - [ ] Forward pass accepts PyG `Data` object
 - [ ] Output is `log_softmax` over nodes (consistent with existing models)
 - [ ] Model is registered in `gnn/__init__.py`
-- [ ] A default YAML config exists in `exp/` or the model has sensible defaults
+- [ ] A YAML config exists in `exp/<network>/` with the full eval section:
+      `eval: {min_outbreak: 2, top_k: [1,3,5,10], inverse_rank_offset: [0], n_truth: 1000, credible_p: [0.80, 0.90]}`
 - [ ] Docstring includes paper reference and notation mapping
 - [ ] Type hints on all methods
 
