@@ -1,5 +1,5 @@
 directed: no
 original_start:
 original_end:
-time_steps:
-time_granularity:
+time_steps: 1232
+time_granularity: days

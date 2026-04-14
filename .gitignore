@@ -54,5 +54,10 @@ thesis/technical_guide.toc
 # Memory (local only)
 memory/
 
+# Generated figures and experiment results
+figures/
+results/
+viz/eval_dragon/
+
 # OS
 .DS_Store
