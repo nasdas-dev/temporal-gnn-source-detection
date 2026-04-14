@@ -1,0 +1,14 @@
+eval:
+  min_outbreak: 3
+  top_k: [1, 3, 5, 10]
+  credible_p: [0.80, 0.90]
+  inverse_rank_offset: [0]
+  n_truth: 50
+
+baselines:
+  - uniform
+  - random
+  - degree
+  - closeness
+  - betweenness
+  - jordan_center

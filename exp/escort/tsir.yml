@@ -1,0 +1,31 @@
+# SIR simulation config — escort network (Brazilian escort contacts, ~14 783 nodes)
+#
+# !! MEMORY WARNING !!
+# Ground-truth arrays are shaped [n_nodes × n_runs, n_nodes] int8.
+# At 14 783 nodes each n_run adds ~218 MB per array (×3 = 654 MB per run).
+# The Monte Carlo arrays are equally large.  Keep n_runs and mc_runs very small.
+#
+#   n_runs=2  → truth S/I/R  ≈ 1.3 GB on disk
+#   mc_runs=5 → mc    S/I/R  ≈ 3.3 GB on disk
+#
+# Do NOT use the global N_RUNS=50 / MC_RUNS=1000 overrides from
+# run_all_experiments.py for this network — it would require ~50 GB of disk.
+# Run escort experiments standalone:
+#
+#   python main_tsir.py --cfg exp/escort/tsir.yml --data escort
+
+nwk:
+  type: empirical
+  name: escort
+  t_max: 1232         # full network (time_steps = 1 232 days)
+
+sir:
+  # β=0.05, μ=0.02 → per-contact transmission 5 %, recovery ~2 % per day.
+  # Mean degree ≈ 5.9; these values produce partial epidemics realistic for
+  # an STD-like spread on a sparse long-duration contact network.
+  beta: 0.05
+  mu: 0.02
+  start_t: 0
+  end_t: 1232
+  n_runs: 2           # ground-truth runs per source node — keep ≤ 5 (see above)
+  mc_runs: 5          # Monte Carlo training runs per source — keep ≤ 10 (see above)
