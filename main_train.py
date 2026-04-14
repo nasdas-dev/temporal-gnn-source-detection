@@ -38,7 +38,7 @@ torch.set_num_threads(1)
 import wandb
 import yaml
 
-from eval import compute_ranks, top_k_score, rank_score
+from eval import compute_all_metrics, per_sample_arrays
 from gnn import MODEL_REGISTRY, get_model_spec
 from setup import setup_methods_run, load_tsir_data
 from training import SIRDataset, Trainer
@@ -51,7 +51,33 @@ def parse_args() -> argparse.Namespace:
                    help="Model config YAML, e.g. exp/toy_holme/backtracking.yml")
     p.add_argument("--data", required=True,
                    help="W&B artifact reference, e.g. toy_holme:latest")
+    p.add_argument("--override", nargs="*", default=[],
+                   metavar="KEY=VALUE",
+                   help="Override config values, e.g. --override train.n_mc=100 train.reps=1")
     return p.parse_args()
+
+
+def _apply_overrides(cfg_dict: dict, overrides: list[str]) -> None:
+    """Apply ``key.subkey=value`` overrides to a nested config dict in-place."""
+    for item in overrides:
+        if "=" not in item:
+            raise ValueError(f"Override '{item}' must be in key=value or key.subkey=value format")
+        key_path, raw_val = item.split("=", 1)
+        keys = key_path.strip().split(".")
+        # Try to cast value to int/float/bool, fall back to str
+        for cast in (int, float):
+            try:
+                raw_val = cast(raw_val)
+                break
+            except ValueError:
+                pass
+        else:
+            if raw_val.lower() in ("true", "false"):
+                raw_val = raw_val.lower() == "true"
+        node = cfg_dict
+        for k in keys[:-1]:
+            node = node.setdefault(k, {})
+        node[keys[-1]] = raw_val
 
 
 def _builder_kwargs(model_name: str, model_cfg: dict) -> dict:
@@ -73,6 +99,8 @@ def main() -> None:
     # ---------------------------------------------------------------
     with open(args.cfg) as f:
         cfg_dict = yaml.safe_load(f)
+
+    _apply_overrides(cfg_dict, args.override)
 
     model_name = cfg_dict["model"]
     train_cfg  = cfg_dict["train"]
@@ -150,8 +178,8 @@ def main() -> None:
     n_truth    = eval_cfg["n_truth"]
     reps       = train_cfg["reps"]
 
-    all_top_k   = {k: [] for k in top_k_vals}
-    all_rs      = {o: [] for o in offsets}
+    # Aggregation buffers keyed by metric name (filled per rep, averaged in summary)
+    rep_metric_lists: dict[str, list[float]] = {}
 
     torch.manual_seed(train_cfg["seed"])
     np.random.seed(train_cfg["seed"])
@@ -200,34 +228,51 @@ def main() -> None:
             batch_size = 256,
         )   # [n_nodes * n_truth, n_nodes]
 
-        # --- Compute ranks & metrics ---
+        # --- Compute all metrics ---
         lik_possible = data.lik_possible[:, select_truth, :].reshape(-1, n_nodes)
         truth_S_flat = data.truth_S[:, select_truth, :].reshape(-1, n_nodes)
-        sel = (1 - truth_S_flat).sum(axis=1) >= eval_cfg["min_outbreak"]
 
-        log_probs = np.log(np.clip(probs, 1e-12, 1.0)) - lik_possible
-        ranks = compute_ranks(log_probs, n_nodes=n_nodes, n_runs=n_truth)
+        rep_metrics = compute_all_metrics(
+            probs        = probs,
+            lik_possible = lik_possible,
+            truth_S_flat = truth_S_flat,
+            eval_cfg     = eval_cfg,
+            n_nodes      = n_nodes,
+            n_runs       = n_truth,
+        )
 
-        print(f"\n  Valid outbreaks: {sel.sum()} / {len(sel)}")
-        rep_metrics: dict[str, float] = {}
+        n_valid = int(rep_metrics["eval/n_valid"])
+        print(f"\n  Valid outbreaks: {n_valid} / {n_nodes * n_truth}")
+        print(f"  MRR           : {rep_metrics['eval/mrr']:.4f}")
         for k in top_k_vals:
-            score = float(top_k_score(ranks, sel, k))
-            rep_metrics[f"eval/top_{k}"]     = score
-            all_top_k[k].append(score)
-            print(f"  top-{k}: {100 * score:.1f}%")
-        for o in offsets:
-            rs = float(rank_score(ranks, sel, o))
-            rep_metrics[f"eval/rank_score_off{o}"] = rs
-            all_rs[o].append(rs)
-            print(f"  rank_score (offset={o}): {rs:.4f}")
+            print(f"  top-{k:<2}         : {100 * rep_metrics[f'eval/top_{k}']:.1f}%")
+        print(f"  Norm. Brier   : {rep_metrics['eval/norm_brier']:.4f}")
+        print(f"  Norm. Entropy : {rep_metrics['eval/norm_entropy']:.4f}")
 
         wandb.log({f"{k}_rep{rep}": v for k, v in rep_metrics.items()})
 
-        # Save raw model outputs for reproducibility
+        # Accumulate for cross-rep summary
+        for metric_key, val in rep_metrics.items():
+            if metric_key != "eval/n_valid":
+                rep_metric_lists.setdefault(metric_key, []).append(val)
+
+        # Save raw model outputs + lightweight eval arrays for viz scripts
         os.makedirs(f"data/{wandb.run.id}", exist_ok=True)
         torch.save(
             torch.tensor(probs),
             f"data/{wandb.run.id}/probs_rep{rep}.pt",
+        )
+        arrays = per_sample_arrays(
+            probs        = probs,
+            lik_possible = lik_possible,
+            truth_S_flat = truth_S_flat,
+            eval_cfg     = eval_cfg,
+            n_nodes      = n_nodes,
+            n_runs       = n_truth,
+        )
+        np.savez_compressed(
+            f"data/{wandb.run.id}/eval_arrays_rep{rep}.npz",
+            **arrays,
         )
 
     # ---------------------------------------------------------------
@@ -236,18 +281,16 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("Summary (mean ± std over reps)")
     print("=" * 60)
-    for k in top_k_vals:
-        vals = all_top_k[k]
-        mean, std = float(np.mean(vals)), float(np.std(vals))
-        wandb.summary[f"eval/top_{k}_mean"] = mean
-        wandb.summary[f"eval/top_{k}_std"]  = std
-        print(f"  top-{k}: {100 * mean:.1f}% ± {100 * std:.1f}%")
-    for o in offsets:
-        vals = all_rs[o]
-        mean, std = float(np.mean(vals)), float(np.std(vals))
-        wandb.summary[f"eval/rank_score_off{o}_mean"] = mean
-        wandb.summary[f"eval/rank_score_off{o}_std"]  = std
-        print(f"  rank_score (offset={o}): {mean:.4f} ± {std:.4f}")
+    for metric_key, vals in sorted(rep_metric_lists.items()):
+        mean = float(np.mean(vals))
+        std  = float(np.std(vals))
+        wandb.summary[f"{metric_key}_mean"] = mean
+        wandb.summary[f"{metric_key}_std"]  = std
+        # Human-friendly output: percentages for top_k, 4dp for scalars
+        if "top_" in metric_key:
+            print(f"  {metric_key}: {100 * mean:.1f}% ± {100 * std:.1f}%")
+        else:
+            print(f"  {metric_key}: {mean:.4f} ± {std:.4f}")
 
     wandb.summary["model/n_params"] = n_params
     wandb.summary["model/name"]     = model_name
