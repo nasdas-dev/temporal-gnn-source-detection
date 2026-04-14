@@ -112,6 +112,40 @@ YAML configs (under `exp/`) are loaded into `Config` objects (`setup/read_config
 ### wandb integration
 Every run (tsir, gnn, iba, mc, sm, eval) is tracked in the `source-detection` wandb project. Data artifacts are version-controlled; downstream runs reference upstream artifact names (e.g. `exp_1_vary_n.erdos_renyi:v0`).
 
+### Visualisation scripts (`viz/`)
+All scripts are parameterised CLI tools.  The `eval_arrays_rep{r}.npz` or
+`eval_arrays_{baseline}.npz` files produced by Phases 2/3 must exist locally.
+
+| Script | Purpose | Key args |
+|--------|---------|----------|
+| `viz/rank_vs_outbreak.py` | Rank vs. outbreak size (scatter + binned mean) | `--run-id --label --output` |
+| `viz/topk_vs_outbreak.py` | Top-k accuracy vs. outbreak size | `--run-id --k --output` |
+| `viz/training_curves.py` | Train/val NLL loss from W&B | `--run-path --output` |
+| `viz/perf_vs_n.py` | Scaling: MRR/Top-k vs. N (needs W&B) | `--artifact-prefix --metric` |
+| `viz/training_size_scaling.py` | MRR vs. n_mc training size (needs W&B) | `--artifact --metric` |
+
+All scripts import shared style from `viz/style.py` and W&B helpers from `viz/wandb_utils.py`.
+
+### Table generation (`eval/tables.py`)
+```bash
+# Network stats table — fully offline
+python -m eval.tables network_stats --networks france_office karate_static \
+    --output figures/tables/
+
+# Benchmark table — requires finished W&B runs
+python -m eval.tables benchmark --data france_office karate_static \
+    --output figures/tables/
+```
+
+### Training size sweep
+```bash
+# Run sweep (varies n_mc over 7 values, 3 reps each)
+bash run_training_size_sweep.sh --data france_office:latest
+
+# Then visualise
+python viz/training_size_scaling.py --artifact france_office
+```
+
 ## Reference Files
 - `papers/` — Paper specifications and architecture notes for each model
 - `thesis/` — Thesis draft sections in markdown

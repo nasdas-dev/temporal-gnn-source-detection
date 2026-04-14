@@ -1,0 +1,31 @@
+# Training Set Size Sweep — france_office network
+#
+# Base config for the n_mc scaling experiment.
+# This YAML is used with --override train.n_mc=N to sweep over training sizes.
+#
+# Run via: bash run_training_size_sweep.sh
+# Visualise via: python viz/training_size_scaling.py --artifact france_office
+
+model: backtracking
+
+eval:
+  min_outbreak: 2
+  top_k: [1, 3, 5, 10]
+  credible_p: [0.80, 0.90]
+  inverse_rank_offset: [0]
+  n_truth: 500          # fewer eval runs to keep sweep fast
+
+train:
+  n_mc: 500             # overridden by sweep script for each run
+  reps: 3               # keep 3 reps for reliable estimates
+  test_size: 0.20
+  batch_size: 128
+  epochs: 500
+  patience: 20
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+
+backtracking:
+  hidden_dim: 32
+  num_layers: 6

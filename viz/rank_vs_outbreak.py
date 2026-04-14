@@ -1,119 +1,230 @@
 """
-Rank vs Outbreak Size plot.
+Rank vs. Outbreak Size plot.
 
-Requires per-sample predictions saved during training:
-    data/e6tw7k64/probs_rep{0,1,2}.pt
+For each run, loads per-sample arrays from ``data/{run_id}/eval_arrays_rep*.npz``
+(saved by main_train.py / main_eval.py).  Plots a scatter of (outbreak_size, rank)
+with a binned-mean smoother and IQR band, one curve per method.
 
-Copy those files from the training machine, then run:
-    cd <project_root>
-    python viz/rank_vs_outbreak.py
+Usage
+-----
+::
+
+    # Single model
+    python viz/rank_vs_outbreak.py --run-id e6tw7k64 --output figures/rank_vs_outbreak.pdf
+
+    # Multi-model comparison (one curve per run)
+    python viz/rank_vs_outbreak.py \\
+        --run-id e6tw7k64 abc123 \\
+        --label "BacktrackingNet" "StaticGNN" \\
+        --output figures/rank_vs_outbreak_compare.pdf
+
+    # Baseline (arrays saved as eval_arrays_{baseline}.npz)
+    python viz/rank_vs_outbreak.py \\
+        --run-id <eval_run_id> --baseline uniform \\
+        --output figures/rank_vs_outbreak_uniform.pdf
 """
-import os, sys, pickle
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
 import numpy as np
-import torch
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from eval import compute_ranks
+from viz.style import apply_style, finish_fig, MODEL_COLORS, MODEL_LABELS, REP_COLORS
 
-DATA_DIR  = "data/2d25y02o"
-PROBS_DIR = "data/e6tw7k64"
-OUT_DIR   = "viz/eval_dragon"
-N_NODES   = 92
-N_RUNS    = 5000
-N_TRUTH   = 1000
-MIN_OUTBREAK = 2
-REPS      = 3
 
-plt.rcParams.update({
-    "figure.dpi": 150, "savefig.dpi": 300, "savefig.bbox": "tight",
-    "font.size": 11, "axes.spines.top": False, "axes.spines.right": False,
-})
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
-# Check probs exist
-missing = [r for r in range(REPS)
-           if not os.path.exists(f"{PROBS_DIR}/probs_rep{r}.pt")]
-if missing:
-    raise FileNotFoundError(
-        f"Missing probs for reps {missing}.\n"
-        f"Copy data/e6tw7k64/probs_rep*.pt from the training machine first."
-    )
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--run-id",   nargs="+", required=True,
+                   help="One or more local data/ run IDs, e.g. e6tw7k64 abc123")
+    p.add_argument("--label",    nargs="+", default=None,
+                   help="Display labels for each run-id (default: run-id or model key)")
+    p.add_argument("--baseline", nargs="+", default=None,
+                   help="If given, load eval_arrays_{baseline}.npz instead of rep arrays")
+    p.add_argument("--data-dir", default="data",
+                   help="Root data directory (default: data/)")
+    p.add_argument("--n-nodes",  type=int, default=None,
+                   help="Number of nodes (for y-axis limit).  Inferred from arrays if omitted.")
+    p.add_argument("--output",   default="figures/rank_vs_outbreak.pdf",
+                   help="Output PDF path")
+    p.add_argument("--no-scatter", action="store_true",
+                   help="Skip scatter plot (only smoother lines) for cleaner comparison figures")
+    return p.parse_args()
 
-# Load ground-truth data
-gt = {s: np.fromfile(f"{DATA_DIR}/ground_truth_{s}.bin", dtype=np.int8)
-         .reshape(N_NODES, N_RUNS, N_NODES) for s in "SIR"}
-possible = np.fromfile(f"{DATA_DIR}/possible_sources.bin", dtype=np.int8
-                       ).reshape(N_NODES, N_RUNS, N_NODES)
 
-all_ranks, all_sizes, all_src, all_sel = [], [], [], []
-for rep in range(REPS):
-    probs = torch.load(f"{PROBS_DIR}/probs_rep{rep}.pt",
-                       map_location="cpu").numpy()
-    sel_t  = np.arange(rep * N_TRUTH, (rep + 1) * N_TRUTH) % N_RUNS
+# ---------------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------------
 
-    S_flat = gt["S"][:, sel_t, :].reshape(-1, N_NODES)
-    I_flat = gt["I"][:, sel_t, :].reshape(-1, N_NODES)
-    R_flat = gt["R"][:, sel_t, :].reshape(-1, N_NODES)
-    poss   = possible[:, sel_t, :].reshape(-1, N_NODES)
-    lik    = np.where(poss == 1, 0.0, np.inf)
+def _load_arrays_from_npz(run_dir: str, baseline: str | None = None) -> dict[str, np.ndarray] | None:
+    """Load eval arrays from .npz files saved by main_train.py / main_eval.py.
 
-    infected = (I_flat + R_flat).sum(axis=1)
-    sel      = infected >= MIN_OUTBREAK
-    sizes    = infected / N_NODES
-    sources  = np.repeat(np.arange(N_NODES), N_TRUTH)
+    Returns None if no array files exist for this run.
+    """
+    if baseline is not None:
+        path = os.path.join(run_dir, f"eval_arrays_{baseline}.npz")
+        if os.path.exists(path):
+            d = dict(np.load(path))
+            return {k: [v] for k, v in d.items()}  # wrap in list (1 rep)
+        return None
 
-    log_p  = np.log(np.clip(probs, 1e-12, 1.0)) - lik
-    ranks  = compute_ranks(log_p, n_nodes=N_NODES, n_runs=N_TRUTH)
+    rep = 0
+    all_arrays: dict[str, list] = {}
+    while True:
+        path = os.path.join(run_dir, f"eval_arrays_rep{rep}.npz")
+        if not os.path.exists(path):
+            break
+        d = np.load(path)
+        for k, v in d.items():
+            all_arrays.setdefault(k, []).append(v)
+        rep += 1
 
-    all_ranks.append(ranks);  all_sizes.append(sizes)
-    all_src.append(sources);  all_sel.append(sel)
+    return all_arrays if all_arrays else None
 
-ranks   = np.concatenate(all_ranks)
-sizes   = np.concatenate(all_sizes)
-sources = np.concatenate(all_src)
-sel     = np.concatenate(all_sel)
 
-r = ranks[sel].astype(float)
-s = sizes[sel]
+def load_eval_arrays(run_id: str, data_dir: str, baseline: str | None = None) -> dict[str, np.ndarray]:
+    """Load and concatenate per-rep eval arrays for one run.
 
-fig, ax = plt.subplots(figsize=(6.5, 4.5))
+    Returns a dict with concatenated ``ranks``, ``outbreak_sizes``, ``sel``,
+    ``true_sources`` arrays (across all reps).
+    """
+    run_dir = os.path.join(data_dir, run_id)
+    if not os.path.isdir(run_dir):
+        raise FileNotFoundError(
+            f"Run directory not found: {run_dir}\n"
+            "Make sure the run data is in your local data/ directory."
+        )
 
-correct = r == 1
-ax.scatter(s[~correct], r[~correct], s=6, alpha=0.12, color="#5b7fa6",
-           linewidths=0, rasterized=True, label="Rank > 1")
-ax.scatter(s[correct],  r[correct],  s=6, alpha=0.30, color="#e6554a",
-           linewidths=0, rasterized=True, label="Rank 1 (correct)")
+    arrays = _load_arrays_from_npz(run_dir, baseline)
+    if arrays is None:
+        raise FileNotFoundError(
+            f"No eval_arrays*.npz files found in {run_dir}.\n"
+            "Re-run the training/eval pipeline with the updated main_train.py / main_eval.py\n"
+            "to generate lightweight .npz files alongside probs_rep*.pt."
+        )
 
-bins = np.linspace(0, 1, 16)
-cents = 0.5 * (bins[:-1] + bins[1:])
-means, p25, p75 = [], [], []
-for lo, hi in zip(bins[:-1], bins[1:]):
-    mask = (s >= lo) & (s < hi)
-    vals = r[mask] if mask.sum() > 0 else np.array([np.nan])
-    means.append(np.nanmean(vals))
-    p25.append(np.nanpercentile(vals, 25) if mask.sum() > 0 else np.nan)
-    p75.append(np.nanpercentile(vals, 75) if mask.sum() > 0 else np.nan)
+    return {k: np.concatenate(v) for k, v in arrays.items()}
 
-ca = np.array(cents); ma = np.array(means); p2a = np.array(p25); p7a = np.array(p75)
-v = ~np.isnan(ma)
-ax.fill_between(ca[v], p2a[v], p7a[v], alpha=0.20, color="black", label="IQR (25–75 %)")
-ax.plot(ca[v], ma[v], color="black", lw=2.2, zorder=5, label="Binned mean")
 
-ax.set_xlabel("Outbreak size  (fraction of N={N_NODES} nodes infected)".replace("{N_NODES}", str(N_NODES)))
-ax.set_ylabel(f"Rank of true source  (out of {N_NODES})")
-ax.set_title("Rank vs Outbreak Size\nBacktrackingNetwork — france_office  (β=0.24, μ=0.01)")
-ax.set_xlim(0, 1); ax.set_ylim(0.5, N_NODES + 0.5)
-ax.legend(loc="upper right")
+# ---------------------------------------------------------------------------
+# Plotting helpers
+# ---------------------------------------------------------------------------
 
-# Marginal histogram
-ax_top = ax.inset_axes([0, 1.04, 1, 0.16])
-ax_top.hist(s, bins=bins, color="#5b7fa6", alpha=0.7, edgecolor="none")
-ax_top.set_xlim(0, 1); ax_top.set_yticks([]); ax_top.set_xticks([])
-ax_top.spines[["top","right","left","bottom"]].set_visible(False)
+def _binned_stats(
+    sizes: np.ndarray,
+    ranks: np.ndarray,
+    n_bins: int = 15,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return bin centers, mean, p25, p75 of ranks per outbreak-size bin."""
+    bins  = np.linspace(0, 1, n_bins + 1)
+    cents = 0.5 * (bins[:-1] + bins[1:])
+    means, p25, p75 = [], [], []
+    for lo, hi in zip(bins[:-1], bins[1:]):
+        mask = (sizes >= lo) & (sizes < hi)
+        vals = ranks[mask].astype(float) if mask.sum() > 0 else np.array([np.nan])
+        means.append(float(np.nanmean(vals)))
+        p25.append(float(np.nanpercentile(vals, 25)) if mask.sum() > 0 else float("nan"))
+        p75.append(float(np.nanpercentile(vals, 75)) if mask.sum() > 0 else float("nan"))
+    return cents, np.array(means), np.array(p25), np.array(p75)
 
-os.makedirs(OUT_DIR, exist_ok=True)
-plt.tight_layout()
-plt.savefig(f"{OUT_DIR}/rank_vs_outbreak.pdf")
-print(f"Saved {OUT_DIR}/rank_vs_outbreak.pdf")
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    args = parse_args()
+    apply_style()
+
+    run_ids  = args.run_id
+    labels   = args.label or run_ids
+    baselines = args.baseline or ([None] * len(run_ids))
+
+    if len(labels) < len(run_ids):
+        labels = labels + run_ids[len(labels):]
+    if len(baselines) < len(run_ids):
+        baselines = baselines + [None] * (len(run_ids) - len(baselines))
+
+    # Choose a colour per run from MODEL_COLORS if label matches, else cycle
+    _cycle = list(MODEL_COLORS.values())
+    colors = []
+    for lbl in labels:
+        key = next((k for k, v in MODEL_LABELS.items() if v == lbl), lbl.lower().replace(" ", "_"))
+        colors.append(MODEL_COLORS.get(key, _cycle[len(colors) % len(_cycle)]))
+
+    # Load all data
+    all_data = []
+    n_nodes_global = args.n_nodes or 1
+    for run_id, bl in zip(run_ids, baselines):
+        d = load_eval_arrays(run_id, args.data_dir, bl)
+        if args.n_nodes is None:
+            # Infer n_nodes from max rank
+            n_nodes_global = max(n_nodes_global, int(d["ranks"].max()))
+        all_data.append(d)
+
+    single = len(run_ids) == 1
+
+    # ── Figure ───────────────────────────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(7, 5))
+
+    for i, (d, lbl, col) in enumerate(zip(all_data, labels, colors)):
+        sel    = d["sel"]
+        r      = d["ranks"][sel].astype(float)
+        s_arr  = d["outbreak_sizes"][sel]
+
+        # Scatter (for single-run or if not suppressed)
+        if single and not args.no_scatter:
+            correct = r == 1
+            ax.scatter(s_arr[~correct], r[~correct], s=5, alpha=0.10,
+                       color=col, linewidths=0, rasterized=True)
+            ax.scatter(s_arr[correct],  r[correct],  s=5, alpha=0.25,
+                       color="#e6554a", linewidths=0, rasterized=True,
+                       label="Rank 1 (correct)")
+
+        # Binned smoother
+        cents, means, p2a, p7a = _binned_stats(s_arr, r, n_bins=15)
+        valid = ~np.isnan(means)
+        ax.fill_between(cents[valid], p2a[valid], p7a[valid],
+                        alpha=0.15, color=col)
+        ax.plot(cents[valid], means[valid], color=col, lw=2.2,
+                zorder=5, label=lbl if not single else "Binned mean ± IQR")
+
+    ax.set_xlabel(f"Outbreak size  (fraction of N infected)")
+    ax.set_ylabel(f"Rank of true source")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0.5, n_nodes_global + 0.5)
+    ax.legend(loc="upper left", fontsize=9)
+
+    title = "Rank vs. Outbreak Size"
+    if single:
+        title += f"  —  {labels[0]}"
+    ax.set_title(title)
+
+    # Marginal histogram of outbreak sizes
+    if single:
+        sel0  = all_data[0]["sel"]
+        s_all = all_data[0]["outbreak_sizes"][sel0]
+        ax_top = ax.inset_axes([0, 1.04, 1, 0.15])
+        ax_top.hist(s_all, bins=np.linspace(0, 1, 16),
+                    color=colors[0], alpha=0.7, edgecolor="none")
+        ax_top.set_xlim(0, 1)
+        ax_top.set_yticks([])
+        ax_top.set_xticks([])
+        ax_top.spines[["top", "right", "left", "bottom"]].set_visible(False)
+
+    finish_fig(fig, args.output)
+
+
+if __name__ == "__main__":
+    main()
