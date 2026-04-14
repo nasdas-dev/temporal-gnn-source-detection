@@ -1,0 +1,26 @@
+model: dag_gnn
+
+eval:
+  min_outbreak: 3
+  top_k: [1, 3, 5, 10]
+  credible_p: [0.80, 0.90]
+  inverse_rank_offset: [0]
+  n_truth: 50
+
+train:
+  n_mc: 5
+  reps: 2
+  test_size: 0.20
+  batch_size: 16
+  epochs: 200
+  patience: 20
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 42
+
+dag_gnn:
+  hidden_channels: 32
+  num_conv_layers: 3
+  dropout_rate: 0.2
+  agg: mean
+  delta_t: 30           # causal links within ±30 days (network spans 3 286 days)
