@@ -140,7 +140,7 @@ def make_figure(
                     continue
                 vals = np.array(history[key], dtype=float)
                 ep_arr = epochs_col if len(epochs_col) == len(vals) else np.arange(len(vals), dtype=float)
-                mask = (ep_arr > zoom_skip) & np.isfinite(vals)
+                mask = (ep_arr > 3) & np.isfinite(vals)
                 all_zoom_vals.extend(vals[mask].tolist())
 
     # Zoom y-axis: clip at 98th percentile × 1.15

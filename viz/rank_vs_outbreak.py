@@ -79,16 +79,17 @@ def _load_arrays_from_npz(run_dir: str, baseline: str | None = None) -> dict[str
             return {k: [v] for k, v in d.items()}  # wrap in list (1 rep)
         return None
 
-    rep = 0
+    import glob as _glob
+    import re as _re
+    paths = sorted(
+        _glob.glob(os.path.join(run_dir, "eval_arrays_rep*.npz")),
+        key=lambda p: int(m.group(1)) if (m := _re.search(r"rep(\d+)\.npz$", p)) else 0,
+    )
     all_arrays: dict[str, list] = {}
-    while True:
-        path = os.path.join(run_dir, f"eval_arrays_rep{rep}.npz")
-        if not os.path.exists(path):
-            break
+    for path in paths:
         d = np.load(path)
         for k, v in d.items():
             all_arrays.setdefault(k, []).append(v)
-        rep += 1
 
     return all_arrays if all_arrays else None
 
