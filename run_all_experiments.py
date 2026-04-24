@@ -160,8 +160,8 @@ def _extract_run_id(stdout: str) -> str | None:
     or
         W&B run : https://wandb.ai/user/project/runs/abc12345
     """
-    # Pattern 1: run-<date>-<id>
-    m = re.search(r"wandb/run-\d{8}_\d{6}-([a-z0-9]{8})", stdout)
+    # Pattern 1: run-<date>-<id>  (online and offline modes)
+    m = re.search(r"wandb/(?:offline-)?run-\d{8}_\d{6}-([a-z0-9]{8})", stdout)
     if m:
         return m.group(1)
     # Pattern 2: /runs/<id>
