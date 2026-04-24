@@ -232,22 +232,35 @@ def main() -> None:
         )
 
     # ── Figure 3: Reciprocal rank vs outbreak size ────────────────────────────
+    # Requires eval_arrays_rep*.npz in data/<gnn_id>/ — only produced by the
+    # updated main_train.py.  Skip gracefully if the files are absent.
     if gnn_id and eval_id:
-        run_ids   = [gnn_id]  + [eval_id]  * len(BASELINES)
-        labels    = ["GNN"]   + BASELINE_LABELS
-        baselines = ["None"]  + BASELINES
+        import glob as _glob
+        npz_present = bool(_glob.glob(
+            os.path.join(args.data_dir, gnn_id, "eval_arrays_rep*.npz")
+        ))
+        if not npz_present:
+            print(
+                f"\n[viz] Skipping rank_vs_outbreak: no eval_arrays_rep*.npz in "
+                f"{args.data_dir}/{gnn_id}/\n"
+                "      Re-run the training pipeline to generate them."
+            )
+        else:
+            run_ids   = [gnn_id]  + [eval_id]  * len(BASELINES)
+            labels    = ["GNN"]   + BASELINE_LABELS
+            baselines = ["None"]  + BASELINES
 
-        _run(
-            [
-                sys.executable, "viz/rank_vs_outbreak.py",
-                "--run-id",   *run_ids,
-                "--label",    *labels,
-                "--baseline", *baselines,
-                "--data-dir", args.data_dir,
-                "--output",   os.path.join(out, "rank_vs_outbreak_compare.pdf"),
-            ],
-            "Reciprocal rank vs outbreak size (GNN + baselines)"
-        )
+            _run(
+                [
+                    sys.executable, "viz/rank_vs_outbreak.py",
+                    "--run-id",   *run_ids,
+                    "--label",    *labels,
+                    "--baseline", *baselines,
+                    "--data-dir", args.data_dir,
+                    "--output",   os.path.join(out, "rank_vs_outbreak_compare.pdf"),
+                ],
+                "Reciprocal rank vs outbreak size (GNN + baselines)"
+            )
 
     # ── Figure 4: Training curves ─────────────────────────────────────────────
     if gnn_id:

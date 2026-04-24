@@ -95,7 +95,15 @@ def fetch_run_history(
     import wandb
     api = wandb.Api()
     run = api.run(run_path)
-    return run.history(samples=samples), dict(run.summary), dict(run.config)
+    # pandas=False avoids a hard pandas dependency; returns list of row-dicts.
+    rows: list[dict] = run.history(samples=samples, pandas=False)
+    # Convert to column-oriented dict so callers can use history["key"] and
+    # "key" in history uniformly, regardless of whether pandas is installed.
+    columns: dict[str, list] = {}
+    for row in rows:
+        for k, v in row.items():
+            columns.setdefault(k, []).append(v)
+    return columns, dict(run.summary), dict(run.config)
 
 
 def best_run_per_model(
