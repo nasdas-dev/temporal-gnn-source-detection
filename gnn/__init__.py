@@ -113,12 +113,12 @@ MODEL_REGISTRY["backtracking"] = ModelSpec(
     build_fn   = _build_backtracking,
 )
 
-MODEL_REGISTRY["temporal_gnn"] = ModelSpec(
-    cls        = TemporalGNN,
-    forward_fn = temporal_gnn_forward,
-    builder_fn = build_temporal_snapshots,
-    build_fn   = _build_temporal_gnn,
-)
+# MODEL_REGISTRY["temporal_gnn"] = ModelSpec(
+#     cls        = TemporalGNN,
+#     forward_fn = temporal_gnn_forward,
+#     builder_fn = build_temporal_snapshots,
+#     build_fn   = _build_temporal_gnn,
+# )
 
 MODEL_REGISTRY["dbgnn"] = ModelSpec(
     cls        = DBGNN,

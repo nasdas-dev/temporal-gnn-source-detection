@@ -3,7 +3,7 @@ eval:
   top_k: [1, 3, 5, 10]
   credible_p: [0.80, 0.90]       # top-k accuracy thresholds
   inverse_rank_offset: [0]  # rank score offset (0 = 1/rank)
-  n_truth: 1000          # ground-truth runs to evaluate per rep
+  n_truth: 100           # 100 test scenarios per source node (= 3,400 total; matches paper)
 
 baselines:
   - uniform              # uniform over possible sources
