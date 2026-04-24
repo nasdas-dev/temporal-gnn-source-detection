@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
 def plot_curves_for_run(
     ax_full: plt.Axes,
     ax_zoom: plt.Axes,
-    history,          # pd.DataFrame from W&B
+    history: dict[str, list],   # column-dict from fetch_run_history
     summary: dict,
     label: str,
     max_reps: int,
@@ -72,22 +72,27 @@ def plot_curves_for_run(
     zoom_skip: int = 3,
 ) -> None:
     """Plot train/val curves for one W&B run onto ax_full and ax_zoom."""
+    epochs = np.array(history.get("epoch", []), dtype=float)
+
     for rep in range(max_reps):
         tr_key = f"train/loss_rep{rep}"
         va_key = f"val/loss_rep{rep}"
 
-        if tr_key not in history.columns:
+        if tr_key not in history:
             break
 
-        sub = history[["epoch", tr_key, va_key]].dropna()
-        if sub.empty:
+        tr_raw = np.array(history[tr_key], dtype=float)
+        va_raw = np.array(history.get(va_key, [np.nan] * len(tr_raw)), dtype=float)
+
+        # Drop rows where either series is NaN
+        ep = epochs if len(epochs) == len(tr_raw) else np.arange(len(tr_raw), dtype=float)
+        mask = np.isfinite(tr_raw) & np.isfinite(va_raw)
+        if mask.sum() == 0:
             break
+
+        ep, tr, va = ep[mask], tr_raw[mask], va_raw[mask]
 
         col = REP_COLORS[(rep + color_offset) % len(REP_COLORS)]
-        ep  = sub["epoch"].values
-        tr  = sub[tr_key].values
-        va  = sub[va_key].values
-
         rep_lbl = f"{label}  rep {rep + 1}" if label else f"Rep {rep + 1}"
 
         for ax in (ax_full, ax_zoom):
@@ -128,11 +133,15 @@ def make_figure(
         color_offset += min(reps, max_reps)
 
         # Collect post-warmup values for zoom y-axis
+        epochs_col = np.array(history.get("epoch", []), dtype=float)
         for rep in range(min(reps, max_reps)):
             for key in [f"train/loss_rep{rep}", f"val/loss_rep{rep}"]:
-                if key in history.columns:
-                    sub = history[history["epoch"] > 3][key].dropna()
-                    all_zoom_vals.extend(sub.tolist())
+                if key not in history:
+                    continue
+                vals = np.array(history[key], dtype=float)
+                ep_arr = epochs_col if len(epochs_col) == len(vals) else np.arange(len(vals), dtype=float)
+                mask = (ep_arr > zoom_skip) & np.isfinite(vals)
+                all_zoom_vals.extend(vals[mask].tolist())
 
     # Zoom y-axis: clip at 98th percentile × 1.15
     if all_zoom_vals:
