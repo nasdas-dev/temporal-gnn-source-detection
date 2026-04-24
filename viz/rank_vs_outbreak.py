@@ -80,11 +80,8 @@ def _load_arrays_from_npz(run_dir: str, baseline: str | None = None) -> dict[str
         return None
 
     import glob as _glob
-    import re as _re
-    paths = sorted(
-        _glob.glob(os.path.join(run_dir, "eval_arrays_rep*.npz")),
-        key=lambda p: int(m.group(1)) if (m := _re.search(r"rep(\d+)\.npz$", p)) else 0,
-    )
+    # Simple alphabetical sort is correct: rep0 < rep1 < ... for ≤9 reps.
+    paths = sorted(_glob.glob(os.path.join(run_dir, "eval_arrays_rep*.npz")))
     all_arrays: dict[str, list] = {}
     for path in paths:
         d = np.load(path)
@@ -109,8 +106,10 @@ def load_eval_arrays(run_id: str, data_dir: str, baseline: str | None = None) ->
 
     arrays = _load_arrays_from_npz(run_dir, baseline)
     if arrays is None:
+        contents = sorted(os.listdir(run_dir)) if os.path.isdir(run_dir) else []
         raise FileNotFoundError(
             f"No eval_arrays*.npz files found in {run_dir}.\n"
+            f"Directory contents: {contents}\n"
             "Re-run the training/eval pipeline with the updated main_train.py / main_eval.py\n"
             "to generate lightweight .npz files alongside probs_rep*.pt."
         )
