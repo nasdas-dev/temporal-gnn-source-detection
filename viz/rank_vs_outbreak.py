@@ -79,12 +79,20 @@ def _load_arrays_from_npz(run_dir: str, baseline: str | None = None) -> dict[str
             return {k: [v] for k, v in d.items()}  # wrap in list (1 rep)
         return None
 
-    import glob as _glob
-    # Simple alphabetical sort is correct: rep0 < rep1 < ... for ≤9 reps.
-    paths = sorted(_glob.glob(os.path.join(run_dir, "eval_arrays_rep*.npz")))
+    import re as _re
+    # Use os.listdir + filter instead of glob — glob can silently return []
+    # on some systems even when matching files exist.
+    try:
+        all_files = os.listdir(run_dir)
+    except OSError:
+        return None
+    rep_files = sorted(
+        (f for f in all_files if _re.match(r"eval_arrays_rep\d+\.npz$", f)),
+        key=lambda f: int(_re.search(r"rep(\d+)\.npz$", f).group(1)),
+    )
     all_arrays: dict[str, list] = {}
-    for path in paths:
-        d = np.load(path)
+    for fname in rep_files:
+        d = np.load(os.path.join(run_dir, fname))
         for k, v in d.items():
             all_arrays.setdefault(k, []).append(v)
 
