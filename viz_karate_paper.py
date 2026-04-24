@@ -52,6 +52,35 @@ def _run(cmd: list[str], label: str) -> None:
         print(f"    WARNING: '{label}' exited with code {result.returncode}")
 
 
+def _is_run_name(s: str) -> bool:
+    """Return True if s looks like a W&B display name (word-word-number) rather than a run ID."""
+    import re
+    return bool(re.fullmatch(r"[a-z]+-[a-z]+-\d+", s))
+
+
+def _resolve_run_id(name_or_id: str, project: str, entity: Optional[str]) -> str:
+    """If name_or_id is a W&B run name, query the API and return the real run ID.
+
+    Run names look like 'daily-darkness-63'; run IDs look like 'abc1def2'.
+    Returns the input unchanged if it already looks like an ID.
+    """
+    if not _is_run_name(name_or_id):
+        return name_or_id
+    try:
+        import wandb
+        api = wandb.Api()
+        path = f"{entity}/{project}" if entity else project
+        runs = api.runs(path, filters={"display_name": name_or_id})
+        for r in runs:
+            if r.name == name_or_id:
+                print(f"[viz] Resolved '{name_or_id}' → run ID '{r.id}'")
+                return r.id
+        print(f"[viz] WARNING: could not resolve run name '{name_or_id}' to an ID — using as-is")
+    except Exception as exc:
+        print(f"[viz] WARNING: name resolution failed ({exc}) — using '{name_or_id}' as-is")
+    return name_or_id
+
+
 def _find_runs(artifact: str, project: str, entity: Optional[str]) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Return (gnn_run_id, eval_run_id, run_path_prefix) by querying W&B.
 
@@ -136,6 +165,12 @@ def main() -> None:
     gnn_id   = args.gnn_run_id
     eval_id  = args.eval_run_id
     run_prefix = f"{args.entity}/{args.project}" if args.entity else args.project
+
+    # Resolve run names → run IDs before any lookup
+    if gnn_id is not None:
+        gnn_id = _resolve_run_id(gnn_id, args.project, args.entity)
+    if eval_id is not None:
+        eval_id = _resolve_run_id(eval_id, args.project, args.entity)
 
     if gnn_id is None or eval_id is None:
         print("[viz] Querying W&B for latest karate_static runs …")
