@@ -72,7 +72,7 @@ def _load_arrays_from_npz(run_dir: str, baseline: str | None = None) -> dict[str
 
     Returns None if no array files exist for this run.
     """
-    if baseline is not None:
+    if baseline is not None and baseline != "None":
         path = os.path.join(run_dir, f"eval_arrays_{baseline}.npz")
         if os.path.exists(path):
             d = dict(np.load(path))
