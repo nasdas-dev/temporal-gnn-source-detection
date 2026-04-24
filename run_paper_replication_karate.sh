@@ -78,3 +78,13 @@ echo ""
 echo "============================================================"
 echo " Done.  Compare wandb metrics against Table 5 targets above."
 echo "============================================================"
+
+# ── Stage 4: Figures and tables ──────────────────────────────────
+echo ""
+echo "=== Stage 4: Figures and tables ==="
+python viz_karate_paper.py \
+  --artifact "${ARTIFACT}" \
+  --output "figures/karate_replication"
+
+echo ""
+echo "Figures written to figures/karate_replication/"
