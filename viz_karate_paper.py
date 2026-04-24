@@ -93,36 +93,30 @@ def _find_runs(artifact: str, project: str, entity: Optional[str]) -> tuple[Opti
         path = f"{entity}/{project}" if entity else project
         artifact_key = artifact.split(":")[0]
 
-        # Most recent static_gnn training run for this artifact
-        gnn_runs = api.runs(
-            path,
-            filters={
-                "state": "finished",
-                "config.model": "static_gnn",
-            },
-            order="-created_at",
-        )
+        # Fetch all finished runs and filter in Python — avoids W&B config
+        # filter syntax quirks (config.model vs config.model.value etc.)
+        all_runs = api.runs(path, filters={"state": "finished"}, order="-created_at")
+
         gnn_id = None
+        eval_id = None
         gnn_entity = None
-        for r in gnn_runs:
-            if str(r.config.get("data_name", "")).startswith(artifact_key):
+
+        for r in all_runs:
+            cfg = dict(r.config)
+            data_name = str(cfg.get("data_name", ""))
+            if not data_name.startswith(artifact_key):
+                continue
+            tags = list(r.tags) if hasattr(r, "tags") else []
+            model = cfg.get("model")
+
+            if gnn_id is None and model == "static_gnn":
                 gnn_id = r.id
                 gnn_entity = r.entity
-                break
 
-        # Most recent baseline eval run for this artifact (tagged "baselines")
-        eval_runs = api.runs(
-            path,
-            filters={
-                "state": "finished",
-                "tags": "baselines",
-            },
-            order="-created_at",
-        )
-        eval_id = None
-        for r in eval_runs:
-            if str(r.config.get("data_name", "")).startswith(artifact_key):
+            if eval_id is None and "baselines" in tags:
                 eval_id = r.id
+
+            if gnn_id and eval_id:
                 break
 
         resolved_entity = gnn_entity or entity

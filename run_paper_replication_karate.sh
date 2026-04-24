@@ -62,17 +62,21 @@ fi
 # ── Stage 2: Static GNN training (3 reps, different seeds) ───────
 echo ""
 echo "=== Stage 2: Static GNN training ==="
-python main_train.py \
+GNN_OUT=$(python main_train.py \
   --cfg "exp/${NWK}/static_gnn.yml" \
-  --data "${ARTIFACT}:latest"
+  --data "${ARTIFACT}:latest" 2>&1 | tee /dev/stderr)
+GNN_RUN=$(echo "${GNN_OUT}" | grep -oP "Syncing run \K\S+" | head -1 || true)
+echo "  GNN run name: ${GNN_RUN:-unknown}"
 
 # ── Stage 3: Baselines ───────────────────────────────────────────
 echo ""
 echo "=== Stage 3: Baselines ==="
-python main_eval.py \
+EVAL_OUT=$(python main_eval.py \
   --cfg "exp/${NWK}/eval.yml" \
   --data "${ARTIFACT}:latest" \
-  --override eval.n_truth=100
+  --override eval.n_truth=100 2>&1 | tee /dev/stderr)
+EVAL_RUN=$(echo "${EVAL_OUT}" | grep -oP "Syncing run \K\S+" | head -1 || true)
+echo "  Eval run name: ${EVAL_RUN:-unknown}"
 
 echo ""
 echo "============================================================"
@@ -82,9 +86,11 @@ echo "============================================================"
 # ── Stage 4: Figures and tables ──────────────────────────────────
 echo ""
 echo "=== Stage 4: Figures and tables ==="
-python viz_karate_paper.py \
-  --artifact "${ARTIFACT}" \
-  --output "figures/karate_replication"
+VIZ_ARGS=(--artifact "${ARTIFACT}" --output "figures/karate_replication")
+[[ -n "${GNN_RUN}"  ]] && VIZ_ARGS+=(--gnn-run-id  "${GNN_RUN}")
+[[ -n "${EVAL_RUN}" ]] && VIZ_ARGS+=(--eval-run-id "${EVAL_RUN}")
+
+python viz_karate_paper.py "${VIZ_ARGS[@]}"
 
 echo ""
 echo "Figures written to figures/karate_replication/"
