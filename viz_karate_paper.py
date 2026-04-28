@@ -41,6 +41,126 @@ from typing import Optional
 
 
 # ---------------------------------------------------------------------------
+# Terminal table printer (paper Table 5 style)
+# ---------------------------------------------------------------------------
+
+_PAPER_TARGET = (
+    "  Paper target (GNN, no DA, Table 5): "
+    "Top-5=73.31%, Error=0.95, Rec.Rank=0.55, |90%CSS|=9.42, Res=0.2155"
+)
+
+# Baselines: (wandb_key, display_label, has_probability_distribution)
+_BASELINE_ROWS = [
+    ("random",         "Random",      False),
+    ("jordan_center",  "Jordan",      False),
+    ("betweenness",    "Betweenness", False),
+    ("soft_margin",    "SME",         True),
+    ("mcs_mean_field", "MCMF",        True),
+]
+
+
+def _print_paper_table(
+    gnn_id: Optional[str],
+    eval_id: Optional[str],
+    project: str,
+    entity: Optional[str],
+) -> None:
+    """Fetch W&B run summaries and print a paper-style Table 5 to stdout."""
+    if not gnn_id and not eval_id:
+        print("\n[table] No run IDs — skipping terminal table.")
+        return
+
+    try:
+        import wandb
+        api = wandb.Api()
+        base = f"{entity}/{project}" if entity else project
+
+        COL_W = 14   # column width
+
+        header_row = (
+            f"{'Method':<16} | "
+            f"{'Top-5 Acc':>{COL_W}} | "
+            f"{'Error Dist':>{COL_W}} | "
+            f"{'Rec. Rank':>{COL_W}} | "
+            f"{'|90% CSS|':>{COL_W}} | "
+            f"{'Resistance':>{COL_W}}"
+        )
+        sep = "-" * len(header_row)
+
+        print("\n" + "=" * len(header_row))
+        print(f" Karate – Benchmark Results  (cf. Table 5, Sterchi et al. 2025)")
+        print("=" * len(header_row))
+        print(header_row)
+        print(sep)
+
+        def _row(label, top5, err, mrr, css, res, top5_std=None, mrr_std=None, res_std=None):
+            def _f(v, decimals=4):
+                return f"{v:.{decimals}f}" if v is not None else "-"
+            def _t(v):
+                return f"{100*v:.2f}%" if v is not None else "-"
+            def _pm(v, s, decimals=4):
+                if v is None:
+                    return f"{'- ':>{COL_W}}"
+                if s is not None:
+                    return f"{v:.{decimals}f}(±{s:.{decimals}f})".rjust(COL_W)
+                return f"{v:.{decimals}f}".rjust(COL_W)
+            t5_cell = (
+                f"{_t(top5)}(±{100*top5_std:.2f}%)".rjust(COL_W)
+                if top5 is not None and top5_std is not None
+                else f"{_t(top5)}".rjust(COL_W) if top5 is not None
+                else f"{'-':>{COL_W}}"
+            )
+            return (
+                f"{label:<16} | "
+                f"{t5_cell} | "
+                f"{_f(err, 4):>{COL_W}} | "
+                f"{_pm(mrr, mrr_std, 4)} | "
+                f"{_f(css, 2):>{COL_W}} | "
+                f"{_pm(res, res_std, 4)}"
+            )
+
+        # --- Baselines ---
+        if eval_id:
+            eval_run = api.run(f"{base}/{eval_id}")
+            es = dict(eval_run.summary)
+            for key, label, has_probs in _BASELINE_ROWS:
+                top5 = es.get(f"{key}/eval/top_5")
+                err  = es.get(f"{key}/eval/error_dist")
+                mrr  = es.get(f"{key}/eval/mrr")
+                css  = es.get(f"{key}/eval/cred_set_size_90") if has_probs else None
+                res  = es.get(f"{key}/eval/resistance")        if has_probs else None
+                print(_row(label, top5, err, mrr, css, res))
+        else:
+            print("  (eval run not available — baseline rows skipped)")
+
+        print(sep)
+
+        # --- GNN ---
+        if gnn_id:
+            gr = api.run(f"{base}/{gnn_id}")
+            gs = dict(gr.summary)
+            print(_row(
+                "GNN",
+                gs.get("eval/top_5_mean"),    gs.get("eval/error_dist_mean"),
+                gs.get("eval/mrr_mean"),
+                gs.get("eval/cred_set_size_90_mean"),
+                gs.get("eval/resistance_mean"),
+                top5_std = gs.get("eval/top_5_std"),
+                mrr_std  = gs.get("eval/mrr_std"),
+                res_std  = gs.get("eval/resistance_std"),
+            ))
+        else:
+            print("  (GNN run not available — GNN row skipped)")
+
+        print("=" * len(header_row))
+        print(_PAPER_TARGET)
+        print("=" * len(header_row))
+
+    except Exception as exc:
+        print(f"\n[table] Could not generate terminal table: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -302,6 +422,8 @@ def main() -> None:
     print()
     print(" Compare eval/top_5 in W&B against Table 5 target: 73.31% (±0.27%)")
     print("=" * 60)
+
+    _print_paper_table(gnn_id, eval_id, args.project, args.entity)
 
 
 if __name__ == "__main__":

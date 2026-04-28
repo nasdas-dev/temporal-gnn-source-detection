@@ -28,6 +28,8 @@ import numpy as np
 from .ranks import compute_ranks
 from .scores import (
     credible_set,
+    credible_set_size_mean,
+    error_distance,
     normalized_entropy,
     proper_brier_score,
     rank_score,
@@ -102,6 +104,7 @@ def compute_all_metrics(
     eval_cfg: dict,
     n_nodes: int,
     n_runs: int,
+    H_static=None,          # nx.Graph | None — optional, enables graph metrics
 ) -> dict[str, float]:
     """Compute the full evaluation metric suite for one set of predictions.
 
@@ -184,4 +187,43 @@ def compute_all_metrics(
         )
 
     metrics["eval/n_valid"] = float(sel.sum())
+
+    if H_static is not None:
+        import networkx as nx
+
+        # All-pairs shortest path → distance matrix
+        dist_dict = dict(nx.all_pairs_shortest_path_length(H_static))
+        dist_matrix = np.array(
+            [[dist_dict.get(i, {}).get(j, 0) for j in range(n_nodes)] for i in range(n_nodes)],
+            dtype=np.float64,
+        )
+
+        # Error distance (MAP prediction vs true source)
+        metrics["eval/error_dist"] = float(
+            error_distance(probs, true_sources, dist_matrix, sel)
+        )
+
+        # Credible set size (mean number of nodes) for each configured p
+        for p in credible_ps:
+            p_int = int(round(p * 100))
+            metrics[f"eval/cred_set_size_{p_int}"] = float(
+                credible_set_size_mean(probs, sel, p)
+            )
+
+        # Resistance distance scoring rule: S(p,i) = (Ω@p)[i] - 0.5 p^T Ω p
+        A = nx.to_numpy_array(H_static, nodelist=sorted(H_static.nodes()))
+        D_deg = np.diag(A.sum(axis=1))
+        L = D_deg - A
+        L_pinv = np.linalg.pinv(L)
+        diag = np.diag(L_pinv)
+        Omega = diag[:, None] + diag[None, :] - 2.0 * L_pinv
+
+        probs_valid = probs[sel].astype(np.float64)
+        true_src_valid = true_sources[sel].astype(int)
+        n_valid_int = len(probs_valid)
+        OmegaP = Omega @ probs_valid.T               # [n_nodes, n_valid]
+        expected_res = OmegaP[true_src_valid, np.arange(n_valid_int)]
+        regularisation = 0.5 * np.sum((probs_valid @ Omega) * probs_valid, axis=1)
+        metrics["eval/resistance"] = float(np.mean(expected_res - regularisation))
+
     return metrics

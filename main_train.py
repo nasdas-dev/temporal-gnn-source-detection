@@ -32,6 +32,7 @@ import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
+import networkx as nx
 import numpy as np
 import torch
 torch.set_num_threads(1)
@@ -135,6 +136,10 @@ def main() -> None:
     print("=" * 60)
     H, data = load_tsir_data(args.data)
     n_nodes = data.n_nodes
+    H_static = nx.Graph()
+    H_static.add_nodes_from(range(n_nodes))
+    for u, v in H.edges():
+        H_static.add_edge(int(u), int(v))
     print(f"  n_nodes  : {n_nodes}")
     print(f"  n_runs   : {data.n_runs}  (ground-truth)")
     print(f"  mc_runs  : {data.mc_runs}  (Monte Carlo)")
@@ -239,6 +244,7 @@ def main() -> None:
             eval_cfg     = eval_cfg,
             n_nodes      = n_nodes,
             n_runs       = n_truth,
+            H_static     = H_static,
         )
 
         n_valid = int(rep_metrics["eval/n_valid"])
