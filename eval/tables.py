@@ -64,8 +64,7 @@ def parse_args() -> argparse.Namespace:
     bm.add_argument("--output",  default="figures/tables/",
                     help="Output directory for .tex and .csv files")
     bm.add_argument("--metrics", nargs="+",
-                    default=["mrr", "top_1", "top_3", "top_5", "top_10",
-                             "norm_brier", "norm_entropy", "cred_cov_90"],
+                    default=["top_5", "error_dist", "mrr", "cred_set_size_90", "resistance"],
                     help="Metric keys to include (eval/ prefix added automatically)")
 
     # --- network_stats ---
@@ -82,8 +81,7 @@ def parse_args() -> argparse.Namespace:
     al.add_argument("--entity",  default=None)
     al.add_argument("--output",  default="figures/tables/")
     al.add_argument("--metrics", nargs="+",
-                    default=["mrr", "top_1", "top_3", "top_5", "top_10",
-                             "norm_brier", "norm_entropy", "cred_cov_90"])
+                    default=["top_5", "error_dist", "mrr", "cred_set_size_90", "resistance"])
 
     return p.parse_args()
 
@@ -115,14 +113,17 @@ MODEL_LABELS = {
 }
 
 METRIC_LABELS = {
-    "mrr":          "MRR",
-    "top_1":        "Top-1",
-    "top_3":        "Top-3",
-    "top_5":        "Top-5",
-    "top_10":       "Top-10",
-    "norm_brier":   "NBS",
-    "norm_entropy": "Entropy",
-    "cred_cov_90":  "Cred-90",
+    "mrr":              "MRR",
+    "top_1":            "Top-1",
+    "top_3":            "Top-3",
+    "top_5":            "Top-5",
+    "top_10":           "Top-10",
+    "norm_brier":       "NBS",
+    "norm_entropy":     "Entropy",
+    "cred_cov_90":      "Cred-90",
+    "error_dist":       "Error Dist.",
+    "cred_set_size_90": "|90% CSS|",
+    "resistance":       "Resistance",
 }
 
 GNN_MODELS = {"backtracking", "temporal_gnn", "static_gnn", "dbgnn", "dag_gnn"}
@@ -352,6 +353,7 @@ def benchmark_table(
     higher = {
         "mrr": True, "top_1": True, "top_3": True, "top_5": True, "top_10": True,
         "norm_brier": False, "norm_entropy": False, "cred_cov_90": True,
+        "error_dist": False, "cred_set_size_90": False, "resistance": False,
     }
     hib = [higher.get(m, True) for m in metric_keys]
     metric_header = " & ".join(METRIC_LABELS.get(m, m) for m in metric_keys)

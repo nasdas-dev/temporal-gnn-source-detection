@@ -30,6 +30,13 @@ def credible_set(probs, sel, p, n_nodes, n_runs):
     return np.mean((positions < credible_set_sizes)[sel])
 
 
+def credible_set_size_mean(probs: np.ndarray, sel: np.ndarray, p: float) -> float:
+    """Mean number of nodes in the smallest set accumulating probability mass >= p."""
+    sorted_probs = -np.sort(-probs, axis=1)   # descending
+    sizes = np.argmax(np.cumsum(sorted_probs, axis=1) >= p, axis=1) + 1
+    return float(np.mean(sizes[sel]))
+
+
 # Ported from gnn/static_source_detection_gnn/sourcedet/evaluate.py
 def error_distance(
     probs: np.ndarray,

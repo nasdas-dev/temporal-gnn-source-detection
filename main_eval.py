@@ -334,6 +334,7 @@ def main() -> None:
             eval_cfg     = eval_cfg,
             n_nodes      = n_nodes,
             n_runs       = n_truth,
+            H_static     = H_static,
         )
         metrics["model"] = baseline
 
@@ -369,6 +370,11 @@ def main() -> None:
         })
 
         summary_rows.append(metrics)
+
+        # Log per-baseline summary metrics so viz_karate_paper.py can fetch them
+        for metric_key, val in metrics.items():
+            if metric_key not in ("model", "eval/n_valid"):
+                wandb.summary[f"{baseline}/{metric_key}"] = val
 
     # -----------------------------------------------------------------------
     # 5. Summary table
