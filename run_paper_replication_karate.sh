@@ -18,28 +18,23 @@
 # Training: 500 MC runs/node, 70/30 split, lr=1e-3, wd=5e-4, patience=5
 # Test    : 100 scenarios/node = 3,400 total (matches Figure 4 caption)
 #
-# NOTE on SIR parameters:
-#   The paper uses a continuous-time SIR with β=1.300, μ=1.0 (rates) and
-#   observation time T=0.85, chosen to produce ~40% infected nodes.
-#   Our TSIR C code uses discrete per-contact probabilities (β≤1, μ<1).
-#   Calibration with the actual C binary shows that β=0.30, μ=0.20, end_t=4
-#   reproduces the ~40% target (empirically ~42% on karate_static).
-#   karate_static is a static network replicated across 101 timesteps, so
-#   end_t=4 simply sets the observation window — all edge contacts are used.
+# SIR parameters (exact paper values, continuous-time):
+#   β=1.3, ν=1.0, T=0.85 → ~40% infected (from gnn/static_source_detection_gnn/run_several.sh)
+#   Uses the paper's own C binary (sir/sir) via main_static_sir.py.
 #
 # Usage:
 #   ./run_paper_replication_karate.sh            # full pipeline
-#   ./run_paper_replication_karate.sh --skip-tsir  # skip simulation if data exists
+#   ./run_paper_replication_karate.sh --skip-sir  # skip simulation if data exists
 
 set -euo pipefail
 
 NWK="karate_static"
-ARTIFACT="karate_static"
-SKIP_TSIR=false
+ARTIFACT="karate_static_sir"    # distinct from TSIR artifacts
+SKIP_SIR=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --skip-tsir) SKIP_TSIR=true ;;
+    --skip-sir|--skip-tsir) SKIP_SIR=true ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
   shift
@@ -49,15 +44,15 @@ echo "============================================================"
 echo " Paper replication: Static GNN on Karate (Sterchi et al.)"
 echo "============================================================"
 
-# ── Stage 1: SIR simulation ──────────────────────────────────────
-if [ "${SKIP_TSIR}" = false ]; then
+# ── Stage 1: Continuous-time SIR simulation ──────────────────────
+if [ "${SKIP_SIR}" = false ]; then
   echo ""
-  echo "=== Stage 1: TSIR simulation ==="
-  python main_tsir.py \
-    --cfg "exp/${NWK}/tsir.yml" \
+  echo "=== Stage 1: Static SIR simulation (paper's C binary) ==="
+  python main_static_sir.py \
+    --cfg "exp/${NWK}/static_sir.yml" \
     --data "${ARTIFACT}"
 else
-  echo "Skipping Stage 1 (--skip-tsir)"
+  echo "Skipping Stage 1 (--skip-sir)"
 fi
 
 # ── Stage 2: Static GNN training (3 reps, different seeds) ───────

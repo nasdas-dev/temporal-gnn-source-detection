@@ -1,0 +1,12 @@
+nwk:
+  name: karate_static
+  directed: false
+
+sir:
+  beta: 1.3           # infection rate (matches Sterchi et al. 2025 Table 5)
+  nu:   1.0           # recovery rate
+  T:    0.85          # observation time — targets ~40% infected (paper: ~40%)
+  n_runs:   5000      # test simulations per source (n_truth=100 used for eval)
+  mc_runs:  500       # training simulations per source (matches run_several.sh)
+
+project: source-detection
