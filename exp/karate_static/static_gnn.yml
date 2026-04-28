@@ -2,7 +2,7 @@ model: static_gnn
 
 # Hyperparameters match Table 4 in Sterchi et al. (2025) for the Karate network.
 eval:
-  min_outbreak: 2
+  min_outbreak: 1
   top_k: [1, 3, 5, 10]
   credible_p: [0.80, 0.90]
   inverse_rank_offset: [0]
