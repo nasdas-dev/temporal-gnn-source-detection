@@ -61,8 +61,9 @@ echo "=== Stage 2: Static GNN training ==="
 GNN_OUT=$(python main_train.py \
   --cfg "exp/${NWK}/static_gnn.yml" \
   --data "${ARTIFACT}:latest" 2>&1 | tee /dev/stderr)
-GNN_RUN=$(echo "${GNN_OUT}" | grep -oP "Syncing run \K\S+" | head -1 || true)
-echo "  GNN run name: ${GNN_RUN:-unknown}"
+# Extract run ID from wandb URL (e.g. ".../runs/fp9jy4gl") — more reliable than run name
+GNN_RUN=$(echo "${GNN_OUT}" | grep -oP "/runs/\K[a-z0-9]+" | head -1 || true)
+echo "  GNN run ID: ${GNN_RUN:-unknown}"
 
 # ── Stage 3: Baselines ───────────────────────────────────────────
 echo ""
@@ -71,8 +72,9 @@ EVAL_OUT=$(python main_eval.py \
   --cfg "exp/${NWK}/eval.yml" \
   --data "${ARTIFACT}:latest" \
   --override eval.n_truth=100 2>&1 | tee /dev/stderr)
-EVAL_RUN=$(echo "${EVAL_OUT}" | grep -oP "Syncing run \K\S+" | head -1 || true)
-echo "  Eval run name: ${EVAL_RUN:-unknown}"
+# Extract run ID from wandb URL — avoids needing name→ID resolution in viz
+EVAL_RUN=$(echo "${EVAL_OUT}" | grep -oP "/runs/\K[a-z0-9]+" | head -1 || true)
+echo "  Eval run ID: ${EVAL_RUN:-unknown}"
 
 echo ""
 echo "============================================================"
