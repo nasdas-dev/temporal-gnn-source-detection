@@ -19,12 +19,13 @@
 # Test    : 100 scenarios/node = 3,400 total (matches Figure 4 caption)
 #
 # NOTE on SIR parameters:
-#   The paper uses a continuous-time SIR with β=1.300, μ=1.0 (rates).
-#   Our TSIR C code uses discrete per-contact probabilities (β≤1, μ<1),
-#   so β=1.3 cannot be used directly.  The existing tsir.yml (β=0.30,
-#   μ=0.20) is a separate calibration for our framework.  SIR dynamics
-#   will differ from the paper; only the GNN architecture and evaluation
-#   setup are replicated exactly.
+#   The paper uses a continuous-time SIR with β=1.300, μ=1.0 (rates) and
+#   observation time T=0.85, chosen to produce ~40% infected nodes.
+#   Our TSIR C code uses discrete per-contact probabilities (β≤1, μ<1).
+#   Calibration with the actual C binary shows that β=0.30, μ=0.20, end_t=4
+#   reproduces the ~40% target (empirically ~42% on karate_static).
+#   karate_static is a static network replicated across 101 timesteps, so
+#   end_t=4 simply sets the observation window — all edge contacts are used.
 #
 # Usage:
 #   ./run_paper_replication_karate.sh            # full pipeline

@@ -7,6 +7,6 @@ sir:
   beta: 0.30
   mu: 0.20
   start_t: 0
-  end_t: 100
+  end_t: 4           # calibrated: avg ~42% of nodes infected at observation (paper target ≈40%)
   n_runs: 5000       # ground-truth runs per source
   mc_runs: 500       # Monte Carlo training runs per source
