@@ -1,0 +1,16 @@
+nwk:
+  name: students
+  directed: false
+
+# Continuous-time SIR (paper's C binary, Sterchi et al. 2025)
+# students (Copenhagen): 666 nodes, static-projection mean degree ≈ 36.98
+# β = 2*ν/mean_deg ≈ 0.054 → R₀ ≈ 2.0
+# T: calibrated to target ~40% infected — adjust if avg_outbreak differs
+sir:
+  beta: 0.054
+  nu:   1.0
+  T:    2.0
+  n_runs:   1000   # reduced from 5000: 666 nodes × 1000 ≈ 4 GB disk
+  mc_runs:  500    # training simulations per source
+
+project: source-detection

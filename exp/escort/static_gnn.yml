@@ -1,31 +1,32 @@
 model: static_gnn
 
+# escort: 14783 nodes — use minimal batch size and capacity
 eval:
-  min_outbreak: 3
+  min_outbreak: 1
   top_k: [1, 3, 5, 10]
   credible_p: [0.80, 0.90]
   inverse_rank_offset: [0]
-  n_truth: 50
+  n_truth: 5            # limited by n_runs=10 in static_sir.yml
 
 train:
-  n_mc: 5
+  n_mc: 10              # must match mc_runs in static_sir.yml
   reps: 2
-  test_size: 0.20
-  batch_size: 16
+  test_size: 0.30
+  batch_size: 4         # large graphs require small batches
   epochs: 200
-  patience: 15
+  patience: 5
   lr: 0.001
   weight_decay: 0.0005
   seed: 42
 
 static_gnn:
-  num_preprocess_layers: 0
+  num_preprocess_layers: 1
   embed_dim_preprocess: 16
   num_postprocess_layers: 0
-  num_conv_layers: 3        # shallow: 14 783-node graphs are expensive per layer
+  num_conv_layers: 2
   aggr: sum
-  hidden_channels: 32       # narrower than smaller networks to limit memory
-  dropout_rate: 0.2
+  hidden_channels: 16
+  dropout_rate: 0.1
   batch_norm: true
   skip: true
   use_edge_weights: false
