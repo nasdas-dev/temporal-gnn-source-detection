@@ -69,11 +69,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def _load_static_graph(nwk_cfg: dict) -> tuple[nx.Graph, int]:
-    """Load the network CSV and return the static projection + n_nodes."""
+    """Load the network CSV and return the static projection + n_nodes.
+
+    Reads edges directly from CSV, filtering by start_t ≤ t ≤ t_max.
+    start_t defaults to 0; set it in the config to drop early timesteps
+    (e.g. start_t: 1000 for the escort dataset).
+    """
     name     = nwk_cfg["name"]
     directed = nwk_cfg.get("directed", False)
+    start_t  = int(nwk_cfg.get("start_t", 0))
 
-    # Resolve t_max from config or from the network's own yml
+    # Resolve t_max from network's own yml, fall back to config
     yml_path = f"nwk/{name}.yml"
     if os.path.exists(yml_path):
         with open(yml_path) as f:
@@ -86,22 +92,29 @@ def _load_static_graph(nwk_cfg: dict) -> tuple[nx.Graph, int]:
     if t_max is None:
         raise ValueError(f"Cannot determine t_max for network '{name}'")
 
-    # Suppress read_networkx progress output
-    import io
-    from contextlib import redirect_stdout
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        G_temporal = read_networkx(f"nwk/{name}.csv", t_max=t_max, directed=directed)
+    G_raw = nx.DiGraph() if directed else nx.Graph()
+    csv_path = f"nwk/{name}.csv"
+    with open(csv_path) as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 3:
+                continue
+            u, v, t = int(parts[0]), int(parts[1]), int(parts[2])
+            if u != v and start_t <= t <= t_max:
+                G_raw.add_edge(u, v)
 
-    # Static projection: union of all edges across time, relabelled 0..N-1
-    G_raw = nx.Graph()
-    G_raw.add_nodes_from(G_temporal.nodes())
-    G_raw.add_edges_from(G_temporal.edges())
+    if G_raw.number_of_nodes() == 0:
+        raise ValueError(
+            f"No edges found for '{name}' in t=[{start_t}, {t_max}]"
+        )
 
     # Relabel to 0-indexed integers (required by sir binary)
     mapping = {node: i for i, node in enumerate(sorted(G_raw.nodes()))}
     G_static = nx.relabel_nodes(G_raw, mapping)
     n_nodes  = G_static.number_of_nodes()
+
+    if start_t > 0:
+        print(f"  (start_t={start_t}: using edges from t≥{start_t} only)")
 
     return G_static, n_nodes
 

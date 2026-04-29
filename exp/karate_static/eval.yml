@@ -12,5 +12,3 @@ baselines:
   - closeness            # highest closeness centrality
   - betweenness          # highest betweenness centrality
   - jordan_center        # Jordan center of infected subgraph
-  - soft_margin          # Soft Margin Estimator (SME)
-  - mcs_mean_field       # Monte Carlo Mean Field (MCMF)

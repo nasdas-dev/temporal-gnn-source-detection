@@ -1,0 +1,16 @@
+nwk:
+  name: lyon_ward
+  directed: false
+
+# Continuous-time SIR (paper's C binary, Sterchi et al. 2025)
+# lyon_ward: 75 nodes, static-projection mean degree ≈ 30.37
+# β = 2*ν/mean_deg ≈ 0.066 → R₀ ≈ 2.0
+# T: calibrated to target ~40% infected — adjust if avg_outbreak differs
+sir:
+  beta: 0.066
+  nu:   1.0
+  T:    2.0
+  n_runs:   5000   # test simulations per source (n_truth=100 used for eval)
+  mc_runs:  500    # training simulations per source
+
+project: source-detection

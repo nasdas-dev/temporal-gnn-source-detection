@@ -1,0 +1,19 @@
+nwk:
+  name: escort
+  directed: false
+  start_t: 1000    # drop first 1000 timesteps (noisy early contacts)
+
+# Continuous-time SIR (paper's C binary, Sterchi et al. 2025)
+# escort (Brazil): 14783 nodes, static-projection mean degree ≈ 4.58
+# β = 2*ν/mean_deg ≈ 0.44 → R₀ ≈ 2.0
+# MEMORY WARNING: n_nodes²×n_runs×3 bytes per array set.
+#   n_runs=10 → ground truth ≈ 6.5 GB, mc ≈ 6.5 GB (total ≈ 13 GB disk)
+#   Increase only if disk/RAM allows.
+sir:
+  beta: 0.44
+  nu:   1.0
+  T:    2.0
+  n_runs:   10    # test simulations per source
+  mc_runs:  10    # training simulations per source
+
+project: source-detection

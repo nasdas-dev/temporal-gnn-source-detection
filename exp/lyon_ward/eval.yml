@@ -1,5 +1,5 @@
 eval:
-  min_outbreak: 2        # minimum I+R nodes for a run to be counted
+  min_outbreak: 1        # include all outbreaks (consistent with paper)
   top_k: [1, 3, 5, 10]
   credible_p: [0.80, 0.90]       # top-k accuracy thresholds
   inverse_rank_offset: [0]  # rank score offset (0 = 1/rank)
