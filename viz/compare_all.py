@@ -178,10 +178,15 @@ def _binned_rank_stats(
     means, p25, p75 = [], [], []
     for lo, hi in zip(BINS[:-1], BINS[1:]):
         mask = (sizes >= lo) & (sizes < hi)
-        vals = ranks[mask].astype(float) if mask.any() else np.array([np.nan])
-        means.append(float(np.nanmean(vals)))
-        p25.append(float(np.nanpercentile(vals, 25)) if mask.any() else float("nan"))
-        p75.append(float(np.nanpercentile(vals, 75)) if mask.any() else float("nan"))
+        if mask.any():
+            vals = ranks[mask].astype(float)
+            means.append(float(np.mean(vals)))
+            p25.append(float(np.percentile(vals, 25)))
+            p75.append(float(np.percentile(vals, 75)))
+        else:
+            means.append(float("nan"))
+            p25.append(float("nan"))
+            p75.append(float("nan"))
     return CENTS, np.array(means), np.array(p25), np.array(p75)
 
 

@@ -140,10 +140,15 @@ def _binned_stats(
     means, p25, p75 = [], [], []
     for lo, hi in zip(bins[:-1], bins[1:]):
         mask = (sizes >= lo) & (sizes < hi)
-        vals = ranks[mask].astype(float) if mask.sum() > 0 else np.array([np.nan])
-        means.append(float(np.nanmean(vals)))
-        p25.append(float(np.nanpercentile(vals, 25)) if mask.sum() > 0 else float("nan"))
-        p75.append(float(np.nanpercentile(vals, 75)) if mask.sum() > 0 else float("nan"))
+        if mask.any():
+            vals = ranks[mask].astype(float)
+            means.append(float(np.mean(vals)))
+            p25.append(float(np.percentile(vals, 25)))
+            p75.append(float(np.percentile(vals, 75)))
+        else:
+            means.append(float("nan"))
+            p25.append(float("nan"))
+            p75.append(float("nan"))
     return cents, np.array(means), np.array(p25), np.array(p75)
 
 

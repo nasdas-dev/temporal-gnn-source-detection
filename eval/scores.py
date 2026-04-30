@@ -13,7 +13,7 @@ def normalized_brier_score(states, probs, n_nodes, sel):
     return np.mean(normalized_score[sel])
 
 def normalized_entropy(probs, n_nodes, sel):
-    log_probs = np.log(probs)
+    log_probs = np.log(np.clip(probs, 1e-10, None))
     log_probs[np.isneginf(log_probs)] = 0
     entropy = -np.sum(probs * log_probs, axis=1)
     normalized_entropy = entropy / np.log(n_nodes)
