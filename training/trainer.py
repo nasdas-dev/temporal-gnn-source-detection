@@ -118,12 +118,12 @@ def static_gnn_forward(
     device: torch.device,
 ) -> torch.Tensor:           # [B, N]
     """PyG-style batching: replicate graph B times, flatten all nodes."""
-    B, N, F = x_batch.shape
+    B, N, num_features = x_batch.shape
     edge_index  = graph_data["edge_index"].to(device)
     edge_weight = graph_data.get("edge_weight")
     E = edge_index.size(1)
 
-    x = x_batch.reshape(B * N, F).to(device)
+    x = x_batch.reshape(B * N, num_features).to(device)
 
     offsets = torch.arange(B, device=device) * N
     offsets = offsets.repeat_interleave(E)
@@ -163,8 +163,8 @@ def temporal_gnn_forward(
     sample. This keeps the primitive temporal baseline faithful while avoiding
     pathological Python-loop runtime on real networks.
     """
-    B, N, F = x_batch.shape
-    x = x_batch.reshape(B * N, F).to(device)
+    B, N, num_features = x_batch.shape
+    x = x_batch.reshape(B * N, num_features).to(device)
     edge_indeces = {
         t: ei.to(device) for t, ei in graph_data["edge_indeces"].items()
     }
