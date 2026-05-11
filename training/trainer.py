@@ -25,6 +25,9 @@ Usage
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+import math
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -32,6 +35,74 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Subset
 
 from .data import SIRDataset
+
+
+class LossGuardAbort(RuntimeError):
+    """Raised when training loss becomes clearly unusable for this run."""
+
+    def __init__(self, reason: str, epoch: int, train_loss: float, val_loss: float) -> None:
+        self.reason = reason
+        self.epoch = epoch
+        self.train_loss = train_loss
+        self.val_loss = val_loss
+        super().__init__(
+            f"{reason} at epoch {epoch}: train={train_loss:.6g}, val={val_loss:.6g}"
+        )
+
+
+@dataclass(frozen=True)
+class LossGuardConfig:
+    """Configuration for nonsensical-loss early aborts."""
+
+    enabled: bool = True
+    warmup_epochs: int = 20
+    divergence_factor: float = 1.5
+    uniform_tolerance: float = 0.02
+    uniform_window: int = 80
+    min_improvement: float = 0.01
+
+
+def make_loss_guard_config(raw: dict | None) -> LossGuardConfig | None:
+    """Return a typed loss-guard config, or ``None`` when disabled/missing."""
+    if raw is None:
+        return None
+    allowed = LossGuardConfig.__dataclass_fields__.keys()
+    cfg = LossGuardConfig(**{k: v for k, v in raw.items() if k in allowed})
+    return cfg if cfg.enabled else None
+
+
+def check_loss_guard(
+    train_losses: list[float],
+    val_losses: list[float],
+    epoch: int,
+    n_nodes: int,
+    cfg: LossGuardConfig | None,
+) -> str | None:
+    """Return an abort reason if the current loss history is nonsensical."""
+    if cfg is None:
+        return None
+
+    train_loss = train_losses[-1]
+    val_loss = val_losses[-1]
+    if not math.isfinite(train_loss) or not math.isfinite(val_loss):
+        return "non_finite_loss"
+
+    if epoch < cfg.warmup_epochs:
+        return None
+
+    uniform_loss = math.log(max(n_nodes, 2))
+    if val_loss > cfg.divergence_factor * uniform_loss:
+        return "divergent_validation_loss"
+
+    if len(val_losses) >= cfg.uniform_window:
+        recent = val_losses[-cfg.uniform_window:]
+        mean_recent = float(np.mean(recent))
+        near_uniform = abs(mean_recent - uniform_loss) <= cfg.uniform_tolerance * uniform_loss
+        improvement = recent[0] - min(recent)
+        if near_uniform and improvement < cfg.min_improvement:
+            return "uniform_stall"
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -91,8 +162,9 @@ def temporal_gnn_forward(
     edge_indeces = {
         t: ei.to(device) for t, ei in graph_data["edge_indeces"].items()
     }
+    time_order = graph_data.get("time_order")
     outputs = [
-        model(x_batch[b].to(device), edge_indeces)   # [N]
+        model(x_batch[b].to(device), edge_indeces, time_order)   # [N]
         for b in range(x_batch.size(0))
     ]
     return torch.stack(outputs, dim=0)               # [B, N]
@@ -104,12 +176,14 @@ def dbgnn_forward(
     graph_data: dict,
     device: torch.device,
 ) -> torch.Tensor:           # [B, N]
-    x                    = x_batch.to(device)
-    edge_index           = graph_data["edge_index"].to(device)
-    db_node_to_original  = graph_data["db_node_to_original"].to(device)
-    sentinel_end_indices = graph_data["sentinel_end_indices"].to(device)
-    is_sentinel          = graph_data["is_sentinel"].to(device)
-    return model(x, edge_index, db_node_to_original, sentinel_end_indices, is_sentinel)
+    x                   = x_batch.to(device)
+    db_edge_index       = graph_data["db_edge_index"].to(device)
+    db_edge_weight      = graph_data["db_edge_weight"].to(device)
+    db_node_to_original = graph_data["db_node_to_original"].to(device)
+    static_edge_index   = graph_data["static_edge_index"].to(device)
+    static_edge_weight  = graph_data["static_edge_weight"].to(device)
+    return model(x, db_edge_index, db_edge_weight, db_node_to_original,
+                 static_edge_index, static_edge_weight)
 
 
 def dag_gnn_forward(
@@ -166,25 +240,6 @@ class Trainer:
         """x_batch: [B, N, F] on CPU → [B, N] log-probs."""
         return self.forward_fn(self.model, x_batch, self.graph_data, self.device)
 
-    def _step(self, X: torch.Tensor, indices: torch.Tensor) -> tuple[float, float]:
-        """Run one forward pass over a batch of indices.
-
-        Returns (total_loss, n_correct) — both *summed* (not averaged).
-        """
-        x_batch = X[indices]                              # [B, N, 3]
-        y_batch = torch.tensor(
-            np.repeat(
-                np.arange(self.graph_data["n_nodes"]),
-                X.shape[0] // self.graph_data["n_nodes"],
-            ),
-            dtype=torch.long,
-        )[indices].to(self.device)
-
-        out  = self._forward(x_batch)                    # [B, N]
-        loss = F.nll_loss(out, y_batch, reduction="sum")
-        n_correct = (out.argmax(dim=1) == y_batch).sum().item()
-        return loss, n_correct
-
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -201,6 +256,7 @@ class Trainer:
         seed:       int     = 42,
         wandb_run=None,
         rep: int = 0,
+        loss_guard: dict | None = None,
     ) -> tuple[list[float], list[float]]:
         """Train with early stopping on validation NLL.
 
@@ -252,6 +308,8 @@ class Trainer:
         best_val      = float("inf")
         best_state    = None
         patience_ctr  = 0
+        guard_cfg     = make_loss_guard_config(loss_guard)
+        n_nodes       = int(self.graph_data.get("n_nodes", 1))
 
         for epoch in range(1, epochs + 1):
             # --- Train ---
@@ -291,6 +349,12 @@ class Trainer:
                     f"val/loss_rep{rep}":   vl,
                     "epoch": epoch,
                 })
+
+            guard_reason = check_loss_guard(
+                train_losses, val_losses, epoch, n_nodes, guard_cfg
+            )
+            if guard_reason is not None:
+                raise LossGuardAbort(guard_reason, epoch, tl, vl)
 
             # Early stopping
             if vl < best_val:

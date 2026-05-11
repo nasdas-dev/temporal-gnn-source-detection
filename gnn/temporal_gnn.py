@@ -19,7 +19,7 @@ class TemporalGNN(torch.nn.Module):
         )
         self.lin_post  = torch.nn.Linear(hidden_channels, out_channels)
 
-    def forward(self, x: torch.Tensor, edge_indeces: dict) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, edge_indeces: dict, time_order: list[int] | None = None) -> torch.Tensor:
         """Forward pass for a single sample.
 
         Parameters
@@ -35,9 +35,9 @@ class TemporalGNN(torch.nn.Module):
             Log-softmax over nodes (source probability distribution).
         """
         x = F.relu(self.lin_pre(x))                          # [N, hidden]
-        for count, t in enumerate(reversed(edge_indeces.keys())):
+        order = sorted(edge_indeces) if time_order is None else list(time_order)
+        for count, t in enumerate(reversed(order)):
             x = F.relu(self.convs[count](x, edge_indeces[t]))  # [N, hidden]
         x = self.lin_post(x).squeeze(-1)                     # [N]
         return F.log_softmax(x, dim=-1)                      # [N]
-
 

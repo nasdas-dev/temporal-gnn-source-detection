@@ -25,6 +25,8 @@ in ``MODEL_REGISTRY`` (e.g. ``backtracking``, ``static_gnn``, ``temporal_gnn``).
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 import os
 
 # Prevent OpenMP/MKL deadlock when wandb spawns background threads alongside
@@ -42,7 +44,7 @@ import yaml
 from eval import compute_all_metrics, per_sample_arrays
 from gnn import MODEL_REGISTRY, get_model_spec
 from setup import setup_methods_run, load_tsir_data
-from training import SIRDataset, Trainer
+from training import LossGuardAbort, SIRDataset, Trainer
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,6 +57,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--override", nargs="*", default=[],
                    metavar="KEY=VALUE",
                    help="Override config values, e.g. --override train.n_mc=100 train.reps=1")
+    p.add_argument("--save-probs", action="store_true",
+                   help="Save probs_rep*.pt tensors. Eval arrays and metrics are always saved.")
     return p.parse_args()
 
 
@@ -89,7 +93,35 @@ def _builder_kwargs(model_name: str, model_cfg: dict) -> dict:
         return {"group_by_time": model_cfg.get("group_by_time", 1)}
     if model_name == "dag_gnn":
         return {"delta_t": model_cfg.get("delta_t", None)}
+    if model_name == "dbgnn":
+        return {"delta": model_cfg.get("delta", 24)}
     return {}
+
+
+def _jsonable(value):
+    """Convert numpy scalars/arrays to JSON-friendly Python values."""
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
+def _write_json(path: str, payload: dict) -> None:
+    with open(path, "w") as f:
+        json.dump(_jsonable(payload), f, indent=2, sort_keys=True)
+
+
+def _write_loss_history(path: str, train_losses: list[float], val_losses: list[float]) -> None:
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["epoch", "train_loss", "val_loss"])
+        for epoch, (tl, vl) in enumerate(zip(train_losses, val_losses), start=1):
+            writer.writerow([epoch, tl, vl])
 
 
 def main() -> None:
@@ -107,6 +139,8 @@ def main() -> None:
     train_cfg  = cfg_dict["train"]
     eval_cfg   = cfg_dict["eval"]
     model_cfg  = cfg_dict[model_name]     # model-specific section
+    output_cfg = cfg_dict.get("output", {})
+    save_probs = bool(args.save_probs or output_cfg.get("save_probs", False))
 
     if model_name not in MODEL_REGISTRY:
         raise ValueError(
@@ -127,6 +161,8 @@ def main() -> None:
     print(f"\nW&B run : {wandb.run.url}")
     print(f"Model   : {model_name}")
     print(f"Data    : {args.data}\n")
+    run_dir = f"data/{wandb.run.id}"
+    os.makedirs(run_dir, exist_ok=True)
 
     # ---------------------------------------------------------------
     # 3. Load TSIR artifact
@@ -210,22 +246,53 @@ def main() -> None:
 
         # --- Train ---
         trainer = Trainer(model, spec.forward_fn, graph_data, device)
-        trainer.fit(
-            dataset       = dataset,
-            batch_size    = train_cfg["batch_size"],
-            epochs        = train_cfg["epochs"],
-            patience      = train_cfg["patience"],
-            lr            = train_cfg["lr"],
-            weight_decay  = train_cfg["weight_decay"],
-            test_size     = train_cfg["test_size"],
-            seed          = train_cfg["seed"] + rep,
-            wandb_run     = wandb.run,
-            rep           = rep,
+        try:
+            train_losses, val_losses = trainer.fit(
+                dataset       = dataset,
+                batch_size    = train_cfg["batch_size"],
+                epochs        = train_cfg["epochs"],
+                patience      = train_cfg["patience"],
+                lr            = train_cfg["lr"],
+                weight_decay  = train_cfg["weight_decay"],
+                test_size     = train_cfg["test_size"],
+                seed          = train_cfg["seed"] + rep,
+                wandb_run     = wandb.run,
+                rep           = rep,
+                loss_guard    = train_cfg.get("loss_guard"),
+            )
+        except LossGuardAbort as exc:
+            print(f"LOSS_GUARD_ABORT: {exc.reason} at epoch {exc.epoch}")
+            wandb.summary["run/status"] = "loss_guard_aborted"
+            wandb.summary["run/abort_reason"] = exc.reason
+            wandb.summary["run/abort_epoch"] = exc.epoch
+            _write_json(
+                f"{run_dir}/abort.json",
+                {
+                    "status": "loss_guard_aborted",
+                    "reason": exc.reason,
+                    "epoch": exc.epoch,
+                    "train_loss": exc.train_loss,
+                    "val_loss": exc.val_loss,
+                    "model": model_name,
+                    "data": args.data,
+                },
+            )
+            wandb.finish(exit_code=88)
+            raise SystemExit(88)
+
+        _write_loss_history(
+            f"{run_dir}/loss_history_rep{rep}.csv", train_losses, val_losses
         )
 
         # --- Inference on ground truth ---
         print("\n  Running inference on ground truth…")
-        select_truth = np.arange(rep * n_truth, (rep + 1) * n_truth) % data.n_runs
+        if reps * n_truth > data.n_runs:
+            raise ValueError(
+                f"reps * n_truth = {reps} * {n_truth} = {reps * n_truth} exceeds "
+                f"n_runs={data.n_runs}. Reps would overlap on the same truth runs. "
+                "Reduce reps or n_truth, or regenerate the artifact with more runs."
+            )
+        select_truth = np.arange(rep * n_truth, (rep + 1) * n_truth)
         probs = trainer.predict_from_tensor(
             truth_S    = data.truth_S[:, select_truth, :],
             truth_I    = data.truth_I[:, select_truth, :],
@@ -263,11 +330,11 @@ def main() -> None:
                 rep_metric_lists.setdefault(metric_key, []).append(val)
 
         # Save raw model outputs + lightweight eval arrays for viz scripts
-        os.makedirs(f"data/{wandb.run.id}", exist_ok=True)
-        torch.save(
-            torch.tensor(probs),
-            f"data/{wandb.run.id}/probs_rep{rep}.pt",
-        )
+        if save_probs:
+            torch.save(
+                torch.tensor(probs),
+                f"{run_dir}/probs_rep{rep}.pt",
+            )
         arrays = per_sample_arrays(
             probs        = probs,
             lik_possible = lik_possible,
@@ -277,8 +344,17 @@ def main() -> None:
             n_runs       = n_truth,
         )
         np.savez_compressed(
-            f"data/{wandb.run.id}/eval_arrays_rep{rep}.npz",
+            f"{run_dir}/eval_arrays_rep{rep}.npz",
             **arrays,
+        )
+        _write_json(
+            f"{run_dir}/metrics_rep{rep}.json",
+            {
+                "rep": rep,
+                "model": model_name,
+                "data": args.data,
+                "metrics": rep_metrics,
+            },
         )
 
     # ---------------------------------------------------------------
@@ -301,6 +377,29 @@ def main() -> None:
     wandb.summary["model/n_params"] = n_params
     wandb.summary["model/name"]     = model_name
     wandb.summary["data/name"]      = args.data
+    wandb.summary["run/status"]     = "success"
+
+    summary_payload = {
+        "status": "success",
+        "model": model_name,
+        "data": args.data,
+        "n_params": n_params,
+        "save_probs": save_probs,
+        "metrics": {
+            f"{metric_key}_mean": float(np.mean(vals))
+            for metric_key, vals in sorted(rep_metric_lists.items())
+        } | {
+            f"{metric_key}_std": float(np.std(vals))
+            for metric_key, vals in sorted(rep_metric_lists.items())
+        },
+    }
+    _write_json(f"{run_dir}/metrics_summary.json", summary_payload)
+
+    with open(f"{run_dir}/metrics_summary.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["metric", "mean", "std"])
+        for metric_key, vals in sorted(rep_metric_lists.items()):
+            writer.writerow([metric_key, float(np.mean(vals)), float(np.std(vals))])
 
     wandb.finish()
     print("\nDone.")

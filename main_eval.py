@@ -18,6 +18,8 @@ configs) and a ``baselines`` list selecting which heuristics to run.
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 import os
 from typing import Iterator
 
@@ -29,6 +31,23 @@ import yaml
 from eval import compute_all_metrics, per_sample_arrays
 from eval.benchmark import soft_margin as _soft_margin, mcs_mean_field as _mcs_mean_field
 from setup import setup_methods_run, load_tsir_data
+
+
+def _jsonable(value):
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
+def _write_json(path: str, payload: dict) -> None:
+    with open(path, "w") as f:
+        json.dump(_jsonable(payload), f, indent=2, sort_keys=True)
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +290,8 @@ def main() -> None:
     wandb.run.tags += ("baselines",)
     print(f"\nW&B run : {wandb.run.url}")
     print(f"Data    : {args.data}\n")
+    run_dir = f"data/{wandb.run.id}"
+    os.makedirs(run_dir, exist_ok=True)
 
     # -----------------------------------------------------------------------
     # 3. Load TSIR artifact
@@ -349,7 +370,6 @@ def main() -> None:
         print(f"  Norm. Entropy : {metrics['eval/norm_entropy']:.4f}")
 
         # Save per-sample arrays for viz scripts
-        os.makedirs(f"data/{wandb.run.id}", exist_ok=True)
         arrays = per_sample_arrays(
             probs        = probs,
             lik_possible = lik_possible,
@@ -359,8 +379,16 @@ def main() -> None:
             n_runs       = n_truth,
         )
         np.savez_compressed(
-            f"data/{wandb.run.id}/eval_arrays_{baseline}.npz",
+            f"{run_dir}/eval_arrays_{baseline}.npz",
             **arrays,
+        )
+        _write_json(
+            f"{run_dir}/metrics_{baseline}.json",
+            {
+                "baseline": baseline,
+                "data": args.data,
+                "metrics": {k: v for k, v in metrics.items() if k != "model"},
+            },
         )
 
         # Log this baseline as its own W&B step (keyed by baseline name)
@@ -424,6 +452,21 @@ def main() -> None:
     wandb.summary["data/name"] = args.data
     wandb.summary["n_valid_outbreaks"] = int(sel.sum())
     wandb.summary["n_total"] = len(sel)
+    wandb.summary["run/status"] = "success"
+
+    _write_json(
+        f"{run_dir}/baseline_metrics.json",
+        {
+            "status": "success",
+            "data": args.data,
+            "baselines": summary_rows,
+        },
+    )
+    with open(f"{run_dir}/baseline_metrics.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=col_keys)
+        writer.writeheader()
+        for row in summary_rows:
+            writer.writerow({key: row.get(key, "") for key in col_keys})
 
     wandb.finish()
     print("\nDone.")

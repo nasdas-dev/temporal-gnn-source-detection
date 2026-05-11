@@ -1,0 +1,11 @@
+directed: no
+original_start: '2024-07-01'
+original_end: '2024-07-31'
+time_steps: 743
+time_granularity: hours
+bfs_nummer: 2581
+spatial_delta: 30.0
+time_delta: 300.0
+acc_cutoff: 60.0
+occ_cutoff: 100.0
+source: Private data from a broker (NDA required — contact Oscar and Roman)

@@ -184,14 +184,17 @@ def build_temporal_snapshots(
         if not directed:
             slices[s].append((int(v), int(u)))
 
+    time_order = sorted(slices)
     edge_indeces: dict[int, torch.Tensor] = {}
-    for s, edges in slices.items():
+    for s in time_order:
+        edges = slices[s]
         edge_indeces[s] = torch.tensor(edges, dtype=torch.long).T  # [2, E_s]
 
     return {
         "n_nodes":       n_nodes,
         "num_snapshots": len(edge_indeces),
         "edge_indeces":  edge_indeces,
+        "time_order":    time_order,
         "group_by_time": group_by_time,
     }
 
@@ -203,12 +206,16 @@ def build_temporal_snapshots(
 def build_de_bruijn_graph(
     H: nx.Graph,
     directed: bool = False,
+    delta: int | None = None,
 ) -> dict:
-    """Build the De Bruijn graph representation for DBGNN.
+    """Build the second-order De Bruijn graph for DBGNN.
 
-    Transforms the temporal contact network into a De Bruijn graph where
-    nodes represent individual contact events (causal walks of length 1)
-    plus sentinel nodes for each original node.
+    Following Qarkaxhija et al. (arXiv:2209.08311): nodes are unique directed
+    node-pairs (u, v) observed in contacts; an edge ((u,v),(v,w)) exists if
+    there are times t1 < t2 (with t2-t1 ≤ delta) such that (u,v;t1) and
+    (v,w;t2) are contacts.  Edge weights count causal walk completions.
+
+    Also builds the static time-aggregated graph for the first-order GCN branch.
 
     Parameters
     ----------
@@ -216,87 +223,99 @@ def build_de_bruijn_graph(
         Temporal NetworkX graph with ``'times'`` edge attribute.
     directed:
         If ``True``, treat contacts as directed. Default ``False``.
+    delta:
+        Maximum allowed time gap for causal walks. ``None`` = no constraint.
 
     Returns
     -------
     dict with keys:
         ``n_nodes``              int
-        ``db_n_nodes``           int  — number of De Bruijn graph nodes
-        ``edge_index``           LongTensor [2, E_db]  — directed DB edges
-        ``db_node_to_original``  LongTensor [db_n_nodes, 2]  — (u, v) orig node pair
-        ``sentinel_end_indices`` LongTensor [n_nodes]  — DB node index of (n,n,t_end) per orig node
-        ``is_sentinel``          BoolTensor [db_n_nodes]  — True if node is a sentinel
+        ``n_db_nodes``           int
+        ``db_edge_index``        LongTensor [2, E_db]
+        ``db_edge_weight``       FloatTensor [E_db]  normalised per destination
+        ``db_node_to_original``  LongTensor [n_db, 2]  — (u, v) per DB node
+        ``static_edge_index``    LongTensor [2, E_st]  — time-aggregated graph
+        ``static_edge_weight``   FloatTensor [E_st]    — normalised per destination
     """
     from utils.make_de_bruijn_graph import make_de_bruijn_graph as _make_db
     from setup.read_network import make_array_from_networkx
 
     n_nodes = H.number_of_nodes()
-
-    # Get the H_array (u, v, t) sorted by time
     H_array = make_array_from_networkx(H)
 
+    _empty = {
+        "n_nodes":             n_nodes,
+        "n_db_nodes":          0,
+        "db_edge_index":       torch.zeros(2, 0, dtype=torch.long),
+        "db_edge_weight":      torch.zeros(0, dtype=torch.float32),
+        "db_node_to_original": torch.zeros(0, 2, dtype=torch.long),
+        "static_edge_index":   torch.zeros(2, 0, dtype=torch.long),
+        "static_edge_weight":  torch.zeros(0, dtype=torch.float32),
+    }
     if len(H_array) == 0:
-        # Degenerate case: no temporal edges — return trivial DB graph
-        edge_index = torch.zeros(2, 0, dtype=torch.long)
-        db_node_to_original = torch.zeros(n_nodes, 2, dtype=torch.long)
-        for n in range(n_nodes):
-            db_node_to_original[n] = torch.tensor([n, n], dtype=torch.long)
-        sentinel_end_indices = torch.arange(n_nodes, dtype=torch.long)
-        is_sentinel = torch.ones(n_nodes, dtype=torch.bool)
-        return {
-            "n_nodes":              n_nodes,
-            "db_n_nodes":           n_nodes,
-            "edge_index":           edge_index,
-            "db_node_to_original":  db_node_to_original,
-            "sentinel_end_indices": sentinel_end_indices,
-            "is_sentinel":          is_sentinel,
-        }
+        return _empty
 
-    start_t = int(H_array[:, 2].min())
-    end_t   = int(H_array[:, 2].max())
+    # ----------------------------------------------------------------
+    # De Bruijn graph G^(2)
+    # ----------------------------------------------------------------
+    B = _make_db(H_array, delta=delta, directed=directed)
 
-    B = _make_db(H_array, start_t, end_t, time_reverse=False, directed=directed)
+    node_list   = list(B.nodes())
+    node_to_idx = {node: i for i, node in enumerate(node_list)}
+    n_db_nodes  = len(node_list)
 
-    # Enumerate nodes and build integer mapping
-    node_list    = list(B.nodes())
-    node_to_idx  = {node: i for i, node in enumerate(node_list)}
-    db_n_nodes   = len(node_list)
+    if n_db_nodes == 0:
+        return _empty
 
-    # Edge index
-    edges = [(node_to_idx[u], node_to_idx[v]) for u, v in B.edges()]
-    if edges:
-        edge_index = torch.tensor(edges, dtype=torch.long).T  # [2, E_db]
+    # DB node → original-node mapping
+    db_node_to_original = torch.tensor(
+        [[int(u), int(v)] for u, v in node_list], dtype=torch.long
+    )  # [n_db, 2]
+
+    # DB edges with raw weights
+    edge_triples = [(node_to_idx[u], node_to_idx[v], d.get("weight", 1))
+                    for u, v, d in B.edges(data=True)]
+    if edge_triples:
+        db_src = torch.tensor([e[0] for e in edge_triples], dtype=torch.long)
+        db_dst = torch.tensor([e[1] for e in edge_triples], dtype=torch.long)
+        raw_w  = torch.tensor([e[2] for e in edge_triples], dtype=torch.float32)
+        db_edge_index = torch.stack([db_src, db_dst], dim=0)  # [2, E_db]
+        # Normalise weights so they sum to 1 per destination (w(u,v)/S(v))
+        dst_sum = torch.zeros(n_db_nodes, dtype=torch.float32)
+        dst_sum.scatter_add_(0, db_dst, raw_w)
+        db_edge_weight = raw_w / dst_sum[db_dst].clamp(min=1e-8)
     else:
-        edge_index = torch.zeros(2, 0, dtype=torch.long)
+        db_edge_index  = torch.zeros(2, 0, dtype=torch.long)
+        db_edge_weight = torch.zeros(0, dtype=torch.float32)
 
-    # db_node_to_original: each De Bruijn node (x, y, t) maps to orig nodes (x, y)
-    db_node_to_original = torch.zeros(db_n_nodes, 2, dtype=torch.long)
-    is_sentinel         = torch.zeros(db_n_nodes, dtype=torch.bool)
-    for i, node in enumerate(node_list):
-        x, y, _ = node
-        db_node_to_original[i, 0] = int(x)
-        db_node_to_original[i, 1] = int(y)
-        if int(x) == int(y):
-            is_sentinel[i] = True
+    # ----------------------------------------------------------------
+    # Static time-aggregated graph G^(1)  (for first-order GCN branch)
+    # ----------------------------------------------------------------
+    st_src, st_dst, st_w_raw = [], [], []
+    for u, v, data in H.edges(data=True):
+        cnt = float(len(data.get("times", [1])))
+        st_src.append(u); st_dst.append(v); st_w_raw.append(cnt)
+        st_src.append(v); st_dst.append(u); st_w_raw.append(cnt)
 
-    # sentinel_end_indices: for each original node n, the DB index of (n, n, end_t)
-    sentinel_end_indices = torch.zeros(n_nodes, dtype=torch.long)
-    for n in range(n_nodes):
-        end_sentinel   = (n, n, end_t)
-        start_sentinel = (n, n, start_t)
-        if end_sentinel in node_to_idx:
-            sentinel_end_indices[n] = node_to_idx[end_sentinel]
-        elif start_sentinel in node_to_idx:
-            sentinel_end_indices[n] = node_to_idx[start_sentinel]
-        # else remains 0 (fallback)
+    if st_src:
+        st_dst_t = torch.tensor(st_dst, dtype=torch.long)
+        st_w_t   = torch.tensor(st_w_raw, dtype=torch.float32)
+        deg_sum  = torch.zeros(n_nodes, dtype=torch.float32)
+        deg_sum.scatter_add_(0, st_dst_t, st_w_t)
+        static_edge_index  = torch.tensor([st_src, st_dst], dtype=torch.long)
+        static_edge_weight = st_w_t / deg_sum[st_dst_t].clamp(min=1e-8)
+    else:
+        static_edge_index  = torch.zeros(2, 0, dtype=torch.long)
+        static_edge_weight = torch.zeros(0, dtype=torch.float32)
 
     return {
-        "n_nodes":              n_nodes,
-        "db_n_nodes":           db_n_nodes,
-        "edge_index":           edge_index,
-        "db_node_to_original":  db_node_to_original,
-        "sentinel_end_indices": sentinel_end_indices,
-        "is_sentinel":          is_sentinel,
+        "n_nodes":             n_nodes,
+        "n_db_nodes":          n_db_nodes,
+        "db_edge_index":       db_edge_index,
+        "db_edge_weight":      db_edge_weight,
+        "db_node_to_original": db_node_to_original,
+        "static_edge_index":   static_edge_index,
+        "static_edge_weight":  static_edge_weight,
     }
 
 
