@@ -65,11 +65,11 @@ BETAS = {
 }
 
 TEMPORAL_GROUP_BY_TIME = {
-    "lyon_ward": 1,
-    "malawi": 10,
-    "france_office": 6,
-    "biasca": 12,
-    "olten": 12,
+    "lyon_ward": 6,
+    "malawi": 16,
+    "france_office": 12,
+    "biasca": 32,
+    "olten": 32,
 }
 
 

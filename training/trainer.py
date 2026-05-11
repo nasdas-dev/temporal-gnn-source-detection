@@ -156,18 +156,31 @@ def temporal_gnn_forward(
     graph_data: dict,
     device: torch.device,
 ) -> torch.Tensor:           # [B, N]
-    # SAGEConv (PyG) requires strictly 2D input [N, F].
-    # We loop over the batch dimension so each call receives [N, F].
-    # This is correct with gradients and works for any batch size.
+    """Vectorized TemporalGNN batching.
+
+    Each time-slice graph is replicated B times as one disconnected PyG graph,
+    so each temporal layer is evaluated once per batch instead of once per
+    sample. This keeps the primitive temporal baseline faithful while avoiding
+    pathological Python-loop runtime on real networks.
+    """
+    B, N, F = x_batch.shape
+    x = x_batch.reshape(B * N, F).to(device)
     edge_indeces = {
         t: ei.to(device) for t, ei in graph_data["edge_indeces"].items()
     }
-    time_order = graph_data.get("time_order")
-    outputs = [
-        model(x_batch[b].to(device), edge_indeces, time_order)   # [N]
-        for b in range(x_batch.size(0))
-    ]
-    return torch.stack(outputs, dim=0)               # [B, N]
+    time_order = list(graph_data.get("time_order", sorted(edge_indeces)))
+
+    x = F.relu(model.lin_pre(x))
+    offsets = torch.arange(B, device=device) * N
+    for count, t in enumerate(reversed(time_order)):
+        edge_index = edge_indeces[t]
+        E = edge_index.size(1)
+        batch_offsets = offsets.repeat_interleave(E)
+        batched_ei = edge_index.repeat(1, B) + batch_offsets.unsqueeze(0)
+        x = F.relu(model.convs[count](x, batched_ei))
+
+    scores = model.lin_post(x).view(B, N)
+    return F.log_softmax(scores, dim=-1)
 
 
 def dbgnn_forward(

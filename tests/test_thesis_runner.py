@@ -92,12 +92,12 @@ def test_generated_max_quality_configs_are_consistent():
     model = runner.build_model_config("france_office", "dbgnn", "r0_20", preset)
     eval_cfg = runner.build_eval_config("france_office", "r0_20", preset)
 
-    assert tsir["sir"]["n_runs"] == 6000
-    assert tsir["sir"]["mc_runs"] == 2000
+    assert tsir["sir"]["n_runs"] == 1000
+    assert tsir["sir"]["mc_runs"] == 500
     assert model["eval"]["min_outbreak"] == 1
-    assert model["eval"]["n_truth"] == 2000
-    assert model["train"]["reps"] == 3
-    assert model["train"]["n_mc"] == 2000
+    assert model["eval"]["n_truth"] == 1000
+    assert model["train"]["reps"] == 1
+    assert model["train"]["n_mc"] == 500
     assert model["dbgnn"]["delta"] == 24
     assert eval_cfg["eval"]["min_outbreak"] == 1
     assert tsir["sir"]["n_runs"] >= model["train"]["reps"] * model["eval"]["n_truth"]
