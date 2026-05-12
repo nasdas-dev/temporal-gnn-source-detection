@@ -79,8 +79,10 @@ def _build_dbgnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.Mo
     return DBGNN(
         hidden_channels = model_cfg["hidden_channels"],
         num_conv_layers = model_cfg["num_conv_layers"],
-        conv_type       = model_cfg.get("conv_type", "sage"),
+        order           = graph_data.get("order", model_cfg.get("order", 2)),
+        bipartite_agg   = model_cfg.get("bipartite_agg", "sum"),
         dropout_rate    = model_cfg.get("dropout_rate", 0.2),
+        conv_type       = model_cfg.get("conv_type", "gcn"),
     )
 
 

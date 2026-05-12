@@ -94,7 +94,11 @@ def _builder_kwargs(model_name: str, model_cfg: dict) -> dict:
     if model_name == "dag_gnn":
         return {"delta_t": model_cfg.get("delta_t", None)}
     if model_name == "dbgnn":
-        return {"delta": model_cfg.get("delta", 24)}
+        return {
+            "order": model_cfg.get("order", 2),
+            "delta": model_cfg.get("delta", 24),
+            "directed": model_cfg.get("directed", None),
+        }
     return {}
 
 

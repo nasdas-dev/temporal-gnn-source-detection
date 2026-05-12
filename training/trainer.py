@@ -193,9 +193,10 @@ def dbgnn_forward(
     db_edge_index       = graph_data["db_edge_index"].to(device)
     db_edge_weight      = graph_data["db_edge_weight"].to(device)
     db_node_to_original = graph_data["db_node_to_original"].to(device)
+    db_node_last        = graph_data["db_node_last"].to(device)
     static_edge_index   = graph_data["static_edge_index"].to(device)
     static_edge_weight  = graph_data["static_edge_weight"].to(device)
-    return model(x, db_edge_index, db_edge_weight, db_node_to_original,
+    return model(x, db_edge_index, db_edge_weight, db_node_to_original, db_node_last,
                  static_edge_index, static_edge_weight)
 
 

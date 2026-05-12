@@ -172,6 +172,7 @@ def build_tsir_config(network: str, r0_label: str, preset: Preset) -> dict[str, 
             "type": "empirical",
             "name": network,
             "t_max": meta["t_max"],
+            "directed": meta["directed"],
         },
         "sir": {
             "beta": sc["beta"],
@@ -216,7 +217,11 @@ def build_model_config(network: str, model: str, r0_label: str, preset: Preset, 
     if model == "temporal_gnn":
         cfg.setdefault("temporal_gnn", {})["group_by_time"] = TEMPORAL_GROUP_BY_TIME.get(network, 12)
     if model == "dbgnn":
-        cfg.setdefault("dbgnn", {})["delta"] = 24
+        db_cfg = cfg.setdefault("dbgnn", {})
+        db_cfg["order"] = db_cfg.get("order", 2)
+        db_cfg["delta"] = db_cfg.get("delta", 24)
+        db_cfg["bipartite_agg"] = db_cfg.get("bipartite_agg", "sum")
+        db_cfg["directed"] = read_network_meta(network)["directed"]
     cfg["experiment"] = {
         "network": network,
         "r0_label": r0_label,
@@ -506,6 +511,34 @@ def binned_rank(sizes: np.ndarray, ranks: np.ndarray, n_bins: int = 30):
     return cents, np.array(means), np.array(p25), np.array(p75)
 
 
+def add_outbreak_distribution_background(
+    ax: plt.Axes,
+    sizes: np.ndarray,
+    n_bins: int = 40,
+    height: float = 0.24,
+) -> None:
+    """Draw a grey outbreak-size distribution behind score/rank curves."""
+    if sizes.size == 0:
+        return
+    max_size = max(1.0, float(np.nanmax(sizes)))
+    counts, edges = np.histogram(sizes, bins=np.linspace(1, math.ceil(max_size), n_bins + 1))
+    if counts.max(initial=0) == 0:
+        return
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    scaled = counts.astype(float) / counts.max() * height
+    ax.fill_between(
+        centers,
+        0,
+        scaled,
+        color="0.82",
+        alpha=0.65,
+        step="mid",
+        linewidth=0,
+        zorder=0,
+        label="_nolegend_",
+    )
+
+
 def write_plot_readme(plot_pdf: Path, title: str, description: str, params: dict[str, Any]) -> None:
     readme = plot_pdf.with_suffix(".README.md")
     lines = [
@@ -547,6 +580,7 @@ def plot_scenario_outputs(run_dir: Path, status_rows: list[dict[str, str]], netw
 
     apply_style()
     fig, ax = plt.subplots(figsize=(11, 7))
+    add_outbreak_distribution_background(ax, loaded[0][3])
     for entry, _, _, sizes, ranks in loaded:
         style = model_style(entry["method"])
         cents, vals, ses, _ = binned_topk(sizes, ranks, 5)
@@ -562,7 +596,7 @@ def plot_scenario_outputs(run_dir: Path, status_rows: list[dict[str, str]], netw
     ax.legend(loc="best", fontsize=9)
     out = fig_dir / "top5_vs_outbreak_compare.pdf"
     finish_fig(fig, str(out))
-    write_plot_readme(out, "Top-5 Score vs Outbreak Size", "Shows the fraction of valid outbreaks where the true source is ranked in the top 5, binned by absolute outbreak size.", params)
+    write_plot_readme(out, "Top-5 Score vs Outbreak Size", "Shows the fraction of valid outbreaks where the true source is ranked in the top 5, binned by absolute outbreak size. The grey background is the outbreak-size distribution for the same evaluation observations.", params)
 
     apply_style()
     fig, ax = plt.subplots(figsize=(11, 7))
@@ -799,12 +833,117 @@ def plot_valid_outbreaks(rows: list[dict[str, Any]], output: Path) -> None:
     write_plot_readme(output, "Valid Outbreaks by Scenario", "Shows how many observations pass `min_outbreak=1` for each network/R0 condition.", {"min_outbreak": 1})
 
 
+def load_scenario_method_arrays(
+    status_rows: list[dict[str, str]],
+    network: str,
+    r0_label: str,
+) -> list[tuple[dict[str, str], int, np.ndarray, np.ndarray]]:
+    """Load (entry, n_nodes, absolute outbreak sizes, ranks) for one scenario."""
+    loaded = []
+    for entry in method_entries(status_rows, network, r0_label):
+        try:
+            arrays = load_eval_arrays(entry["run_id"], "data", entry["baseline"] or None)
+        except FileNotFoundError:
+            continue
+        n_nodes = infer_n_nodes(arrays)
+        sel = arrays["sel"].astype(bool)
+        loaded.append((
+            entry,
+            n_nodes,
+            arrays["outbreak_sizes"][sel] * n_nodes,
+            arrays["ranks"][sel],
+        ))
+    return loaded
+
+
+def plot_top5_outbreak_grid(run_dir: Path, status_rows: list[dict[str, str]]) -> None:
+    """Grid plot: rows=networks, columns=R0, curves=methods, grey=outbreak distribution."""
+    available = {
+        (network, r0_label): load_scenario_method_arrays(status_rows, network, r0_label)
+        for network in NETWORKS
+        for r0_label in R0_LABELS
+    }
+    active_networks = [
+        network for network in NETWORKS
+        if any(available[(network, r0_label)] for r0_label in R0_LABELS)
+    ]
+    active_r0 = [
+        r0_label for r0_label in R0_LABELS
+        if any(available[(network, r0_label)] for network in NETWORKS)
+    ]
+    if not active_networks or not active_r0:
+        return
+
+    apply_style()
+    fig, axes = plt.subplots(
+        len(active_networks),
+        len(active_r0),
+        figsize=(4.2 * len(active_r0), 3.1 * len(active_networks)),
+        squeeze=False,
+        sharey=True,
+    )
+    legend_handles, legend_labels = None, None
+    for row_idx, network in enumerate(active_networks):
+        for col_idx, r0_label in enumerate(active_r0):
+            ax = axes[row_idx][col_idx]
+            loaded = available[(network, r0_label)]
+            if not loaded:
+                ax.axis("off")
+                continue
+            add_outbreak_distribution_background(ax, loaded[0][2], n_bins=28, height=0.25)
+            for entry, _, sizes, ranks in loaded:
+                style = model_style(entry["method"])
+                cents, vals, _, _ = binned_topk(sizes, ranks, 5, n_bins=28)
+                valid = ~np.isnan(vals)
+                ls = "-" if entry["kind"] == "model" else "--"
+                ax.plot(
+                    cents[valid],
+                    vals[valid],
+                    color=style["color"],
+                    lw=1.4,
+                    ls=ls,
+                    alpha=0.95,
+                    label=style["label"],
+                )
+            sc = scenario(network, r0_label)
+            ax.set_title(f"$R_0$={sc['r0']}", fontsize=10)
+            ax.set_ylim(0, 1.05)
+            ax.yaxis.set_major_formatter(plt.matplotlib.ticker.PercentFormatter(xmax=1, decimals=0))
+            if col_idx == 0:
+                ax.set_ylabel(f"{network}\nTop-5", fontsize=10)
+            if row_idx == len(active_networks) - 1:
+                ax.set_xlabel("outbreak_size")
+            if legend_handles is None:
+                legend_handles, legend_labels = ax.get_legend_handles_labels()
+
+    if legend_handles and legend_labels:
+        fig.legend(
+            legend_handles,
+            legend_labels,
+            loc="lower center",
+            ncol=min(5, len(legend_labels)),
+            fontsize=8,
+        )
+    fig.suptitle("Top-5 Score vs Outbreak Size Across Networks and R0", fontsize=14)
+    fig.subplots_adjust(bottom=0.10, hspace=0.35, wspace=0.18)
+    output = run_dir / "figures" / "top5_outbreak_grid_network_r0.pdf"
+    finish_fig(fig, str(output))
+    write_plot_readme(
+        output,
+        "Top-5 Outbreak Grid by Network and R0",
+        "Rows are networks, columns are R0 settings, and each panel overlays model/baseline Top-5 score against absolute outbreak size. The grey background shows the outbreak-size distribution for that panel.",
+        {"metric": "eval/top_5", "min_outbreak": 1},
+    )
+
+
 def plot_global_outputs(run_dir: Path, summary_rows: list[dict[str, Any]]) -> None:
     fig_dir = run_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
+    status_rows = read_status(run_dir / "status.csv")
     plot_metric_vs_r0(summary_rows, fig_dir / "mrr_vs_r0_by_network.pdf", "eval/mrr_mean", "MRR vs R0 by Network", "MRR")
     plot_metric_vs_r0(summary_rows, fig_dir / "top5_vs_r0_by_network.pdf", "eval/top_5_mean", "Top-5 vs R0 by Network", "Top-5 accuracy")
     plot_metric_vs_r0(summary_rows, fig_dir / "norm_brier_vs_r0.pdf", "eval/norm_brier_mean", "Norm-Brier vs R0", "Norm-Brier")
+    plot_top5_outbreak_grid(run_dir, status_rows)
     plot_top5_heatmap(summary_rows, fig_dir / "top5_heatmap_network_model_r0.pdf")
     plot_valid_outbreaks(summary_rows, fig_dir / "valid_outbreaks_by_scenario.pdf")
 

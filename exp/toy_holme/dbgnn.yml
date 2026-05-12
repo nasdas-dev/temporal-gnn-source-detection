@@ -19,7 +19,10 @@ train:
   seed: 42
 
 dbgnn:
+  order: 2
+  delta: 24
+  bipartite_agg: sum
   hidden_channels: 64
   num_conv_layers: 3
-  conv_type: sage
+  conv_type: gcn
   dropout_rate: 0.2

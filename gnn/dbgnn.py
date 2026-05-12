@@ -1,19 +1,20 @@
 """
-De Bruijn Graph Neural Network (DBGNN)
-Adapted from: Qarkaxhija et al., 'De Bruijn goes Neural: Causality-Aware GNNs
-for Time Series Data on Dynamic Graphs.' arXiv:2209.08311v1, 2022.
+De Bruijn Graph Neural Network (DBGNN).
 
-Architecture (paper Section 3)
--------------------------------
-1. Higher-order branch: message passing on G^(2) (De Bruijn graph)
-   - Nodes: unique directed node-pairs (u, v) with input features cat(x_u, x_v)
-   - l layers of frequency-weighted mean aggregation (Eq. 1)
-2. First-order branch: g layers of GCN on the static time-aggregated graph G^(1)
-   - Same number of layers as higher-order branch
-3. Bipartite projection G^b (Eq. 2): for each original node v, sum the
-   higher-order embeddings of all (u, v) De Bruijn nodes, apply W^b, add
-   the first-order embedding h_v^{1,g}.
-4. Final linear layer → mask susceptible nodes → log-softmax.
+Faithful source-detection adaptation of Qarkaxhija, Perri, and Scholtes,
+"De Bruijn goes Neural: Causality-Aware GNNs for Time Series Data on
+Dynamic Graphs" (arXiv:2209.08311v1).
+
+The implementation keeps the paper's architectural core:
+
+1. Message passing on a k-th order De Bruijn graph G^(k), where nodes are
+   causal walks of length k - 1 and edges are causal walk completions.
+2. Parallel first-order GCN message passing on the weighted static projection.
+3. Bipartite Eq. 2 readout from higher-order nodes back to original nodes.
+
+It adapts the input/output to this thesis' source-detection pipeline: node
+features are final SIR states and the model returns a masked log-softmax over
+candidate source nodes.
 """
 
 from __future__ import annotations
@@ -23,130 +24,122 @@ import torch.nn.functional as F
 from torch.nn import Linear, ModuleList
 
 
-# ---------------------------------------------------------------------------
-# Shared message-passing layer
-# ---------------------------------------------------------------------------
-
-class MPLayer(torch.nn.Module):
-    """Single mean-aggregation message passing layer (ELU activation).
-
-    Supports pre-normalised edge weights (sum-to-1 per destination).
-    Update: h'_v = ELU( W_self * h_v + W_agg * sum_{u→v} w(u,v) * h_u )
-    """
+class WeightedGCNLayer(torch.nn.Module):
+    """Paper-style weighted GCN propagation with pre-normalized edge weights."""
 
     def __init__(self, in_dim: int, out_dim: int) -> None:
         super().__init__()
-        self.W_self  = Linear(in_dim, out_dim, bias=False)
-        self.W_agg   = Linear(in_dim, out_dim, bias=True)
+        self.linear = Linear(in_dim, out_dim, bias=True)
         self.out_dim = out_dim
 
     def forward(
         self,
-        h: torch.Tensor,                          # [B, N, in_dim]
-        edge_index: torch.Tensor,                  # [2, E]  src → dst
-        edge_weight: torch.Tensor | None = None,   # [E] normalised (sum-to-1 per dst)
-    ) -> torch.Tensor:                             # [B, N, out_dim]
-        B, N, _ = h.shape
-        D = self.out_dim
+        h: torch.Tensor,                         # [B, N, in_dim]
+        edge_index: torch.Tensor,                 # [2, E] src -> dst
+        edge_weight: torch.Tensor,                # [E] normalized GCN weights
+    ) -> torch.Tensor:                            # [B, N, out_dim]
+        B, N, in_dim = h.shape
         src, dst = edge_index[0], edge_index[1]
         E = src.shape[0]
 
-        h_self = self.W_self(h)  # [B, N, D]
-
         if E == 0:
-            return F.elu(h_self)
+            return F.elu(self.linear(h))
 
-        h_src_proj = self.W_agg(h[:, src, :])  # [B, E, D]
+        messages = h[:, src, :] * edge_weight.to(h.device).view(1, E, 1)
+        dst_idx = dst.view(1, E, 1).expand(B, E, in_dim)
+        agg = h.new_zeros(B, N, in_dim)
+        agg.scatter_add_(1, dst_idx, messages)
+        return F.elu(self.linear(agg))
 
-        if edge_weight is not None:
-            h_src_proj = h_src_proj * edge_weight.to(h.device).view(1, -1, 1)
-
-        dst_idx = dst.view(1, -1, 1).expand(B, E, D)
-        agg = h.new_zeros(B, N, D)
-        agg.scatter_add_(1, dst_idx, h_src_proj)
-
-        if edge_weight is None:
-            deg = h.new_zeros(N)
-            deg.scatter_add_(0, dst, torch.ones(E, device=h.device))
-            agg = agg / deg.clamp(min=1).view(1, N, 1)
-
-        return F.elu(h_self + agg)
-
-
-# ---------------------------------------------------------------------------
-# Full DBGNN model
-# ---------------------------------------------------------------------------
 
 class DBGNN(torch.nn.Module):
-    """
-    De Bruijn GNN for epidemic source detection.
-
-    Parameters
-    ----------
-    hidden_channels:
-        Hidden embedding dimension D for both branches.
-    num_conv_layers:
-        Number of message-passing layers in both branches (g = l).
-    conv_type:
-        Unused — kept for API compatibility with YAML configs.
-    dropout_rate:
-        Dropout probability applied after each convolution.
-    """
+    """DBGNN for epidemic source detection."""
 
     def __init__(
         self,
         hidden_channels: int,
         num_conv_layers: int,
-        conv_type: str = "sage",
+        order: int = 2,
+        bipartite_agg: str = "sum",
         dropout_rate: float = 0.2,
+        conv_type: str = "gcn",
     ) -> None:
         super().__init__()
+        if order < 2:
+            raise ValueError(f"DBGNN requires order >= 2, got {order}")
+        if bipartite_agg not in {"sum", "mean", "max", "min"}:
+            raise ValueError(
+                "bipartite_agg must be one of {'sum', 'mean', 'max', 'min'}, "
+                f"got {bipartite_agg!r}"
+            )
+
         self.hidden_channels = hidden_channels
-        self.dropout_rate    = dropout_rate
+        self.order = order
+        self.bipartite_agg = bipartite_agg
+        self.dropout_rate = dropout_rate
+        self.conv_type = conv_type
 
-        # Input projections
-        self.proj_ho  = Linear(6, hidden_channels)   # De Bruijn node: cat(x_u, x_v) — 6-dim
-        self.proj_fo  = Linear(3, hidden_channels)   # first-order node: x_v — 3-dim
+        self.proj_ho = Linear(3 * order, hidden_channels)
+        self.proj_fo = Linear(3, hidden_channels)
 
-        # Higher-order De Bruijn convolutions (branch 1)
         self.ho_convs = ModuleList(
-            [MPLayer(hidden_channels, hidden_channels) for _ in range(num_conv_layers)]
+            [WeightedGCNLayer(hidden_channels, hidden_channels) for _ in range(num_conv_layers)]
         )
-
-        # First-order GCN convolutions (branch 2)
         self.fo_convs = ModuleList(
-            [MPLayer(hidden_channels, hidden_channels) for _ in range(num_conv_layers)]
+            [WeightedGCNLayer(hidden_channels, hidden_channels) for _ in range(num_conv_layers)]
         )
 
-        # Bipartite projection W^b (Eq. 2 in paper)
         self.bipartite_proj = Linear(hidden_channels, hidden_channels, bias=True)
-
-        # Final readout: per-node embedding → scalar score
         self.out = Linear(hidden_channels, 1)
+
+    def _aggregate_bipartite(
+        self,
+        values: torch.Tensor,       # [B, n_db, D]
+        dst: torch.Tensor,          # [n_db]
+        n_nodes: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        B, n_db, D = values.shape
+        device = values.device
+        counts = torch.zeros(n_nodes, dtype=values.dtype, device=device)
+        counts.scatter_add_(0, dst, torch.ones(n_db, dtype=values.dtype, device=device))
+        has_db = counts > 0
+
+        if self.bipartite_agg in {"sum", "mean"}:
+            out = values.new_zeros(B, n_nodes, D)
+            idx = dst.view(1, n_db, 1).expand(B, n_db, D)
+            out.scatter_add_(1, idx, values)
+            if self.bipartite_agg == "mean":
+                out = out / counts.clamp(min=1).view(1, n_nodes, 1)
+            return out, has_db
+
+        reduce_name = "amax" if self.bipartite_agg == "max" else "amin"
+        fill = -float("inf") if self.bipartite_agg == "max" else float("inf")
+        out = values.new_full((B, n_nodes, D), fill)
+        idx = dst.view(1, n_db, 1).expand(B, n_db, D)
+        out.scatter_reduce_(1, idx, values, reduce=reduce_name, include_self=True)
+        out = torch.where(has_db.view(1, n_nodes, 1), out, torch.zeros_like(out))
+        return out, has_db
 
     def forward(
         self,
-        x: torch.Tensor,                    # [B, N, 3]  original SIR states
-        db_edge_index: torch.Tensor,         # [2, E_db]  De Bruijn graph edges
-        db_edge_weight: torch.Tensor,        # [E_db]     normalised edge weights
-        db_node_to_original: torch.Tensor,   # [n_db, 2]  (u, v) per DB node
-        static_edge_index: torch.Tensor,     # [2, E_st]  static graph edges
-        static_edge_weight: torch.Tensor,    # [E_st]     normalised edge weights
-    ) -> torch.Tensor:                       # [B, N]     log-probabilities
+        x: torch.Tensor,                    # [B, N, 3] original SIR states
+        db_edge_index: torch.Tensor,         # [2, E_db] De Bruijn edges incl. self-loops
+        db_edge_weight: torch.Tensor,        # [E_db] GCN-normalized weights
+        db_node_to_original: torch.Tensor,   # [n_db, order]
+        db_node_last: torch.Tensor,          # [n_db]
+        static_edge_index: torch.Tensor,     # [2, E_st] static edges incl. self-loops
+        static_edge_weight: torch.Tensor,    # [E_st] GCN-normalized weights
+    ) -> torch.Tensor:                       # [B, N] log-probabilities
         B, N, _ = x.shape
         n_db = db_node_to_original.shape[0]
-        D    = self.hidden_channels
+        D = self.hidden_channels
         device = x.device
 
-        # --------------------------------------------------------
-        # 1. Higher-order branch: message passing on G^(2)
-        # --------------------------------------------------------
+        # Higher-order branch on G^(k).
         if n_db > 0:
-            u_idx = db_node_to_original[:, 0].to(device)  # [n_db]
-            v_idx = db_node_to_original[:, 1].to(device)  # [n_db]
-            x_u = x[:, u_idx, :]                          # [B, n_db, 3]
-            x_v = x[:, v_idx, :]                          # [B, n_db, 3]
-            h_db = F.elu(self.proj_ho(torch.cat([x_u, x_v], dim=-1)))  # [B, n_db, D]
+            walk_idx = db_node_to_original.to(device)                 # [n_db, order]
+            x_walk = x[:, walk_idx, :].reshape(B, n_db, 3 * self.order)
+            h_db = F.elu(self.proj_ho(x_walk))
 
             ei_db = db_edge_index.to(device)
             ew_db = db_edge_weight.to(device)
@@ -155,13 +148,10 @@ class DBGNN(torch.nn.Module):
                 if self.dropout_rate > 0 and self.training:
                     h_db = F.dropout(h_db, p=self.dropout_rate)
         else:
-            v_idx = torch.zeros(0, dtype=torch.long, device=device)
-            h_db  = torch.zeros(B, 0, D, device=device)
+            h_db = torch.zeros(B, 0, D, device=device)
 
-        # --------------------------------------------------------
-        # 2. First-order branch: GCN on static graph G^(1)
-        # --------------------------------------------------------
-        h_fo = F.elu(self.proj_fo(x))   # [B, N, D]
+        # First-order branch on the weighted static projection.
+        h_fo = F.elu(self.proj_fo(x))
         ei_st = static_edge_index.to(device)
         ew_st = static_edge_weight.to(device)
         for conv in self.fo_convs:
@@ -169,28 +159,17 @@ class DBGNN(torch.nn.Module):
             if self.dropout_rate > 0 and self.training:
                 h_fo = F.dropout(h_fo, p=self.dropout_rate)
 
-        # --------------------------------------------------------
-        # 3. Bipartite projection (Eq. 2): G^(2) → original nodes
-        #    For each original node v, aggregate embeddings of (u,v) DB nodes.
-        # --------------------------------------------------------
-        bipartite_agg = torch.zeros(B, N, D, device=device)
+        # Bipartite Eq. 2: aggregate h_u^(k,l) + h_v^(1,g) for DB nodes ending at v.
         if n_db > 0:
-            v_exp = v_idx.view(1, -1, 1).expand(B, n_db, D)
-            bipartite_agg.scatter_add_(1, v_exp, h_db)
+            dst = db_node_last.to(device)
+            augmented = h_db + h_fo[:, dst, :]
+            bipartite_agg, _ = self._aggregate_bipartite(augmented, dst, N)
+        else:
+            bipartite_agg = torch.zeros(B, N, D, device=device)
 
-            # Degree: how many DB nodes map to each original node
-            deg = torch.zeros(N, device=device)
-            deg.scatter_add_(0, v_idx, torch.ones(n_db, device=device))
-            bipartite_agg = bipartite_agg / deg.clamp(min=1).view(1, N, 1)
+        h_out = F.elu(self.bipartite_proj(bipartite_agg))
+        scores = self.out(h_out).squeeze(-1)
 
-        # Apply W^b only where DB nodes exist; add first-order embeddings
-        has_db = (deg > 0).float().view(1, N, 1) if n_db > 0 else torch.zeros(1, N, 1, device=device)
-        h_out = F.elu(self.bipartite_proj(bipartite_agg)) * has_db + h_fo  # [B, N, D]
-
-        # --------------------------------------------------------
-        # 4. Score → mask susceptible nodes → log-softmax
-        # --------------------------------------------------------
-        scores = self.out(h_out).squeeze(-1)          # [B, N]
-        susceptible_mask = x[..., 0].bool()           # [B, N]  — S channel
+        susceptible_mask = x[..., 0].bool()
         scores = scores.masked_fill(susceptible_mask, float("-inf"))
-        return F.log_softmax(scores, dim=-1)           # [B, N]
+        return F.log_softmax(scores, dim=-1)

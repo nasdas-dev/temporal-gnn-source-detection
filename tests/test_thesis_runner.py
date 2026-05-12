@@ -94,11 +94,15 @@ def test_generated_max_quality_configs_are_consistent():
 
     assert tsir["sir"]["n_runs"] == 1000
     assert tsir["sir"]["mc_runs"] == 500
+    assert tsir["nwk"]["directed"] is False
     assert model["eval"]["min_outbreak"] == 1
     assert model["eval"]["n_truth"] == 1000
     assert model["train"]["reps"] == 1
     assert model["train"]["n_mc"] == 500
+    assert model["dbgnn"]["order"] == 2
     assert model["dbgnn"]["delta"] == 24
+    assert model["dbgnn"]["bipartite_agg"] == "sum"
+    assert model["dbgnn"]["directed"] is False
     assert eval_cfg["eval"]["min_outbreak"] == 1
     assert tsir["sir"]["n_runs"] >= model["train"]["reps"] * model["eval"]["n_truth"]
 

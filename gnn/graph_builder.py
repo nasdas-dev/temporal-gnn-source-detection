@@ -22,6 +22,42 @@ import numpy as np
 import torch
 
 
+def normalize_gcn_edges(
+    edge_index: torch.Tensor,
+    edge_weight: torch.Tensor,
+    n_nodes: int,
+    add_self_loops: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return GCN-style symmetric edge weights for message passing.
+
+    The returned graph uses source-to-destination edges and weights
+    ``w(u, v) / sqrt(S(u) S(v))``, where ``S(x)`` is the incoming weighted
+    strength after optional self-loops have been added.
+    """
+    if n_nodes < 0:
+        raise ValueError(f"n_nodes must be non-negative, got {n_nodes}")
+
+    device = edge_index.device
+    edge_index = edge_index.to(dtype=torch.long)
+    edge_weight = edge_weight.to(dtype=torch.float32, device=device)
+
+    if add_self_loops and n_nodes > 0:
+        loops = torch.arange(n_nodes, dtype=torch.long, device=device)
+        loop_index = torch.stack([loops, loops], dim=0)
+        loop_weight = torch.ones(n_nodes, dtype=torch.float32, device=device)
+        edge_index = torch.cat([edge_index, loop_index], dim=1)
+        edge_weight = torch.cat([edge_weight, loop_weight], dim=0)
+
+    if edge_index.numel() == 0:
+        return edge_index, edge_weight
+
+    src, dst = edge_index[0], edge_index[1]
+    strength = torch.zeros(n_nodes, dtype=torch.float32, device=device)
+    strength.scatter_add_(0, dst, edge_weight)
+    denom = torch.sqrt(strength[src] * strength[dst]).clamp(min=1e-12)
+    return edge_index, edge_weight / denom
+
+
 # ---------------------------------------------------------------------------
 # Static projection  (StaticGNN)
 # ---------------------------------------------------------------------------
@@ -205,15 +241,16 @@ def build_temporal_snapshots(
 
 def build_de_bruijn_graph(
     H: nx.Graph,
-    directed: bool = False,
+    directed: bool | None = None,
     delta: int | None = None,
+    order: int = 2,
 ) -> dict:
-    """Build the second-order De Bruijn graph for DBGNN.
+    """Build the k-th order De Bruijn graph for DBGNN.
 
     Following Qarkaxhija et al. (arXiv:2209.08311): nodes are unique directed
-    node-pairs (u, v) observed in contacts; an edge ((u,v),(v,w)) exists if
-    there are times t1 < t2 (with t2-t1 ≤ delta) such that (u,v;t1) and
-    (v,w;t2) are contacts.  Edge weights count causal walk completions.
+    causal walks ``(v0, ..., v{k-1})``; an edge connects two overlapping
+    k-node walks when their concatenation is a causal walk of length ``k``.
+    Edge weights count temporal realizations of those causal completions.
 
     Also builds the static time-aggregated graph for the first-order GCN branch.
 
@@ -222,9 +259,11 @@ def build_de_bruijn_graph(
     H:
         Temporal NetworkX graph with ``'times'`` edge attribute.
     directed:
-        If ``True``, treat contacts as directed. Default ``False``.
+        If ``True``, treat contacts as directed. If ``None``, infer from ``H``.
     delta:
         Maximum allowed time gap for causal walks. ``None`` = no constraint.
+    order:
+        De Bruijn order k. Must be at least 2.
 
     Returns
     -------
@@ -232,60 +271,80 @@ def build_de_bruijn_graph(
         ``n_nodes``              int
         ``n_db_nodes``           int
         ``db_edge_index``        LongTensor [2, E_db]
-        ``db_edge_weight``       FloatTensor [E_db]  normalised per destination
-        ``db_node_to_original``  LongTensor [n_db, 2]  — (u, v) per DB node
+        ``db_edge_weight``       FloatTensor [E_db]  GCN-normalised, incl. self-loops
+        ``db_node_to_original``  LongTensor [n_db, order]
+        ``db_node_last``         LongTensor [n_db]
         ``static_edge_index``    LongTensor [2, E_st]  — time-aggregated graph
-        ``static_edge_weight``   FloatTensor [E_st]    — normalised per destination
+        ``static_edge_weight``   FloatTensor [E_st]    — GCN-normalised, incl. self-loops
     """
     from utils.make_de_bruijn_graph import make_de_bruijn_graph as _make_db
     from setup.read_network import make_array_from_networkx
 
+    if order < 2:
+        raise ValueError(f"DBGNN requires order >= 2, got {order}")
+
     n_nodes = H.number_of_nodes()
+    is_directed = H.is_directed() if directed is None else bool(directed)
     H_array = make_array_from_networkx(H)
 
+    empty_static_ei, empty_static_ew = normalize_gcn_edges(
+        torch.zeros(2, 0, dtype=torch.long),
+        torch.zeros(0, dtype=torch.float32),
+        n_nodes,
+        add_self_loops=True,
+    )
     _empty = {
         "n_nodes":             n_nodes,
+        "order":               order,
+        "directed":            is_directed,
         "n_db_nodes":          0,
+        "db_edge_count":       0,
         "db_edge_index":       torch.zeros(2, 0, dtype=torch.long),
         "db_edge_weight":      torch.zeros(0, dtype=torch.float32),
-        "db_node_to_original": torch.zeros(0, 2, dtype=torch.long),
-        "static_edge_index":   torch.zeros(2, 0, dtype=torch.long),
-        "static_edge_weight":  torch.zeros(0, dtype=torch.float32),
+        "db_node_to_original": torch.zeros(0, order, dtype=torch.long),
+        "db_node_last":        torch.zeros(0, dtype=torch.long),
+        "static_edge_index":   empty_static_ei,
+        "static_edge_weight":  empty_static_ew,
     }
     if len(H_array) == 0:
         return _empty
 
     # ----------------------------------------------------------------
-    # De Bruijn graph G^(2)
+    # De Bruijn graph G^(k)
     # ----------------------------------------------------------------
-    B = _make_db(H_array, delta=delta, directed=directed)
+    B = _make_db(H_array, delta=delta, directed=is_directed, order=order)
 
     node_list   = list(B.nodes())
     node_to_idx = {node: i for i, node in enumerate(node_list)}
     n_db_nodes  = len(node_list)
 
-    if n_db_nodes == 0:
-        return _empty
+    if n_db_nodes > 0:
+        # DB node -> original-node mapping
+        db_node_to_original = torch.tensor(
+            [[int(v) for v in node] for node in node_list], dtype=torch.long
+        )  # [n_db, order]
+        db_node_last = db_node_to_original[:, -1]
 
-    # DB node → original-node mapping
-    db_node_to_original = torch.tensor(
-        [[int(u), int(v)] for u, v in node_list], dtype=torch.long
-    )  # [n_db, 2]
-
-    # DB edges with raw weights
-    edge_triples = [(node_to_idx[u], node_to_idx[v], d.get("weight", 1))
-                    for u, v, d in B.edges(data=True)]
-    if edge_triples:
-        db_src = torch.tensor([e[0] for e in edge_triples], dtype=torch.long)
-        db_dst = torch.tensor([e[1] for e in edge_triples], dtype=torch.long)
-        raw_w  = torch.tensor([e[2] for e in edge_triples], dtype=torch.float32)
-        db_edge_index = torch.stack([db_src, db_dst], dim=0)  # [2, E_db]
-        # Normalise weights so they sum to 1 per destination (w(u,v)/S(v))
-        dst_sum = torch.zeros(n_db_nodes, dtype=torch.float32)
-        dst_sum.scatter_add_(0, db_dst, raw_w)
-        db_edge_weight = raw_w / dst_sum[db_dst].clamp(min=1e-8)
+        # DB edges with raw count weights
+        edge_triples = [(node_to_idx[u], node_to_idx[v], d.get("weight", 1))
+                        for u, v, d in B.edges(data=True)]
+        db_edge_count = len(edge_triples)
+        if edge_triples:
+            db_src = torch.tensor([e[0] for e in edge_triples], dtype=torch.long)
+            db_dst = torch.tensor([e[1] for e in edge_triples], dtype=torch.long)
+            raw_w  = torch.tensor([e[2] for e in edge_triples], dtype=torch.float32)
+            db_edge_index_raw = torch.stack([db_src, db_dst], dim=0)  # [2, E_db]
+        else:
+            db_edge_index_raw = torch.zeros(2, 0, dtype=torch.long)
+            raw_w = torch.zeros(0, dtype=torch.float32)
+        db_edge_index, db_edge_weight = normalize_gcn_edges(
+            db_edge_index_raw, raw_w, n_db_nodes, add_self_loops=True
+        )
     else:
-        db_edge_index  = torch.zeros(2, 0, dtype=torch.long)
+        db_node_to_original = torch.zeros(0, order, dtype=torch.long)
+        db_node_last = torch.zeros(0, dtype=torch.long)
+        db_edge_count = 0
+        db_edge_index = torch.zeros(2, 0, dtype=torch.long)
         db_edge_weight = torch.zeros(0, dtype=torch.float32)
 
     # ----------------------------------------------------------------
@@ -295,25 +354,29 @@ def build_de_bruijn_graph(
     for u, v, data in H.edges(data=True):
         cnt = float(len(data.get("times", [1])))
         st_src.append(u); st_dst.append(v); st_w_raw.append(cnt)
-        st_src.append(v); st_dst.append(u); st_w_raw.append(cnt)
+        if not is_directed:
+            st_src.append(v); st_dst.append(u); st_w_raw.append(cnt)
 
     if st_src:
-        st_dst_t = torch.tensor(st_dst, dtype=torch.long)
-        st_w_t   = torch.tensor(st_w_raw, dtype=torch.float32)
-        deg_sum  = torch.zeros(n_nodes, dtype=torch.float32)
-        deg_sum.scatter_add_(0, st_dst_t, st_w_t)
-        static_edge_index  = torch.tensor([st_src, st_dst], dtype=torch.long)
-        static_edge_weight = st_w_t / deg_sum[st_dst_t].clamp(min=1e-8)
+        static_edge_index_raw = torch.tensor([st_src, st_dst], dtype=torch.long)
+        static_w_raw = torch.tensor(st_w_raw, dtype=torch.float32)
     else:
-        static_edge_index  = torch.zeros(2, 0, dtype=torch.long)
-        static_edge_weight = torch.zeros(0, dtype=torch.float32)
+        static_edge_index_raw = torch.zeros(2, 0, dtype=torch.long)
+        static_w_raw = torch.zeros(0, dtype=torch.float32)
+    static_edge_index, static_edge_weight = normalize_gcn_edges(
+        static_edge_index_raw, static_w_raw, n_nodes, add_self_loops=True
+    )
 
     return {
         "n_nodes":             n_nodes,
+        "order":               order,
+        "directed":            is_directed,
         "n_db_nodes":          n_db_nodes,
+        "db_edge_count":       db_edge_count,
         "db_edge_index":       db_edge_index,
         "db_edge_weight":      db_edge_weight,
         "db_node_to_original": db_node_to_original,
+        "db_node_last":        db_node_last,
         "static_edge_index":   static_edge_index,
         "static_edge_weight":  static_edge_weight,
     }
