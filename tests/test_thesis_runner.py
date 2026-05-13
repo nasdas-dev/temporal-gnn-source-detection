@@ -107,6 +107,18 @@ def test_generated_max_quality_configs_are_consistent():
     assert tsir["sir"]["n_runs"] >= model["train"]["reps"] * model["eval"]["n_truth"]
 
 
+def test_swiss_network_parameters_match_final_grid():
+    preset = runner.PRESETS["max_quality"]
+
+    biasca = runner.build_tsir_config("biasca", "r0_20", preset)
+    olten = runner.build_tsir_config("olten", "r0_25", preset)
+
+    assert biasca["sir"]["beta"] == 0.274
+    assert biasca["sir"]["mu"] == 0.001
+    assert olten["sir"]["beta"] == 0.343
+    assert olten["sir"]["mu"] == 0.001
+
+
 def test_dry_run_expands_full_thesis_matrix(tmp_path):
     cmd = [
         sys.executable,

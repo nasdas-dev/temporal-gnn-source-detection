@@ -60,8 +60,16 @@ BETAS = {
     "lyon_ward":    {"r0_08": 0.012, "r0_10": 0.015, "r0_11": 0.016, "r0_15": 0.024, "r0_20": 0.038, "r0_25": 0.059},
     "malawi":       {"r0_08": 0.025, "r0_10": 0.041, "r0_11": 0.050, "r0_15": 0.105, "r0_20": 0.244, "r0_25": 0.542},
     "france_office":{"r0_08": 0.058, "r0_10": 0.070, "r0_11": 0.076, "r0_15": 0.107, "r0_20": 0.159, "r0_25": 0.233},
-    "biasca":       {"r0_08": 0.043, "r0_10": 0.052, "r0_11": 0.056, "r0_15": 0.079, "r0_20": 0.117, "r0_25": 0.172},
-    "olten":        {"r0_08": 0.079, "r0_10": 0.096, "r0_11": 0.104, "r0_15": 0.146, "r0_20": 0.217, "r0_25": 0.318},
+    "biasca":       {"r0_08": 0.016, "r0_10": 0.031, "r0_11": 0.041, "r0_15": 0.113, "r0_20": 0.274, "r0_25": 0.480},
+    "olten":        {"r0_08": 0.025, "r0_10": 0.039, "r0_11": 0.047, "r0_15": 0.096, "r0_20": 0.195, "r0_25": 0.343},
+}
+
+MUS = {
+    "lyon_ward": 0.01,
+    "malawi": 0.01,
+    "france_office": 0.01,
+    "biasca": 0.001,
+    "olten": 0.001,
 }
 
 TEMPORAL_GROUP_BY_TIME = {
@@ -156,7 +164,7 @@ def scenario(network: str, r0_label: str) -> dict[str, Any]:
         "label": r0_label,
         "r0": R0_VALUES[r0_label],
         "beta": BETAS[network][r0_label],
-        "mu": 0.01,
+        "mu": MUS[network],
     }
 
 
@@ -280,7 +288,7 @@ def write_manifest(run_dir: Path, args: argparse.Namespace, networks: list[str],
         "models": args.models,
         "r0_labels": r0_labels,
         "betas": {n: BETAS[n] for n in networks if n in BETAS},
-        "mu": 0.01,
+        "mus": {n: MUS[n] for n in networks if n in MUS},
         "baselines": BASELINES,
         "wandb_project": WANDB_PROJECT,
     }
