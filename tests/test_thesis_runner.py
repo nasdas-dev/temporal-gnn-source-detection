@@ -107,12 +107,15 @@ def test_generated_max_quality_configs_are_consistent():
     assert tsir["sir"]["n_runs"] >= model["train"]["reps"] * model["eval"]["n_truth"]
 
 
-def test_swiss_network_parameters_match_final_grid():
+def test_added_network_parameters_match_final_grid():
     preset = runner.PRESETS["max_quality"]
 
+    students = runner.build_tsir_config("students", "r0_25", preset)
     biasca = runner.build_tsir_config("biasca", "r0_20", preset)
     olten = runner.build_tsir_config("olten", "r0_25", preset)
 
+    assert students["sir"]["beta"] == 0.187
+    assert students["sir"]["mu"] == 0.01
     assert biasca["sir"]["beta"] == 0.274
     assert biasca["sir"]["mu"] == 0.001
     assert olten["sir"]["beta"] == 0.343

@@ -42,7 +42,7 @@ from viz.style import MODEL_COLORS, MODEL_LABELS, apply_style, finish_fig, model
 
 WANDB_PROJECT = "source-detection"
 
-NETWORKS = ["lyon_ward", "malawi", "france_office", "biasca", "olten"]
+NETWORKS = ["lyon_ward", "malawi", "france_office", "students", "biasca", "olten"]
 MODELS = ["static_gnn", "temporal_gnn", "backtracking", "dbgnn"]
 BASELINES = ["uniform", "random", "degree", "closeness", "betweenness", "jordan_center"]
 R0_LABELS = ["r0_08", "r0_10", "r0_11", "r0_15", "r0_20", "r0_25"]
@@ -60,6 +60,7 @@ BETAS = {
     "lyon_ward":    {"r0_08": 0.012, "r0_10": 0.015, "r0_11": 0.016, "r0_15": 0.024, "r0_20": 0.038, "r0_25": 0.059},
     "malawi":       {"r0_08": 0.025, "r0_10": 0.041, "r0_11": 0.050, "r0_15": 0.105, "r0_20": 0.244, "r0_25": 0.542},
     "france_office":{"r0_08": 0.058, "r0_10": 0.070, "r0_11": 0.076, "r0_15": 0.107, "r0_20": 0.159, "r0_25": 0.233},
+    "students":     {"r0_08": 0.034, "r0_10": 0.045, "r0_11": 0.051, "r0_15": 0.078, "r0_20": 0.124, "r0_25": 0.187},
     "biasca":       {"r0_08": 0.016, "r0_10": 0.031, "r0_11": 0.041, "r0_15": 0.113, "r0_20": 0.274, "r0_25": 0.480},
     "olten":        {"r0_08": 0.025, "r0_10": 0.039, "r0_11": 0.047, "r0_15": 0.096, "r0_20": 0.195, "r0_25": 0.343},
 }
@@ -68,6 +69,7 @@ MUS = {
     "lyon_ward": 0.01,
     "malawi": 0.01,
     "france_office": 0.01,
+    "students": 0.01,
     "biasca": 0.001,
     "olten": 0.001,
 }
@@ -76,6 +78,7 @@ TEMPORAL_GROUP_BY_TIME = {
     "lyon_ward": 6,
     "malawi": 16,
     "france_office": 12,
+    "students": 50,
     "biasca": 32,
     "olten": 32,
 }
