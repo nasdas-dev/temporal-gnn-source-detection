@@ -9,8 +9,10 @@ from pathlib import Path
 
 import networkx as nx
 import numpy as np
+import yaml
 
 import run_all_experiments as runner
+import run_dbgnn_higher_order_experiment as ho_runner
 from training.trainer import LossGuardConfig, check_loss_guard
 from utils.make_de_bruijn_graph import make_de_bruijn_graph
 
@@ -142,6 +144,44 @@ def test_dry_run_expands_full_thesis_matrix(tmp_path):
     expected = len(runner.NETWORKS) * len(runner.R0_LABELS) * (1 + len(runner.MODELS) + 1)
     assert len(rows) == expected
     assert sum(r["stage"] == "train" for r in rows) == len(runner.NETWORKS) * len(runner.R0_LABELS) * len(runner.MODELS)
+
+
+def test_dbgnn_higher_order_dry_run_expands_orders_and_sampling(tmp_path):
+    cmd = [
+        sys.executable,
+        "run_dbgnn_higher_order_experiment.py",
+        "--dry-run",
+        "--output",
+        str(tmp_path),
+        "--run-name",
+        "dry",
+        "--networks",
+        "students",
+        "--r0",
+        "1.0",
+        "--orders",
+        "2",
+        "10",
+    ]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    assert "DBGNN Higher-Order Experiment Runner" in result.stdout
+
+    with open(tmp_path / "dry" / "status.csv", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 3
+    assert sum(r["stage"] == "tsir" for r in rows) == 1
+    assert sorted(r["order"] for r in rows if r["stage"] == "train") == ["10", "2"]
+
+    tsir_cfg = (tmp_path / "dry" / "configs" / "students" / "r0_10" / "tsir.yml").read_text()
+    k10_cfg = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k10.yml").read_text())
+    assert "activity_snowball" in tsir_cfg
+    assert k10_cfg["dbgnn"]["order"] == 10
+
+
+def test_dbgnn_sampling_budget_uses_students_factor_72():
+    stats = {"students": ho_runner.read_full_network_stats("students")}
+    budget = ho_runner.compute_sample_budget(stats, "students", 72)
+    assert budget == stats["students"].node_edge_cost // 72
 
 
 def test_plot_generation_from_synthetic_eval_arrays(tmp_path, monkeypatch):

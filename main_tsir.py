@@ -77,6 +77,7 @@ def main() -> None:
     n_nodes = H.number_of_nodes()
     n_edges = H.number_of_edges()
     n_contacts = sum(len(d["times"]) for _, _, d in H.edges(data=True))
+    sample_meta = H.graph.get("sample", {})
 
     print(f"  Nodes    : {n_nodes}")
     print(f"  Edges    : {n_edges}  (undirected pairs)")
@@ -88,6 +89,8 @@ def main() -> None:
     wandb.summary["n_contacts"] = n_contacts
     wandb.summary["t_max"]     = cfg.nwk.t_max
     wandb.summary["network"]   = cfg.nwk.name
+    for key, value in sample_meta.items():
+        wandb.summary[f"sample/{key}"] = value
 
     # Persist the graph so downstream runs can load it without re-reading CSV
     with open(f"{local_folder}/network.gpickle", "wb") as f:
@@ -158,6 +161,7 @@ def main() -> None:
             "mu":       cfg.sir.mu,
             "n_runs":   cfg.sir.n_runs,
             "mc_runs":  cfg.sir.mc_runs,
+            "sample":   sample_meta,
         },
     )
     artifact.add_dir(local_folder)
