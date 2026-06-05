@@ -43,9 +43,14 @@ from viz.style import MODEL_COLORS, MODEL_LABELS, apply_style, finish_fig, model
 WANDB_PROJECT = "source-detection"
 
 NETWORKS = ["lyon_ward", "malawi", "france_office", "students", "biasca", "olten"]
-MODELS = ["static_gnn", "temporal_gnn", "backtracking", "dbgnn"]
+MODELS = ["static_gnn", "temporal_gnn", "backtracking", "dbgnn_k2", "dbgnn_k3"]
+MODEL_ALIASES = {
+    "dbgnn": ["dbgnn_k2", "dbgnn_k3"],
+    "all": MODELS,
+}
 BASELINES = ["uniform", "random", "degree", "closeness", "betweenness", "jordan_center"]
 R0_LABELS = ["r0_08", "r0_10", "r0_11", "r0_15", "r0_20", "r0_25"]
+MIN_OUTBREAK = 2
 
 R0_VALUES = {
     "r0_08": 0.8,
@@ -147,6 +152,31 @@ def normalize_r0_labels(raw: list[str]) -> list[str]:
     return out
 
 
+def normalize_model_keys(raw: list[str]) -> list[str]:
+    out: list[str] = []
+    for item in raw:
+        expanded = MODEL_ALIASES.get(item, [item])
+        for model in expanded:
+            if model not in out:
+                out.append(model)
+    return out
+
+
+def base_model_key(model: str) -> str:
+    if model.startswith("dbgnn_k"):
+        return "dbgnn"
+    return model
+
+
+def dbgnn_order_from_key(model: str) -> int:
+    if not model.startswith("dbgnn_k"):
+        return 2
+    try:
+        return int(model.removeprefix("dbgnn_k"))
+    except ValueError as exc:
+        raise ValueError(f"Invalid DBGNN model key '{model}'. Use dbgnn_k2 or dbgnn_k3.") from exc
+
+
 def read_network_meta(network: str) -> dict[str, Any]:
     path = Path("nwk") / f"{network}.yml"
     if not path.exists():
@@ -197,6 +227,7 @@ def build_tsir_config(network: str, r0_label: str, preset: Preset) -> dict[str, 
 
 
 def _template_path(network: str, model: str) -> Path:
+    model = base_model_key(model)
     direct = Path("exp") / network / f"{model}.yml"
     if direct.exists():
         return direct
@@ -207,12 +238,13 @@ def _template_path(network: str, model: str) -> Path:
 
 
 def build_model_config(network: str, model: str, r0_label: str, preset: Preset, save_probs: bool = False) -> dict[str, Any]:
-    with open(_template_path(network, model)) as f:
+    base_model = base_model_key(model)
+    with open(_template_path(network, base_model)) as f:
         cfg = yaml.safe_load(f)
-    cfg["model"] = model
+    cfg["model"] = base_model
     cfg["eval"] = {
         **cfg.get("eval", {}),
-        "min_outbreak": 1,
+        "min_outbreak": MIN_OUTBREAK,
         "top_k": [1, 3, 5, 10],
         "credible_p": [0.80, 0.90],
         "inverse_rank_offset": [0],
@@ -225,17 +257,21 @@ def build_model_config(network: str, model: str, r0_label: str, preset: Preset, 
         "loss_guard": LOSS_GUARD,
     }
     cfg.setdefault("output", {})["save_probs"] = save_probs
-    if model == "temporal_gnn":
+    if base_model == "temporal_gnn":
         cfg.setdefault("temporal_gnn", {})["group_by_time"] = TEMPORAL_GROUP_BY_TIME.get(network, 12)
-    if model == "dbgnn":
+    if base_model == "dbgnn":
         db_cfg = cfg.setdefault("dbgnn", {})
-        db_cfg["order"] = db_cfg.get("order", 2)
+        order = dbgnn_order_from_key(model)
+        db_cfg["order"] = order
         db_cfg["delta"] = db_cfg.get("delta", 24)
         db_cfg["bipartite_agg"] = db_cfg.get("bipartite_agg", "sum")
         db_cfg["directed"] = read_network_meta(network)["directed"]
+        batch_cap = 8 if order >= 3 else 16
+        cfg["train"]["batch_size"] = min(int(cfg["train"].get("batch_size", batch_cap)), batch_cap)
     cfg["experiment"] = {
         "network": network,
         "r0_label": r0_label,
+        "model_variant": model,
         **scenario(network, r0_label),
     }
     if preset.n_runs < preset.reps * preset.n_truth:
@@ -248,7 +284,7 @@ def build_model_config(network: str, model: str, r0_label: str, preset: Preset, 
 def build_eval_config(network: str, r0_label: str, preset: Preset) -> dict[str, Any]:
     return {
         "eval": {
-            "min_outbreak": 1,
+            "min_outbreak": MIN_OUTBREAK,
             "top_k": [1, 3, 5, 10],
             "credible_p": [0.80, 0.90],
             "inverse_rank_offset": [0],
@@ -587,7 +623,7 @@ def plot_scenario_outputs(run_dir: Path, status_rows: list[dict[str, str]], netw
         return
 
     title_suffix = f"{network}, R0={sc['r0']}, beta={sc['beta']}, mu={sc['mu']}, end_t={meta['t_max']}"
-    params = {"network": network, "r0": sc["r0"], "beta": sc["beta"], "mu": sc["mu"], "end_t": meta["t_max"], "min_outbreak": 1}
+    params = {"network": network, "r0": sc["r0"], "beta": sc["beta"], "mu": sc["mu"], "end_t": meta["t_max"], "min_outbreak": MIN_OUTBREAK}
 
     apply_style()
     fig, ax = plt.subplots(figsize=(11, 7))
@@ -795,7 +831,7 @@ def plot_metric_vs_r0(rows: list[dict[str, Any]], output: Path, metric: str, tit
     fig.suptitle(title)
     fig.subplots_adjust(bottom=0.12)
     finish_fig(fig, str(output))
-    write_plot_readme(output, title, f"Global thesis plot for `{metric}` across R0 values, faceted by network.", {"metric": metric, "min_outbreak": 1})
+    write_plot_readme(output, title, f"Global thesis plot for `{metric}` across R0 values, faceted by network.", {"metric": metric, "min_outbreak": MIN_OUTBREAK})
 
 
 def plot_top5_heatmap(rows: list[dict[str, Any]], output: Path) -> None:
@@ -841,7 +877,7 @@ def plot_valid_outbreaks(rows: list[dict[str, Any]], output: Path) -> None:
     ax.set_ylabel("valid observations")
     ax.legend()
     finish_fig(fig, str(output))
-    write_plot_readme(output, "Valid Outbreaks by Scenario", "Shows how many observations pass `min_outbreak=1` for each network/R0 condition.", {"min_outbreak": 1})
+    write_plot_readme(output, "Valid Outbreaks by Scenario", f"Shows how many observations pass `min_outbreak={MIN_OUTBREAK}` for each network/R0 condition.", {"min_outbreak": MIN_OUTBREAK})
 
 
 def load_scenario_method_arrays(
@@ -943,7 +979,7 @@ def plot_top5_outbreak_grid(run_dir: Path, status_rows: list[dict[str, str]]) ->
         output,
         "Top-5 Outbreak Grid by Network and R0",
         "Rows are networks, columns are R0 settings, and each panel overlays model/baseline Top-5 score against absolute outbreak size. The grey background shows the outbreak-size distribution for that panel.",
-        {"metric": "eval/top_5", "min_outbreak": 1},
+        {"metric": "eval/top_5", "min_outbreak": MIN_OUTBREAK},
     )
 
 
@@ -971,6 +1007,7 @@ def main() -> None:
     args = parse_args()
     networks = args.networks
     r0_labels = normalize_r0_labels(args.r0)
+    args.models = normalize_model_keys(args.models)
     preset = PRESETS[args.preset]
     run_dir = resolve_run_dir(args)
     run_dir.mkdir(parents=True, exist_ok=True)

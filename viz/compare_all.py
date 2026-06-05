@@ -239,7 +239,7 @@ def plot_rank_vs_outbreak(
         ax.fill_between(cents[valid], p25[valid], p75[valid],
                         alpha=0.12, color=style["color"])
         ls = "-" if m.key in {"backtracking", "temporal_gnn", "static_gnn",
-                               "dbgnn", "dag_gnn"} else "--"
+                               "dbgnn", "dbgnn_k2", "dbgnn_k3", "dag_gnn"} else "--"
         ax.plot(cents[valid], means[valid],
                 color=style["color"], lw=2.2, ls=ls,
                 marker=style["marker"], ms=4, zorder=5,
@@ -283,7 +283,7 @@ def plot_topk_relative(
                         (fracs - ses)[valid], (fracs + ses)[valid],
                         alpha=0.12, color=style["color"])
         ls = "-" if m.key in {"backtracking", "temporal_gnn", "static_gnn",
-                               "dbgnn", "dag_gnn"} else "--"
+                               "dbgnn", "dbgnn_k2", "dbgnn_k3", "dag_gnn"} else "--"
         ax.plot(cents[valid], fracs[valid],
                 color=style["color"], lw=2.2, ls=ls,
                 marker=style["marker"], ms=4, zorder=5,
@@ -326,7 +326,7 @@ def plot_topk_absolute(
         valid = counts > 0
 
         ls = "-" if m.key in {"backtracking", "temporal_gnn", "static_gnn",
-                               "dbgnn", "dag_gnn"} else "--"
+                               "dbgnn", "dbgnn_k2", "dbgnn_k3", "dag_gnn"} else "--"
         ax.plot(cents[valid], np.array(counts)[valid],
                 color=style["color"], lw=2.2, ls=ls,
                 marker=style["marker"], ms=4, zorder=5,

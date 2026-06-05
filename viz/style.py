@@ -58,7 +58,8 @@ MODEL_ORDER: list[str] = [
     "backtracking",
     "temporal_gnn",
     "static_gnn",
-    "dbgnn",
+    "dbgnn_k2",
+    "dbgnn_k3",
     "dag_gnn",
     "jordan_center",
     "betweenness",
@@ -76,6 +77,8 @@ MODEL_LABELS: dict[str, str] = {
     "temporal_gnn":  "TemporalGNN",
     "static_gnn":    "StaticGNN",
     "dbgnn":         "DBGNN",
+    "dbgnn_k2":      "DBGNN k=2",
+    "dbgnn_k3":      "DBGNN k=3",
     "dag_gnn":       "DAG-GNN",
     "jordan_center": "Jordan Center",
     "betweenness":   "Betweenness",
@@ -93,6 +96,8 @@ MODEL_COLORS: dict[str, str] = {
     "temporal_gnn":  "#DD8452",   # orange
     "static_gnn":    "#4C72B0",   # blue
     "dbgnn":         "#55A868",   # green
+    "dbgnn_k2":      "#55A868",   # green
+    "dbgnn_k3":      "#2F8F5B",   # darker green
     "dag_gnn":       "#C44E52",   # red
     "jordan_center": "#555555",
     "betweenness":   "#666666",
@@ -110,6 +115,8 @@ MODEL_MARKERS: dict[str, str] = {
     "temporal_gnn":  "s",
     "static_gnn":    "^",
     "dbgnn":         "D",
+    "dbgnn_k2":      "D",
+    "dbgnn_k3":      "X",
     "dag_gnn":       "v",
     "jordan_center": "x",
     "betweenness":   "+",

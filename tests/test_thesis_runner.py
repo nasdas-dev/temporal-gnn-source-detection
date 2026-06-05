@@ -92,12 +92,13 @@ def test_generated_max_quality_configs_are_consistent():
     preset = runner.PRESETS["max_quality"]
     tsir = runner.build_tsir_config("france_office", "r0_20", preset)
     model = runner.build_model_config("france_office", "dbgnn", "r0_20", preset)
+    model_k3 = runner.build_model_config("france_office", "dbgnn_k3", "r0_20", preset)
     eval_cfg = runner.build_eval_config("france_office", "r0_20", preset)
 
     assert tsir["sir"]["n_runs"] == 1000
     assert tsir["sir"]["mc_runs"] == 500
     assert tsir["nwk"]["directed"] is False
-    assert model["eval"]["min_outbreak"] == 1
+    assert model["eval"]["min_outbreak"] == 2
     assert model["eval"]["n_truth"] == 1000
     assert model["train"]["reps"] == 1
     assert model["train"]["n_mc"] == 500
@@ -105,7 +106,12 @@ def test_generated_max_quality_configs_are_consistent():
     assert model["dbgnn"]["delta"] == 24
     assert model["dbgnn"]["bipartite_agg"] == "sum"
     assert model["dbgnn"]["directed"] is False
-    assert eval_cfg["eval"]["min_outbreak"] == 1
+    assert model_k3["model"] == "dbgnn"
+    assert model_k3["dbgnn"]["order"] == 3
+    assert model["train"]["batch_size"] == 16
+    assert model_k3["train"]["batch_size"] == 8
+    assert model_k3["experiment"]["model_variant"] == "dbgnn_k3"
+    assert eval_cfg["eval"]["min_outbreak"] == 2
     assert tsir["sir"]["n_runs"] >= model["train"]["reps"] * model["eval"]["n_truth"]
 
 
@@ -144,6 +150,12 @@ def test_dry_run_expands_full_thesis_matrix(tmp_path):
     expected = len(runner.NETWORKS) * len(runner.R0_LABELS) * (1 + len(runner.MODELS) + 1)
     assert len(rows) == expected
     assert sum(r["stage"] == "train" for r in rows) == len(runner.NETWORKS) * len(runner.R0_LABELS) * len(runner.MODELS)
+    train_models = {r["model"] for r in rows if r["stage"] == "train"}
+    assert {"dbgnn_k2", "dbgnn_k3"}.issubset(train_models)
+
+    manifest = yaml.safe_load((tmp_path / "dry" / "manifest.json").read_text())
+    assert manifest["networks"] == runner.NETWORKS
+    assert {"dbgnn_k2", "dbgnn_k3"}.issubset(set(manifest["models"]))
 
 
 def test_dbgnn_higher_order_dry_run_expands_orders_and_sampling(tmp_path):
