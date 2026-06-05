@@ -161,34 +161,91 @@ def test_dbgnn_higher_order_dry_run_expands_orders_and_sampling(tmp_path):
         "1.0",
         "--orders",
         "2",
-        "10",
+        "4",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert "DBGNN Higher-Order Experiment Runner" in result.stdout
+    assert "balanced_activity_snowball" in result.stdout
 
     with open(tmp_path / "dry" / "status.csv", newline="") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 3
     assert sum(r["stage"] == "tsir" for r in rows) == 1
-    assert sorted(r["order"] for r in rows if r["stage"] == "train") == ["10", "2"]
+    assert [r["order"] for r in rows if r["stage"] == "train"] == ["2", "4"]
 
     tsir_cfg = (tmp_path / "dry" / "configs" / "students" / "r0_10" / "tsir.yml").read_text()
     k2_cfg = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k2.yml").read_text())
-    k10_cfg = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k10.yml").read_text())
-    assert "activity_snowball" in tsir_cfg
+    k4_cfg = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k4.yml").read_text())
+    assert "balanced_activity_snowball" in tsir_cfg
+    assert "target_nodes: 300" in tsir_cfg
     assert k2_cfg["dbgnn"]["delta"] == 24
     assert k2_cfg["dbgnn"]["time_bin_size"] == 1
-    assert k10_cfg["dbgnn"]["order"] == 10
-    assert k10_cfg["dbgnn"]["delta"] == 4
-    assert k10_cfg["dbgnn"]["time_bin_size"] == 8
-    assert k10_cfg["train"]["batch_size"] == 8
-    assert k10_cfg["dbgnn"]["max_temporal_states"] == 2_000_000
+    assert k2_cfg["train"]["batch_size"] == 16
+    assert k4_cfg["dbgnn"]["order"] == 4
+    assert k4_cfg["dbgnn"]["delta"] == 4
+    assert k4_cfg["dbgnn"]["time_bin_size"] == 4
+    assert k4_cfg["train"]["batch_size"] == 4
+    assert k4_cfg["dbgnn"]["max_temporal_states"] == 2_000_000
+
+
+def test_dbgnn_higher_order_defaults_match_requested_grid_and_run_order(tmp_path):
+    cmd = [
+        sys.executable,
+        "run_dbgnn_higher_order_experiment.py",
+        "--dry-run",
+        "--output",
+        str(tmp_path),
+        "--run-name",
+        "dry",
+        "--networks",
+        "students",
+        "lyon_ward",
+        "--r0",
+        "0.8",
+        "1.0",
+        "--orders",
+        "2",
+        "3",
+    ]
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+    with open(tmp_path / "dry" / "status.csv", newline="") as f:
+        rows = list(csv.DictReader(f))
+    train_rows = [r for r in rows if r["stage"] == "train"]
+    assert [(r["network"], r["order"], r["r0_label"]) for r in train_rows] == [
+        ("lyon_ward", "2", "r0_08"),
+        ("lyon_ward", "2", "r0_10"),
+        ("lyon_ward", "3", "r0_08"),
+        ("lyon_ward", "3", "r0_10"),
+        ("students", "2", "r0_08"),
+        ("students", "2", "r0_10"),
+        ("students", "3", "r0_08"),
+        ("students", "3", "r0_10"),
+    ]
+
+    manifest = yaml.safe_load((tmp_path / "dry" / "manifest.json").read_text())
+    assert manifest["r0_labels"] == ["r0_08", "r0_10"]
+    assert manifest["orders"] == [2, 3]
+    assert manifest["networks"] == ["lyon_ward", "students"]
 
 
 def test_dbgnn_sampling_budget_uses_students_factor_72():
     stats = {"students": ho_runner.read_full_network_stats("students")}
     budget = ho_runner.compute_sample_budget(stats, "students", 72)
     assert budget == stats["students"].node_edge_cost // 72
+
+
+def test_dbgnn_runner_timeout_marks_command_for_skip(tmp_path):
+    rc, stdout = ho_runner.run_command(
+        [sys.executable, "-c", "import time; time.sleep(2)"],
+        tmp_path / "timeout.log",
+        dry_run=False,
+        timeout_seconds=1,
+    )
+
+    assert rc == 124
+    assert "TIMEOUT_SKIP" in stdout
+    assert "TIMEOUT_SKIP" in (tmp_path / "timeout.log").read_text()
 
 
 def test_plot_generation_from_synthetic_eval_arrays(tmp_path, monkeypatch):

@@ -5,13 +5,13 @@ Runs DBGNN on all calibrated thesis networks for the requested R0 values and
 De Bruijn orders. The default matrix is:
 
     networks = lyon_ward, malawi, france_office, students, biasca, olten
-    R0       = 1.0, 1.1, 1.5, 2.5
-    k        = 2, 3, 4, 5, 10
+    R0       = 0.8, 1.0, 1.5, 2.0, 2.5
+    k        = 2, 3, 4, 5
 
-Large networks are sampled before TSIR using an activity-preserving snowball
-sampler. The sampling budget defaults to the full students network's
-``nodes * edges`` cost divided by 72, so students is reduced by about 72x under
-that cost proxy and any larger scenario is brought to the same budget.
+Networks with more than 300 nodes are sampled before TSIR using a connected
+activity/degree-stratified temporal snowball sampler. The sampler keeps the
+sample in a temporally active connected region while preserving low, medium,
+and high activity/degree strata as much as possible under the node/edge budget.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import argparse
 import csv
 import json
 import os
+import signal
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -43,8 +44,8 @@ from run_all_experiments import (
 )
 
 
-DEFAULT_R0 = ["1.0", "1.1", "1.5", "2.5"]
-DEFAULT_ORDERS = [2, 3, 4, 5, 10]
+DEFAULT_R0 = ["0.8", "1.0", "1.5", "2.0", "2.5"]
+DEFAULT_ORDERS = [2, 3, 4, 5]
 WANDB_PROJECT = "source-detection"
 
 
@@ -90,7 +91,7 @@ STATUS_FIELDS = [
     "message",
     "log_path",
 ]
-TERMINAL_STATUSES = {"success", "loss_guard_aborted", "skipped"}
+TERMINAL_STATUSES = {"success", "loss_guard_aborted", "skipped", "timeout_skipped"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -108,9 +109,23 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--skip-tsir", action="store_true")
     p.add_argument("--skip-train", action="store_true")
     p.add_argument("--no-sampling", action="store_true", help="Disable large-network sampling")
+    p.add_argument("--sample-method", default="balanced_activity_snowball",
+                   choices=["balanced_activity_snowball", "activity_snowball"])
+    p.add_argument("--sample-node-threshold", type=int, default=300,
+                   help="Only sample networks with more than this many nodes")
+    p.add_argument("--sample-target-nodes", type=int, default=300,
+                   help="Target sampled node count for networks above the threshold")
     p.add_argument("--sample-reference", default="students", help="Network used to derive the sampling budget")
     p.add_argument("--sample-budget-factor", type=float, default=72.0, help="Reference node*edge cost divisor")
     p.add_argument("--min-sample-nodes", type=int, default=8)
+    p.add_argument("--stratification-bins", type=int, default=4,
+                   help="Activity/degree quantile bins for balanced sampling")
+    p.add_argument("--timeout-seconds", type=int, default=3600,
+                   help="Skip any TSIR/train command that runs longer than this")
+    p.add_argument("--base-batch-size", type=int, default=16,
+                   help="Maximum train.batch_size for DBGNN k=2")
+    p.add_argument("--order3-batch-size", type=int, default=8,
+                   help="Maximum train.batch_size for DBGNN k=3")
     p.add_argument(
         "--high-order-delta",
         type=int,
@@ -132,7 +147,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--high-order-batch-size",
         type=int,
-        default=8,
+        default=4,
         help="Maximum train.batch_size for DBGNN k>=4.",
     )
     p.add_argument("--max-temporal-states", type=int, default=2_000_000)
@@ -203,17 +218,21 @@ def sampling_cfg_for_network(
     if args.no_sampling:
         return None
     st = stats[network]
-    if st.node_edge_cost <= budget:
+    if st.n_nodes <= int(args.sample_node_threshold):
         return None
     return {
-        "method": "activity_snowball",
+        "method": args.sample_method,
+        "target_nodes": min(int(args.sample_target_nodes), int(st.n_nodes)),
         "max_node_edge_cost": int(budget),
         "cost_metric": "node_edge",
         "seed": int(args.seed),
         "min_nodes": int(args.min_sample_nodes),
+        "stratification_bins": int(args.stratification_bins),
+        "sample_node_threshold": int(args.sample_node_threshold),
         "reference_network": args.sample_reference,
         "reference_budget_factor": float(args.sample_budget_factor),
         "original_node_edge_cost": int(st.node_edge_cost),
+        "original_nodes": int(st.n_nodes),
     }
 
 
@@ -230,19 +249,19 @@ def higher_order_controls(order: int, args: argparse.Namespace | None = None) ->
     controls: dict[str, Any] = {
         "time_bin_size": 1,
         "delta": None,
-        "batch_size_cap": None,
+        "batch_size_cap": int(getattr(args, "base_batch_size", 16)),
     }
     if order >= 4:
         controls["delta"] = int(getattr(args, "high_order_delta", 4))
         controls["time_bin_size"] = int(getattr(args, "high_order_time_bin_size", 4))
-        controls["batch_size_cap"] = int(getattr(args, "high_order_batch_size", 8))
+        controls["batch_size_cap"] = int(getattr(args, "high_order_batch_size", 4))
         if order >= 6:
             controls["time_bin_size"] = max(
                 controls["time_bin_size"],
                 int(getattr(args, "very_high_order_time_bin_size", 8)),
             )
     elif order == 3:
-        controls["batch_size_cap"] = 32
+        controls["batch_size_cap"] = int(getattr(args, "order3_batch_size", 8))
     return controls
 
 
@@ -391,10 +410,16 @@ def write_manifest(
         "betas": {n: BETAS[n] for n in networks if n in BETAS},
         "mus": {n: MUS[n] for n in networks if n in MUS},
         "sample_budget_node_edge": sample_budget,
+        "sample_method": args.sample_method,
+        "sample_node_threshold": args.sample_node_threshold,
+        "sample_target_nodes": args.sample_target_nodes,
         "sample_reference": args.sample_reference,
         "sample_budget_factor": args.sample_budget_factor,
         "sample_policies": sample_policies,
+        "timeout_seconds": args.timeout_seconds,
         "higher_order_controls": {
+            "k_eq_2_batch_size_cap": args.base_batch_size,
+            "k_eq_3_batch_size_cap": args.order3_batch_size,
             "k_ge_4_delta": args.high_order_delta,
             "k_ge_4_time_bin_size": args.high_order_time_bin_size,
             "k_ge_6_time_bin_size": args.very_high_order_time_bin_size,
@@ -474,7 +499,31 @@ def should_skip(
     return False
 
 
-def run_command(cmd: list[str], log_path: Path, dry_run: bool = False) -> tuple[int, str]:
+def _terminate_process(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            proc.terminate()
+        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=10)
+    except Exception:
+        try:
+            if os.name == "nt":
+                proc.kill()
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            pass
+
+
+def run_command(
+    cmd: list[str],
+    log_path: Path,
+    dry_run: bool = False,
+    timeout_seconds: int | None = None,
+) -> tuple[int, str]:
     label = " ".join(cmd)
     if dry_run:
         print(f"  [DRY] {label}")
@@ -486,20 +535,39 @@ def run_command(cmd: list[str], log_path: Path, dry_run: bool = False) -> tuple[
     captured: list[str] = []
     with open(log_path, "a") as log_fh:
         log_fh.write(f"\n$ {label}\n")
+        if timeout_seconds is not None and timeout_seconds > 0:
+            log_fh.write(f"# timeout_seconds={timeout_seconds}\n")
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             env=env,
+            start_new_session=(os.name != "nt"),
         )
         assert proc.stdout is not None
-        for line in proc.stdout:
-            sys.stdout.write(line)
+        try:
+            stdout, _ = proc.communicate(timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None)
+            if stdout:
+                sys.stdout.write(stdout)
+                sys.stdout.flush()
+                log_fh.write(stdout)
+                captured.append(stdout)
+        except subprocess.TimeoutExpired as exc:
+            _terminate_process(proc)
+            stdout = exc.stdout or ""
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode(errors="replace")
+            timeout_msg = f"\nTIMEOUT_SKIP: command exceeded {timeout_seconds} seconds\n"
+            if stdout:
+                sys.stdout.write(stdout)
+                log_fh.write(stdout)
+                captured.append(stdout)
+            sys.stdout.write(timeout_msg)
             sys.stdout.flush()
-            log_fh.write(line)
-            captured.append(line)
-        proc.wait()
+            log_fh.write(timeout_msg)
+            captured.append(timeout_msg)
+            return 124, "".join(captured)
     return proc.returncode, "".join(captured)
 
 
@@ -525,8 +593,8 @@ def stage_tsir(
     write_yaml(cfg_path, build_tsir_config(network, r0_label, PRESETS[args.preset], sample_cfg))
     log_path = run_dir / network / r0_label / "logs" / "tsir.log"
     cmd = [sys.executable, "main_tsir.py", "--cfg", str(cfg_path), "--data", artifact]
-    rc, stdout = run_command(cmd, log_path, args.dry_run)
-    status = "success" if rc == 0 else "failed"
+    rc, stdout = run_command(cmd, log_path, args.dry_run, args.timeout_seconds)
+    status = "success" if rc == 0 else "timeout_skipped" if rc == 124 or "TIMEOUT_SKIP" in stdout else "failed"
     update_status(
         status_path,
         {
@@ -590,9 +658,14 @@ def stage_train(
     cmd = [sys.executable, "main_train.py", "--cfg", str(cfg_path), "--data", f"{artifact}:latest"]
     if args.save_probs:
         cmd.append("--save-probs")
-    rc, stdout = run_command(cmd, log_path, args.dry_run)
+    rc, stdout = run_command(cmd, log_path, args.dry_run, args.timeout_seconds)
     run_id = extract_run_id(stdout) or ("dryrun00" if args.dry_run else "")
-    status = "success" if rc == 0 else "loss_guard_aborted" if rc == 88 or "LOSS_GUARD_ABORT" in stdout else "failed"
+    status = (
+        "success" if rc == 0
+        else "timeout_skipped" if rc == 124 or "TIMEOUT_SKIP" in stdout
+        else "loss_guard_aborted" if rc == 88 or "LOSS_GUARD_ABORT" in stdout
+        else "failed"
+    )
     update_status(
         status_path,
         {
@@ -650,6 +723,7 @@ def main() -> None:
             raise ValueError(f"DBGNN order must be >= 2, got {order}")
 
     stats = {network: read_full_network_stats(network) for network in networks}
+    networks = sorted(networks, key=lambda n: (stats[n].n_nodes, stats[n].n_edges, n))
     sample_budget = compute_sample_budget(stats, args.sample_reference, args.sample_budget_factor)
     run_dir = resolve_run_dir(args)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -668,10 +742,18 @@ def main() -> None:
         print("Sampling : disabled")
     else:
         print(
-            "Sampling : activity_snowball for networks above "
+            f"Sampling : {args.sample_method} for networks with "
+            f"n>{args.sample_node_threshold}; target n<={args.sample_target_nodes}; "
             f"node*edge budget {sample_budget:,} "
             f"({args.sample_reference}/{args.sample_budget_factor:g})"
         )
+    print(f"Timeout  : {args.timeout_seconds}s per TSIR/train command")
+    print(
+        "Batch   : "
+        f"k=2<={args.base_batch_size}, "
+        f"k=3<={args.order3_batch_size}, "
+        f"k>=4<={args.high_order_batch_size}"
+    )
     print(
         "k>=4    : "
         f"delta={args.high_order_delta}, "
@@ -688,25 +770,32 @@ def main() -> None:
     for network in networks:
         sample_cfg = sampling_cfg_for_network(network, stats, sample_budget, args)
         if sample_cfg is None:
-            print(f"\n### {network}: no sampling (cost={stats[network].node_edge_cost:,})")
+            print(f"\n### {network}: no sampling (n={stats[network].n_nodes}, cost={stats[network].node_edge_cost:,})")
         else:
             reduction = stats[network].node_edge_cost / sample_budget
             print(
-                f"\n### {network}: sampled to budget {sample_budget:,} "
+                f"\n### {network}: sampled with {args.sample_method} to target "
+                f"n<={sample_cfg['target_nodes']} and budget {sample_budget:,} "
                 f"(expected node*edge reduction >= {reduction:.2f}x)"
             )
 
-        for r0_label in r0_labels:
-            sc = scenario(network, r0_label)
-            print(f"\n--- {network} / {r0_label}  R0={sc['r0']} beta={sc['beta']} mu={sc['mu']}")
-            try:
-                artifact = stage_tsir(args, run_dir, status_path, network, r0_label, sample_cfg)
-            except Exception as exc:
-                print(f"  FATAL TSIR stage failed, skipping scenario: {exc}")
-                continue
-
-            for order in orders:
-                print(f"  DBGNN k={order}")
+        artifact_cache: dict[str, str | None] = {}
+        for order in orders:
+            print(f"\n--- {network} / DBGNN k={order}")
+            for r0_label in r0_labels:
+                sc = scenario(network, r0_label)
+                print(f"  {r0_label}  R0={sc['r0']} beta={sc['beta']} mu={sc['mu']}")
+                if r0_label not in artifact_cache:
+                    try:
+                        artifact_cache[r0_label] = stage_tsir(args, run_dir, status_path, network, r0_label, sample_cfg)
+                    except Exception as exc:
+                        artifact_cache[r0_label] = None
+                        print(f"    FATAL TSIR stage failed, skipping scenario: {exc}")
+                        continue
+                artifact = artifact_cache[r0_label]
+                if artifact is None:
+                    print("    Skipping train because TSIR artifact is unavailable")
+                    continue
                 stage_train(args, run_dir, status_path, network, r0_label, order, artifact)
 
     status_rows = read_status(status_path)
