@@ -4,6 +4,7 @@ eval:
   credible_p: [0.80, 0.90]
   inverse_rank_offset: [0]
   n_truth: 1000
+  reps: 3
 baselines:
   - uniform
   - random
@@ -11,3 +12,9 @@ baselines:
   - closeness
   - betweenness
   - jordan_center
+
+baseline_params:
+  default:
+    chunk_size: 8192
+  betweenness:
+    normalized: true

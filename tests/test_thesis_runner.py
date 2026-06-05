@@ -9,11 +9,13 @@ from pathlib import Path
 
 import networkx as nx
 import numpy as np
+import torch
 import yaml
 
 import run_all_experiments as runner
 import run_dbgnn_higher_order_experiment as ho_runner
-from training.trainer import LossGuardConfig, check_loss_guard
+from scripts.publication_bundle import sync_publication_result
+from training.trainer import LossGuardConfig, check_loss_guard, static_mlp_forward
 from utils.make_de_bruijn_graph import make_de_bruijn_graph
 
 
@@ -24,6 +26,14 @@ _GRAPH_BUILDER = importlib.util.module_from_spec(_GRAPH_BUILDER_SPEC)
 assert _GRAPH_BUILDER_SPEC.loader is not None
 _GRAPH_BUILDER_SPEC.loader.exec_module(_GRAPH_BUILDER)
 build_temporal_snapshots = _GRAPH_BUILDER.build_temporal_snapshots
+
+_STATIC_MLP_SPEC = importlib.util.spec_from_file_location(
+    "static_mlp_direct", Path(__file__).resolve().parents[1] / "gnn" / "static_mlp.py"
+)
+_STATIC_MLP = importlib.util.module_from_spec(_STATIC_MLP_SPEC)
+assert _STATIC_MLP_SPEC.loader is not None
+_STATIC_MLP_SPEC.loader.exec_module(_STATIC_MLP)
+StaticMLP = _STATIC_MLP.StaticMLP
 
 
 def _slow_de_bruijn(events, delta=None, directed=False):
@@ -93,6 +103,7 @@ def test_generated_max_quality_configs_are_consistent():
     tsir = runner.build_tsir_config("france_office", "r0_20", preset)
     model = runner.build_model_config("france_office", "dbgnn", "r0_20", preset)
     model_k3 = runner.build_model_config("france_office", "dbgnn_k3", "r0_20", preset)
+    mlp = runner.build_model_config("france_office", "static_mlp", "r0_20", preset)
     eval_cfg = runner.build_eval_config("france_office", "r0_20", preset)
 
     assert tsir["sir"]["n_runs"] == 1000
@@ -111,8 +122,42 @@ def test_generated_max_quality_configs_are_consistent():
     assert model["train"]["batch_size"] == 16
     assert model_k3["train"]["batch_size"] == 8
     assert model_k3["experiment"]["model_variant"] == "dbgnn_k3"
+    assert mlp["model"] == "static_mlp"
+    assert mlp["train"]["n_mc"] == 500
+    assert mlp["eval"]["n_truth"] == 1000
+    assert mlp["static_mlp"]["num_hidden_layers"] == 4
     assert eval_cfg["eval"]["min_outbreak"] == 2
+    assert eval_cfg["eval"]["reps"] == preset.reps
+    assert eval_cfg["baseline_params"]["default"]["chunk_size"] == 8192
+    assert eval_cfg["baseline_params"]["betweenness"]["normalized"] is True
+    assert "static_mlp" in runner.BASELINES
+    assert "static_mlp" not in eval_cfg["baselines"]
     assert tsir["sir"]["n_runs"] >= model["train"]["reps"] * model["eval"]["n_truth"]
+
+
+def test_static_mlp_forward_smoke():
+    model = StaticMLP(
+        num_preprocess_layers=0,
+        embed_dim_preprocess=16,
+        num_postprocess_layers=0,
+        num_hidden_layers=2,
+        num_node_features=3,
+        n_nodes=4,
+        hidden_channels=8,
+        dropout_rate=0.0,
+        batch_norm=False,
+        skip=True,
+    )
+
+    out = static_mlp_forward(
+        model,
+        torch.rand(3, 4, 3),
+        {"n_nodes": 4},
+        torch.device("cpu"),
+    )
+
+    assert out.shape == (3, 4)
+    assert torch.allclose(out.exp().sum(dim=1), torch.ones(3), atol=1e-6)
 
 
 def test_added_network_parameters_match_final_grid():
@@ -147,15 +192,21 @@ def test_dry_run_expands_full_thesis_matrix(tmp_path):
 
     with open(tmp_path / "dry" / "status.csv", newline="") as f:
         rows = list(csv.DictReader(f))
-    expected = len(runner.NETWORKS) * len(runner.R0_LABELS) * (1 + len(runner.MODELS) + 1)
+    trainable_count = len(runner.MODELS) + len(runner.TRAINABLE_BASELINES)
+    expected = len(runner.NETWORKS) * len(runner.R0_LABELS) * (1 + trainable_count + (2 * trainable_count) + 1)
     assert len(rows) == expected
-    assert sum(r["stage"] == "train" for r in rows) == len(runner.NETWORKS) * len(runner.R0_LABELS) * len(runner.MODELS)
+    assert sum(r["stage"] == "hpo" for r in rows) == len(runner.NETWORKS) * len(runner.R0_LABELS) * trainable_count
+    assert sum(r["stage"] == "train" for r in rows) == len(runner.NETWORKS) * len(runner.R0_LABELS) * 2 * trainable_count
     train_models = {r["model"] for r in rows if r["stage"] == "train"}
-    assert {"dbgnn_k2", "dbgnn_k3"}.issubset(train_models)
+    assert {"dbgnn_k2", "dbgnn_k2_optuna", "dbgnn_k3", "dbgnn_k3_optuna", "static_mlp", "static_mlp_optuna"}.issubset(train_models)
 
     manifest = yaml.safe_load((tmp_path / "dry" / "manifest.json").read_text())
     assert manifest["networks"] == runner.NETWORKS
     assert {"dbgnn_k2", "dbgnn_k3"}.issubset(set(manifest["models"]))
+    assert "static_mlp" in manifest["baselines"]
+    assert manifest["hpo"]["enabled"] is True
+    assert (tmp_path / "dry" / "result" / "latex_inputs.json").exists()
+    assert (tmp_path / "dry" / "result" / "README.md").exists()
 
 
 def test_dbgnn_higher_order_dry_run_expands_orders_and_sampling(tmp_path):
@@ -181,13 +232,21 @@ def test_dbgnn_higher_order_dry_run_expands_orders_and_sampling(tmp_path):
 
     with open(tmp_path / "dry" / "status.csv", newline="") as f:
         rows = list(csv.DictReader(f))
-    assert len(rows) == 3
+    assert len(rows) == 7
     assert sum(r["stage"] == "tsir" for r in rows) == 1
-    assert [r["order"] for r in rows if r["stage"] == "train"] == ["2", "4"]
+    assert [r["order"] for r in rows if r["stage"] == "hpo"] == ["2", "4"]
+    assert [r["order"] for r in rows if r["stage"] == "train"] == ["2", "2", "4", "4"]
+    assert [r["variant"] for r in rows if r["stage"] == "train"] == [
+        "dbgnn_k2",
+        "dbgnn_k2_optuna",
+        "dbgnn_k4",
+        "dbgnn_k4_optuna",
+    ]
 
     tsir_cfg = (tmp_path / "dry" / "configs" / "students" / "r0_10" / "tsir.yml").read_text()
-    k2_cfg = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k2.yml").read_text())
-    k4_cfg = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k4.yml").read_text())
+    k2_cfg = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k2.untuned.yml").read_text())
+    k4_cfg = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k4.untuned.yml").read_text())
+    k4_hpo = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k4.hpo_base.yml").read_text())
     assert "balanced_activity_snowball" in tsir_cfg
     assert "target_nodes: 300" in tsir_cfg
     assert k2_cfg["dbgnn"]["delta"] == 24
@@ -198,6 +257,9 @@ def test_dbgnn_higher_order_dry_run_expands_orders_and_sampling(tmp_path):
     assert k4_cfg["dbgnn"]["time_bin_size"] == 4
     assert k4_cfg["train"]["batch_size"] == 4
     assert k4_cfg["dbgnn"]["max_temporal_states"] == 2_000_000
+    assert k4_hpo["hpo"]["locked_params"] == ["dbgnn.order"]
+    assert (tmp_path / "dry" / "result" / "latex_inputs.json").exists()
+    assert (tmp_path / "dry" / "result" / "run_matrix_summary.csv").exists()
 
 
 def test_dbgnn_higher_order_defaults_match_requested_grid_and_run_order(tmp_path):
@@ -224,21 +286,31 @@ def test_dbgnn_higher_order_defaults_match_requested_grid_and_run_order(tmp_path
     with open(tmp_path / "dry" / "status.csv", newline="") as f:
         rows = list(csv.DictReader(f))
     train_rows = [r for r in rows if r["stage"] == "train"]
-    assert [(r["network"], r["order"], r["r0_label"]) for r in train_rows] == [
-        ("lyon_ward", "2", "r0_08"),
-        ("lyon_ward", "2", "r0_10"),
-        ("lyon_ward", "3", "r0_08"),
-        ("lyon_ward", "3", "r0_10"),
-        ("students", "2", "r0_08"),
-        ("students", "2", "r0_10"),
-        ("students", "3", "r0_08"),
-        ("students", "3", "r0_10"),
+    assert [(r["network"], r["order"], r["r0_label"], r["variant"]) for r in train_rows] == [
+        ("lyon_ward", "2", "r0_08", "dbgnn_k2"),
+        ("lyon_ward", "2", "r0_08", "dbgnn_k2_optuna"),
+        ("lyon_ward", "2", "r0_10", "dbgnn_k2"),
+        ("lyon_ward", "2", "r0_10", "dbgnn_k2_optuna"),
+        ("lyon_ward", "3", "r0_08", "dbgnn_k3"),
+        ("lyon_ward", "3", "r0_08", "dbgnn_k3_optuna"),
+        ("lyon_ward", "3", "r0_10", "dbgnn_k3"),
+        ("lyon_ward", "3", "r0_10", "dbgnn_k3_optuna"),
+        ("students", "2", "r0_08", "dbgnn_k2"),
+        ("students", "2", "r0_08", "dbgnn_k2_optuna"),
+        ("students", "2", "r0_10", "dbgnn_k2"),
+        ("students", "2", "r0_10", "dbgnn_k2_optuna"),
+        ("students", "3", "r0_08", "dbgnn_k3"),
+        ("students", "3", "r0_08", "dbgnn_k3_optuna"),
+        ("students", "3", "r0_10", "dbgnn_k3"),
+        ("students", "3", "r0_10", "dbgnn_k3_optuna"),
     ]
 
     manifest = yaml.safe_load((tmp_path / "dry" / "manifest.json").read_text())
     assert manifest["r0_labels"] == ["r0_08", "r0_10"]
     assert manifest["orders"] == [2, 3]
     assert manifest["networks"] == ["lyon_ward", "students"]
+    assert manifest["hpo"]["enabled"] is True
+    assert (tmp_path / "dry" / "result" / "tables" / "dbgnn_order_results.tex").exists()
 
 
 def test_dbgnn_sampling_budget_uses_students_factor_72():
@@ -290,3 +362,34 @@ def test_plot_generation_from_synthetic_eval_arrays(tmp_path, monkeypatch):
     assert (fig_dir / "top5_vs_outbreak_compare.pdf").exists()
     assert (fig_dir / "top5_vs_outbreak_compare.png").exists()
     assert (fig_dir / "top5_vs_outbreak_compare.README.md").exists()
+
+
+def test_publication_bundle_copies_tables_figures_and_run_assets(tmp_path):
+    run_dir = tmp_path / "run"
+    data_root = tmp_path / "data"
+    run_data = data_root / "abc12345"
+    run_data.mkdir(parents=True)
+    (run_data / "metrics_summary.json").write_text('{"metrics": {"eval/mrr_mean": 0.5}}')
+    (run_data / "eval_arrays_rep0.npz").write_bytes(b"npz")
+
+    (run_dir / "tables").mkdir(parents=True)
+    (run_dir / "tables" / "table.tex").write_text("\\begin{tabular}{c}x\\end{tabular}\n")
+    (run_dir / "figures").mkdir(parents=True)
+    (run_dir / "figures" / "global.pdf").write_bytes(b"pdf")
+    scenario_dir = run_dir / "france_office" / "r0_10" / "figures"
+    scenario_dir.mkdir(parents=True)
+    (scenario_dir / "scenario.png").write_bytes(b"png")
+    (run_dir / "status.csv").write_text(
+        "network,r0_label,stage,model,status,run_id\n"
+        "france_office,r0_10,train,static_gnn,success,abc12345\n"
+    )
+
+    status_rows = runner.read_status(run_dir / "status.csv")
+    result_dir = sync_publication_result(run_dir, status_rows, "test", data_root=data_root)
+
+    assert (result_dir / "tables" / "table.tex").exists()
+    assert (result_dir / "figures" / "global" / "global.pdf").exists()
+    assert (result_dir / "figures" / "by_scenario" / "france_office" / "r0_10" / "scenario.png").exists()
+    assert (result_dir / "runs" / "france_office" / "r0_10" / "static_gnn" / "metrics_summary.json").exists()
+    manifest = yaml.safe_load((result_dir / "latex_inputs.json").read_text())
+    assert "tables/table.tex" in manifest["categories"]["tables"]

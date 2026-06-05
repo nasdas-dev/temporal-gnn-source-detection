@@ -6,6 +6,7 @@ networkx
 scikit-learn
 pyyaml
 wandb
+optuna>=4.0
 matplotlib
 scipy
 

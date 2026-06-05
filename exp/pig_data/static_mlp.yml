@@ -1,0 +1,30 @@
+model: static_mlp
+
+# pig_data: 12352 nodes — keep capacity small and disable raw-input skip
+eval:
+  min_outbreak: 2
+  top_k: [1, 3, 5, 10]
+  credible_p: [0.80, 0.90]
+  inverse_rank_offset: [0]
+  n_truth: 1
+
+train:
+  n_mc: 5
+  reps: 2
+  test_size: 0.20
+  batch_size: 16
+  epochs: 200
+  patience: 15
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 42
+
+static_mlp:
+  num_preprocess_layers: 0
+  embed_dim_preprocess: 16
+  num_postprocess_layers: 0
+  num_hidden_layers: 3
+  hidden_channels: 32
+  dropout_rate: 0.2
+  batch_norm: true
+  skip: false

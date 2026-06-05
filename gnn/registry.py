@@ -16,7 +16,7 @@ Everywhere else, look up a model by its string name::
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Type
+from typing import Callable
 
 import torch
 
@@ -25,8 +25,8 @@ import torch
 class ModelSpec:
     """All information needed to build, call, and feed graph data to a model."""
 
-    cls: Type[torch.nn.Module]
-    """The model class (uninstantiated)."""
+    cls: Callable[..., torch.nn.Module]
+    """The model class or lazy class proxy (uninstantiated)."""
 
     forward_fn: Callable
     """

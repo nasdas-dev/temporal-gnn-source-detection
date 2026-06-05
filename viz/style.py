@@ -61,6 +61,8 @@ MODEL_ORDER: list[str] = [
     "dbgnn_k2",
     "dbgnn_k3",
     "dag_gnn",
+    "static_mlp",
+    "mc_mean_field",
     "jordan_center",
     "betweenness",
     "closeness",
@@ -80,6 +82,8 @@ MODEL_LABELS: dict[str, str] = {
     "dbgnn_k2":      "DBGNN k=2",
     "dbgnn_k3":      "DBGNN k=3",
     "dag_gnn":       "DAG-GNN",
+    "static_mlp":    "MLP Baseline",
+    "mc_mean_field": "MC Mean-Field",
     "jordan_center": "Jordan Center",
     "betweenness":   "Betweenness",
     "closeness":     "Closeness",
@@ -99,6 +103,8 @@ MODEL_COLORS: dict[str, str] = {
     "dbgnn_k2":      "#55A868",   # green
     "dbgnn_k3":      "#2F8F5B",   # darker green
     "dag_gnn":       "#C44E52",   # red
+    "static_mlp":    "#CCB974",   # ochre
+    "mc_mean_field": "#3B3B3B",   # dark grey
     "jordan_center": "#555555",
     "betweenness":   "#666666",
     "closeness":     "#777777",
@@ -118,6 +124,8 @@ MODEL_MARKERS: dict[str, str] = {
     "dbgnn_k2":      "D",
     "dbgnn_k3":      "X",
     "dag_gnn":       "v",
+    "static_mlp":    "p",
+    "mc_mean_field": "8",
     "jordan_center": "x",
     "betweenness":   "+",
     "closeness":     "*",
@@ -157,8 +165,13 @@ def finish_fig(fig: plt.Figure, path: str) -> None:
 
 def model_style(key: str) -> dict:
     """Return a dict of plot kwargs (color, marker, label) for a given model key."""
+    tuned = key.endswith("_optuna")
+    base_key = key[:-8] if tuned else key
+    label = MODEL_LABELS.get(base_key, base_key)
+    if tuned:
+        label = f"{label} + Optuna"
     return {
-        "color":  MODEL_COLORS.get(key, "#333333"),
-        "marker": MODEL_MARKERS.get(key, "o"),
-        "label":  MODEL_LABELS.get(key, key),
+        "color":  MODEL_COLORS.get(base_key, "#333333"),
+        "marker": MODEL_MARKERS.get(base_key, "o"),
+        "label":  label,
     }

@@ -1,18 +1,28 @@
+from __future__ import annotations
+
 import numpy as np
 from typing import Optional
 
 def rank_score(ranks, sel, offset = 0):
+    if not np.any(sel):
+        return float("nan")
     return np.mean((1 + offset) / (ranks[sel] + offset))
 
 def top_k_score(ranks, sel, k=5):
+    if not np.any(sel):
+        return float("nan")
     return np.mean(ranks[sel] <= k)
 
 def normalized_brier_score(states, probs, n_nodes, sel):
+    if not np.any(sel):
+        return float("nan")
     brier_scores = np.mean((states - probs) ** 2, axis=1)
     normalized_score = brier_scores / (2 / n_nodes)
     return np.mean(normalized_score[sel])
 
 def normalized_entropy(probs, n_nodes, sel):
+    if not np.any(sel):
+        return float("nan")
     log_probs = np.log(np.clip(probs, 1e-10, None))
     log_probs[np.isneginf(log_probs)] = 0
     entropy = -np.sum(probs * log_probs, axis=1)
@@ -21,6 +31,8 @@ def normalized_entropy(probs, n_nodes, sel):
 
 def credible_set(probs, sel, p, n_nodes, n_runs):
     """Computes the credible set evaluation metric, but penalizes if credible sets are very large."""
+    if not np.any(sel):
+        return float("nan")
     sorted_indices = np.argsort(-probs, axis=1)
     sorted_probs = np.take_along_axis(probs, sorted_indices, axis=1)
     cumulative_probs = np.cumsum(sorted_probs, axis=1)
@@ -32,6 +44,8 @@ def credible_set(probs, sel, p, n_nodes, n_runs):
 
 def credible_set_size_mean(probs: np.ndarray, sel: np.ndarray, p: float) -> float:
     """Mean number of nodes in the smallest set accumulating probability mass >= p."""
+    if not np.any(sel):
+        return float("nan")
     sorted_probs = -np.sort(-probs, axis=1)   # descending
     sizes = np.argmax(np.cumsum(sorted_probs, axis=1) >= p, axis=1) + 1
     return float(np.mean(sizes[sel]))
@@ -43,6 +57,7 @@ def error_distance(
     true_sources: np.ndarray,
     distances: np.ndarray,
     sel: np.ndarray,
+    rng: np.random.Generator | None = None,
 ) -> float:
     """Compute the mean error distance between the predicted top-1 node and the true source.
 
@@ -66,6 +81,11 @@ def error_distance(
     float
         Mean error distance over all valid samples.
     """
+    if not np.any(sel):
+        return float("nan")
+    if rng is None:
+        rng = np.random.default_rng()
+
     probs_sel = probs[sel]
     true_sources_sel = true_sources[sel]
 
@@ -75,7 +95,7 @@ def error_distance(
         max_val = np.nanmax(p)
         # All nodes achieving the maximum probability (handles ties)
         max_nodes = np.where(p == max_val)[0]
-        predicted = int(np.random.choice(max_nodes))
+        predicted = int(rng.choice(max_nodes))
         src = int(true_sources_sel[i])
         error_dists[i] = distances[src, predicted]
 
@@ -110,6 +130,9 @@ def proper_brier_score(
     float
         Mean proper Brier score over valid samples.
     """
+    if not np.any(sel):
+        return float("nan")
+
     probs_sel = probs[sel]
     true_sources_sel = true_sources[sel].astype(int)
 
@@ -148,6 +171,9 @@ def logarithmic_score(
     float
         Mean negative log-probability of the true source over valid samples.
     """
+    if not np.any(sel):
+        return float("nan")
+
     probs_sel = probs[sel]
     true_sources_sel = true_sources[sel].astype(int)
 

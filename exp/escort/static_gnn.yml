@@ -2,14 +2,14 @@ model: static_gnn
 
 # escort: 14783 nodes — use minimal batch size and capacity
 eval:
-  min_outbreak: 1
+  min_outbreak: 2
   top_k: [1, 3, 5, 10]
   credible_p: [0.80, 0.90]
   inverse_rank_offset: [0]
-  n_truth: 5            # limited by n_runs=10 in static_sir.yml
+  n_truth: 1
 
 train:
-  n_mc: 10              # must match mc_runs in static_sir.yml
+  n_mc: 5               # matches mc_runs in tsir.yml
   reps: 2
   test_size: 0.30
   batch_size: 4         # large graphs require small batches

@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch.nn import Linear, Sequential
-from torch_geometric.nn import GCNConv, GraphConv, SAGEConv, GATConv, GINConv
+from torch_geometric.nn.conv import GATConv, GCNConv, GINConv, GraphConv, SAGEConv
 
 
 # Ported from gnn/static_source_detection_gnn/sourcedet/model.py

@@ -1,0 +1,12 @@
+nwk:
+  type: empirical
+  name: olten
+  t_max: 743         # full network (time_steps = 743 hours)
+
+sir:
+  beta: 0.195        # calibrated R0 ~= 2.0 in run_all_experiments.py
+  mu: 0.001
+  start_t: 0
+  end_t: 743
+  n_runs: 1000       # reduced for the 749-node network
+  mc_runs: 500

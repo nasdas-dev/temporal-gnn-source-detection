@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Optional
 import numpy as np
 import networkx as nx
@@ -25,6 +27,7 @@ def _sir_simulation(
     beta: float,
     mu: float,
     n_steps: int,
+    rng: np.random.Generator | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Run one discrete-time SIR simulation on the static graph.
 
@@ -46,6 +49,9 @@ def _sir_simulation(
     S, I, R : np.ndarray, shape (n_nodes,), dtype int8
         Terminal SIR states (1 = in that compartment, 0 = not).
     """
+    if rng is None:
+        rng = np.random.default_rng()
+
     n = adj.shape[0]
     state = np.zeros(n, dtype=np.int8)  # 0=S, 1=I, 2=R
     state[source] = 1
@@ -62,10 +68,10 @@ def _sir_simulation(
             n_infected_neighbours = int(adj[infected_mask, i].sum())
             if n_infected_neighbours > 0:
                 p_escape = (1.0 - beta) ** n_infected_neighbours
-                if np.random.random() > p_escape:
+                if rng.random() > p_escape:
                     new_infected[i] = True
         # Recovery
-        recovered_now = infected_mask & (np.random.random(n) < mu)
+        recovered_now = infected_mask & (rng.random(n) < mu)
         state[new_infected] = 1
         state[recovered_now] = 2
 
@@ -87,6 +93,7 @@ def soft_margin(
     n_steps: int = 50,
     n_mc: int = 100,
     a_sq_candidates: Optional[np.ndarray] = None,
+    rng: np.random.Generator | None = None,
 ) -> np.ndarray:
     """Soft-margin estimator for epidemic source detection (Antulov-Fantulin et al.).
 
@@ -127,9 +134,11 @@ def soft_margin(
         Normalised probability distribution over nodes (zero for impossible
         sources).
     """
+    if rng is None:
+        rng = np.random.default_rng()
+
     n_nodes = H_static.number_of_nodes()
     nodes = sorted(H_static.nodes())
-    node_to_idx = {n: i for i, n in enumerate(nodes)}
 
     adj = nx.to_numpy_array(H_static, nodelist=nodes, weight=None)
 
@@ -150,7 +159,7 @@ def soft_margin(
     for s_idx in candidate_indices:
         masks = np.zeros((n_mc, n_nodes), dtype=np.float64)
         for r in range(n_mc):
-            S_r, I_r, R_r = _sir_simulation(adj, s_idx, beta, mu, n_steps)
+            S_r, I_r, R_r = _sir_simulation(adj, s_idx, beta, mu, n_steps, rng=rng)
             masks[r] = (S_r == 0).astype(np.float64)
         sim_masks[s_idx] = masks
 
@@ -181,7 +190,7 @@ def soft_margin(
 
     # Convergence check: resample 2*n_mc scenarios with replacement
     # and find the last a^2 that still leads to convergence (|p_n - p_2n| <= 0.05)
-    rng_indices = np.random.randint(0, n_mc, size=2 * n_mc)
+    rng_indices = rng.integers(0, n_mc, size=2 * n_mc)
     output_2n = np.zeros((n_a, n_cand), dtype=np.float64)
     for ci, s_idx in enumerate(candidate_indices):
         masks = sim_masks[s_idx]
@@ -243,6 +252,76 @@ def soft_margin(
     return (u / s if s > 0 else np.ones(n_nodes) / n_nodes).astype(np.float32)
 
 
+def mc_mean_field(
+    mc_S: np.ndarray,
+    mc_I: np.ndarray,
+    mc_R: np.ndarray,
+    truth_S: np.ndarray,
+    truth_I: np.ndarray,
+    truth_R: np.ndarray,
+    possible: np.ndarray,
+    eps: float = 1e-6,
+    batch_size: int = 4096,
+) -> np.ndarray:
+    """Artifact-based Monte Carlo mean-field source baseline.
+
+    This baseline estimates ``P(S/I/R at node | source)`` from the temporal
+    Monte Carlo simulations already stored in the TSIR artifact. It then scores
+    each observed snapshot with a factorised likelihood over node states. This
+    is much faster and better matched to temporal experiments than rerunning a
+    static SIR simulator for every observation.
+    """
+    n_nodes, n_truth, _ = truth_S.shape
+    n_samples = n_nodes * n_truth
+
+    p_S = np.clip(mc_S.mean(axis=1, dtype=np.float64), eps, 1.0)
+    p_I = np.clip(mc_I.mean(axis=1, dtype=np.float64), eps, 1.0)
+    p_R = np.clip(mc_R.mean(axis=1, dtype=np.float64), eps, 1.0)
+    norm = p_S + p_I + p_R
+    p_S, p_I, p_R = p_S / norm, p_I / norm, p_R / norm
+
+    log_S = np.log(p_S)
+    log_I = np.log(p_I)
+    log_R = np.log(p_R)
+
+    truth_S_flat = truth_S.reshape(n_samples, n_nodes).astype(np.float64)
+    truth_I_flat = truth_I.reshape(n_samples, n_nodes).astype(np.float64)
+    truth_R_flat = truth_R.reshape(n_samples, n_nodes).astype(np.float64)
+    possible_flat = possible.reshape(n_samples, n_nodes).astype(bool)
+
+    probs = np.zeros((n_samples, n_nodes), dtype=np.float32)
+    for start in range(0, n_samples, batch_size):
+        stop = min(start + batch_size, n_samples)
+        log_lik = (
+            truth_S_flat[start:stop] @ log_S.T
+            + truth_I_flat[start:stop] @ log_I.T
+            + truth_R_flat[start:stop] @ log_R.T
+        )
+        log_lik = np.where(possible_flat[start:stop], log_lik, -np.inf)
+        finite = np.isfinite(log_lik)
+        any_finite = finite.any(axis=1)
+
+        chunk_probs = np.zeros_like(log_lik, dtype=np.float64)
+        if np.any(any_finite):
+            rows = np.where(any_finite)[0]
+            row_max = np.max(log_lik[rows], axis=1, keepdims=True)
+            exp_ll = np.exp(log_lik[rows] - row_max)
+            exp_ll = np.where(finite[rows], exp_ll, 0.0)
+            denom = exp_ll.sum(axis=1, keepdims=True)
+            valid = denom[:, 0] > 0
+            chunk_probs[rows[valid]] = exp_ll[valid] / denom[valid]
+
+        if np.any(~any_finite):
+            fallback = possible_flat[start:stop][~any_finite].astype(np.float64)
+            denom = fallback.sum(axis=1, keepdims=True)
+            denom = np.where(denom > 0, denom, n_nodes)
+            chunk_probs[~any_finite] = fallback / denom
+
+        probs[start:stop] = chunk_probs.astype(np.float32)
+
+    return probs
+
+
 # Ported from gnn/static_source_detection_gnn/sourcedet/benchmarks.py
 def mcs_mean_field(
     H_static: nx.Graph,
@@ -254,6 +333,7 @@ def mcs_mean_field(
     mu: float = 0.05,
     n_steps: int = 50,
     n_mc: int = 100,
+    rng: np.random.Generator | None = None,
 ) -> np.ndarray:
     """Monte Carlo simulation mean-field baseline (Sterchi et al.).
 
@@ -290,6 +370,9 @@ def mcs_mean_field(
         Normalised probability distribution over nodes (zero for impossible
         sources).
     """
+    if rng is None:
+        rng = np.random.default_rng()
+
     n_nodes = H_static.number_of_nodes()
     nodes = sorted(H_static.nodes())
 
@@ -310,7 +393,7 @@ def mcs_mean_field(
         # Accumulate state counts: node_state_count[node, state] over n_mc runs
         state_counts = np.zeros((n_nodes, 3), dtype=np.float64)
         for _ in range(n_mc):
-            S_r, I_r, R_r = _sir_simulation(adj, s_idx, beta, mu, n_steps)
+            S_r, I_r, R_r = _sir_simulation(adj, s_idx, beta, mu, n_steps, rng=rng)
             state_counts[:, 0] += S_r
             state_counts[:, 1] += I_r
             state_counts[:, 2] += R_r
@@ -343,4 +426,3 @@ def mcs_mean_field(
     u = possible.astype(np.float64)
     s = u.sum()
     return (u / s if s > 0 else np.ones(n_nodes) / n_nodes).astype(np.float32)
-

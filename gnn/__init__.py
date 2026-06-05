@@ -10,13 +10,11 @@ name.  To add a new model:
 4. Add a build function below and register.
 """
 
+from importlib import import_module
+
 import torch
 
-from .static_gnn             import StaticGNN
-from .backtracking_network   import BacktrackingNetwork
-from .temporal_gnn           import TemporalGNN
-from .dbgnn                  import DBGNN
-from .dag_gnn                import DAGGNN
+from .static_mlp             import StaticMLP
 
 from .registry     import MODEL_REGISTRY, ModelSpec, get_model_spec
 from .graph_builder import (
@@ -28,6 +26,7 @@ from .graph_builder import (
 )
 from training.trainer import (
     static_gnn_forward,
+    static_mlp_forward,
     backtracking_forward,
     temporal_gnn_forward,
     dbgnn_forward,
@@ -41,7 +40,48 @@ from training.trainer import (
 # instantiated (untrained) model.
 # ---------------------------------------------------------------------------
 
+_LAZY_EXPORTS = {
+    "StaticGNN": ("gnn.static_gnn", "StaticGNN"),
+    "BacktrackingNetwork": ("gnn.backtracking_network", "BacktrackingNetwork"),
+    "TemporalGNN": ("gnn.temporal_gnn", "TemporalGNN"),
+    "DBGNN": ("gnn.dbgnn", "DBGNN"),
+    "DAGGNN": ("gnn.dag_gnn", "DAGGNN"),
+}
+
+
+class _LazyModelClass:
+    """Callable proxy that imports a model class only when instantiated."""
+
+    def __init__(self, export_name: str) -> None:
+        self.export_name = export_name
+
+    @property
+    def __name__(self) -> str:
+        return self.export_name
+
+    def _load(self):
+        return __getattr__(self.export_name)
+
+    def __call__(self, *args, **kwargs):
+        return self._load()(*args, **kwargs)
+
+
+def _lazy_cls(export_name: str) -> _LazyModelClass:
+    return _LazyModelClass(export_name)
+
+
+def __getattr__(name: str):
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module 'gnn' has no attribute {name!r}")
+    module_name, attr_name = _LAZY_EXPORTS[name]
+    value = getattr(import_module(module_name), attr_name)
+    globals()[name] = value
+    return value
+
+
 def _build_static_gnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.Module:
+    from .static_gnn import StaticGNN
+
     return StaticGNN(
         num_preprocess_layers  = model_cfg["num_preprocess_layers"],
         embed_dim_preprocess   = model_cfg["embed_dim_preprocess"],
@@ -57,7 +97,24 @@ def _build_static_gnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.
     )
 
 
+def _build_static_mlp(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.Module:
+    return StaticMLP(
+        num_preprocess_layers  = model_cfg["num_preprocess_layers"],
+        embed_dim_preprocess   = model_cfg["embed_dim_preprocess"],
+        num_postprocess_layers = model_cfg["num_postprocess_layers"],
+        num_hidden_layers      = model_cfg.get("num_hidden_layers", model_cfg.get("num_conv_layers")),
+        num_node_features      = 3,
+        n_nodes                = n_nodes,
+        hidden_channels        = model_cfg["hidden_channels"],
+        dropout_rate           = model_cfg["dropout_rate"],
+        batch_norm             = model_cfg["batch_norm"],
+        skip                   = model_cfg["skip"],
+    )
+
+
 def _build_backtracking(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.Module:
+    from .backtracking_network import BacktrackingNetwork
+
     return BacktrackingNetwork(
         node_feat_dim = 3,
         edge_feat_dim = graph_data["T"],      # T = number of time steps
@@ -67,6 +124,8 @@ def _build_backtracking(model_cfg: dict, n_nodes: int, graph_data: dict) -> torc
 
 
 def _build_temporal_gnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.Module:
+    from .temporal_gnn import TemporalGNN
+
     return TemporalGNN(
         in_channels      = 3,
         hidden_channels  = model_cfg["hidden_channels"],
@@ -76,6 +135,8 @@ def _build_temporal_gnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torc
 
 
 def _build_dbgnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.Module:
+    from .dbgnn import DBGNN
+
     return DBGNN(
         hidden_channels = model_cfg["hidden_channels"],
         num_conv_layers = model_cfg["num_conv_layers"],
@@ -87,12 +148,19 @@ def _build_dbgnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.Mo
 
 
 def _build_dag_gnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.Module:
+    from .dag_gnn import DAGGNN
+
     return DAGGNN(
         hidden_channels = model_cfg["hidden_channels"],
         num_conv_layers = model_cfg["num_conv_layers"],
         dropout_rate    = model_cfg.get("dropout_rate", 0.2),
         agg             = model_cfg.get("agg", "mean"),
     )
+
+
+def _build_no_graph(H, **kwargs) -> dict:
+    """Return empty graph data for graph-free trainable baselines."""
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -102,35 +170,42 @@ def _build_dag_gnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.
 # ---------------------------------------------------------------------------
 
 MODEL_REGISTRY["static_gnn"] = ModelSpec(
-    cls        = StaticGNN,
+    cls        = _lazy_cls("StaticGNN"),
     forward_fn = static_gnn_forward,
     builder_fn = build_static_graph,
     build_fn   = _build_static_gnn,
 )
 
+MODEL_REGISTRY["static_mlp"] = ModelSpec(
+    cls        = StaticMLP,
+    forward_fn = static_mlp_forward,
+    builder_fn = _build_no_graph,
+    build_fn   = _build_static_mlp,
+)
+
 MODEL_REGISTRY["backtracking"] = ModelSpec(
-    cls        = BacktrackingNetwork,
+    cls        = _lazy_cls("BacktrackingNetwork"),
     forward_fn = backtracking_forward,
     builder_fn = build_temporal_activation,
     build_fn   = _build_backtracking,
 )
 
 MODEL_REGISTRY["temporal_gnn"] = ModelSpec(
-    cls        = TemporalGNN,
+    cls        = _lazy_cls("TemporalGNN"),
     forward_fn = temporal_gnn_forward,
     builder_fn = build_temporal_snapshots,
     build_fn   = _build_temporal_gnn,
 )
 
 MODEL_REGISTRY["dbgnn"] = ModelSpec(
-    cls        = DBGNN,
+    cls        = _lazy_cls("DBGNN"),
     forward_fn = dbgnn_forward,
     builder_fn = build_de_bruijn_graph,
     build_fn   = _build_dbgnn,
 )
 
 MODEL_REGISTRY["dag_gnn"] = ModelSpec(
-    cls        = DAGGNN,
+    cls        = _lazy_cls("DAGGNN"),
     forward_fn = dag_gnn_forward,
     builder_fn = build_dag_event_graph,
     build_fn   = _build_dag_gnn,
@@ -138,6 +213,7 @@ MODEL_REGISTRY["dag_gnn"] = ModelSpec(
 
 __all__ = [
     "StaticGNN",
+    "StaticMLP",
     "BacktrackingNetwork",
     "TemporalGNN",
     "DBGNN",

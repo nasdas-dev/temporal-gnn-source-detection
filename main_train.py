@@ -1,7 +1,7 @@
 """
-Stage 2 — Unified GNN training and evaluation.
+Stage 2 — Unified trainable-model training and evaluation.
 
-Trains any registered GNN model on a TSIR artifact produced by
+Trains any registered source-detection model on a TSIR artifact produced by
 ``main_tsir.py``, evaluates on ground-truth simulations, and logs all
 metrics to W&B.
 
@@ -18,8 +18,11 @@ Usage
     # TemporalGNN on france_office
     python main_train.py --cfg exp/france_office/temporal_gnn.yml --data france_office:latest
 
+    # Graph-free MLP baseline on france_office
+    python main_train.py --cfg exp/france_office/static_mlp.yml --data france_office:latest
+
 The ``--cfg`` YAML must contain a top-level ``model:`` key matching a name
-in ``MODEL_REGISTRY`` (e.g. ``backtracking``, ``static_gnn``, ``temporal_gnn``).
+in ``MODEL_REGISTRY`` (e.g. ``backtracking``, ``static_gnn``, ``static_mlp``).
 """
 
 from __future__ import annotations
@@ -137,6 +140,29 @@ def _write_loss_history(path: str, train_losses: list[float], val_losses: list[f
             writer.writerow([epoch, tl, vl])
 
 
+def _truth_indices_for_rep(
+    eval_cfg: dict,
+    rep: int,
+    n_truth: int,
+    n_runs: int,
+    reps: int,
+) -> np.ndarray:
+    """Return the held-out truth-run indices for one repetition."""
+    truth_start = int(eval_cfg.get("truth_start", 0))
+    if truth_start < 0:
+        raise ValueError(f"eval.truth_start must be non-negative, got {truth_start}")
+    truth_stop = truth_start + reps * n_truth
+    if truth_stop > n_runs:
+        raise ValueError(
+            f"eval.truth_start + reps * n_truth = {truth_start} + {reps} * "
+            f"{n_truth} = {truth_stop} exceeds n_runs={n_runs}. Reduce reps or "
+            "n_truth, lower eval.truth_start, or regenerate the artifact with "
+            "more ground-truth runs."
+        )
+    start = truth_start + rep * n_truth
+    return np.arange(start, start + n_truth)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -240,6 +266,7 @@ def main() -> None:
     offsets    = eval_cfg["inverse_rank_offset"]
     n_truth    = eval_cfg["n_truth"]
     reps       = train_cfg["reps"]
+    truth_start = int(eval_cfg.get("truth_start", 0))
 
     # Aggregation buffers keyed by metric name (filled per rep, averaged in summary)
     rep_metric_lists: dict[str, list[float]] = {}
@@ -308,13 +335,9 @@ def main() -> None:
 
         # --- Inference on ground truth ---
         print("\n  Running inference on ground truth…")
-        if reps * n_truth > data.n_runs:
-            raise ValueError(
-                f"reps * n_truth = {reps} * {n_truth} = {reps * n_truth} exceeds "
-                f"n_runs={data.n_runs}. Reps would overlap on the same truth runs. "
-                "Reduce reps or n_truth, or regenerate the artifact with more runs."
-            )
-        select_truth = np.arange(rep * n_truth, (rep + 1) * n_truth)
+        select_truth = _truth_indices_for_rep(
+            eval_cfg, rep=rep, n_truth=n_truth, n_runs=data.n_runs, reps=reps
+        )
         probs = trainer.predict_from_tensor(
             truth_S    = data.truth_S[:, select_truth, :],
             truth_I    = data.truth_I[:, select_truth, :],
@@ -407,6 +430,7 @@ def main() -> None:
         "data": args.data,
         "n_params": n_params,
         "save_probs": save_probs,
+        "truth_start": truth_start,
         "metrics": {
             f"{metric_key}_mean": float(np.mean(vals))
             for metric_key, vals in sorted(rep_metric_lists.items())

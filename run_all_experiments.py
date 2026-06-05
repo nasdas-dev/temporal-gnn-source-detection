@@ -4,12 +4,20 @@ Thesis-final experiment pipeline.
 Runs the complete source-detection sweep for the thesis networks, R0 values,
 GNN models, heuristic baselines, result tables, and plots.
 
+Every run maintains a publication bundle under:
+    results/thesis_final/<run-name>/result/
+
+The bundle mirrors metrics, figures, tables, and lightweight run assets, and
+includes latex_inputs.json for downstream LaTeX/report generation.
+
 Default run:
     python run_all_experiments.py
 
 Useful controls:
     python run_all_experiments.py --dry-run
-    python run_all_experiments.py --preset fast --networks toy_holme --models static_gnn
+    python run_all_experiments.py --preset fast --networks lyon_ward --models static_gnn
+    python run_all_experiments.py --no-hpo --preset fast
+        # disables the default paired <method> and <method>_optuna final evaluations
     python run_all_experiments.py --resume --run-name 20260512_010000
 """
 
@@ -38,6 +46,7 @@ import matplotlib.pyplot as plt
 
 from viz.rank_vs_outbreak import load_eval_arrays
 from viz.style import MODEL_COLORS, MODEL_LABELS, apply_style, finish_fig, model_style
+from scripts.publication_bundle import sync_publication_result
 
 
 WANDB_PROJECT = "source-detection"
@@ -48,7 +57,18 @@ MODEL_ALIASES = {
     "dbgnn": ["dbgnn_k2", "dbgnn_k3"],
     "all": MODELS,
 }
-BASELINES = ["uniform", "random", "degree", "closeness", "betweenness", "jordan_center"]
+TRAINABLE_BASELINES = ["static_mlp"]
+HEURISTIC_BASELINES_FAST = ["uniform", "random", "degree", "closeness", "betweenness", "jordan_center"]
+HEURISTIC_BASELINES_PAPER = HEURISTIC_BASELINES_FAST + ["mc_mean_field"]
+HEURISTIC_BASELINES_EXPENSIVE = ["soft_margin", "mcs_mean_field"]
+HEURISTIC_BASELINES = HEURISTIC_BASELINES_PAPER
+BASELINE_ALIASES = {
+    "fast": HEURISTIC_BASELINES_FAST,
+    "paper": HEURISTIC_BASELINES_PAPER,
+    "all": HEURISTIC_BASELINES_PAPER + HEURISTIC_BASELINES_EXPENSIVE,
+}
+BASELINES = TRAINABLE_BASELINES + HEURISTIC_BASELINES
+OPTUNA_SUFFIX = "_optuna"
 R0_LABELS = ["r0_08", "r0_10", "r0_11", "r0_15", "r0_20", "r0_25"]
 MIN_OUTBREAK = 2
 
@@ -119,6 +139,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--preset", choices=sorted(PRESETS), default="max_quality")
     p.add_argument("--networks", nargs="+", default=NETWORKS)
     p.add_argument("--models", nargs="+", default=MODELS)
+    p.add_argument("--baselines", nargs="+", default=["paper"],
+                   help="Heuristic baseline keys or presets: fast, paper, all. Default: paper")
     p.add_argument("--r0", nargs="+", default=["all"], help="R0 labels: r0_08 ... r0_25, numeric values, or all")
     p.add_argument("--output", default="results/thesis_final", help="Root results directory")
     p.add_argument("--run-name", default=None, help="Run directory name. Defaults to timestamp.")
@@ -126,11 +148,22 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--force", action="store_true", help="Rerun stages even when a terminal status exists")
     p.add_argument("--dry-run", action="store_true", help="Print commands without executing them")
     p.add_argument("--save-probs", action="store_true", help="Save probs_rep*.pt tensors from main_train.py")
+    p.add_argument("--with-hpo", dest="with_hpo", action="store_true",
+                   help="Run paired untuned and Optuna-tuned final evaluations (default)")
+    p.add_argument("--no-hpo", dest="with_hpo", action="store_false",
+                   help="Disable Optuna and run only the untuned configs")
+    p.add_argument("--hpo-trials", type=int, default=30,
+                   help="Optuna trials per network/R0/model when --with-hpo is enabled")
+    p.add_argument("--hpo-timeout", type=int, default=None,
+                   help="Optional Optuna timeout in seconds per study")
+    p.add_argument("--hpo-sampler", choices=["tpe", "random"], default="tpe")
+    p.add_argument("--hpo-pruner", choices=["hyperband", "median", "none"], default="hyperband")
     p.add_argument("--skip-tsir", action="store_true")
     p.add_argument("--skip-train", action="store_true")
     p.add_argument("--skip-eval", action="store_true")
     p.add_argument("--skip-viz", action="store_true")
     p.add_argument("--skip-tables", action="store_true")
+    p.set_defaults(with_hpo=True)
     return p.parse_args()
 
 
@@ -162,7 +195,51 @@ def normalize_model_keys(raw: list[str]) -> list[str]:
     return out
 
 
+def normalize_baseline_keys(raw: list[str]) -> list[str]:
+    out: list[str] = []
+    for item in raw:
+        expanded = BASELINE_ALIASES.get(item, [item])
+        for baseline in expanded:
+            if baseline not in out:
+                out.append(baseline)
+    known = set(HEURISTIC_BASELINES_PAPER + HEURISTIC_BASELINES_EXPENSIVE)
+    unknown = [baseline for baseline in out if baseline not in known]
+    if unknown:
+        raise ValueError(
+            f"Unknown baseline(s): {unknown}. Known presets/keys: "
+            f"{sorted(known | set(BASELINE_ALIASES))}"
+        )
+    return out
+
+
+def optuna_variant_key(method: str) -> str:
+    return f"{method}{OPTUNA_SUFFIX}"
+
+
+def base_method_key(method: str) -> str:
+    if method.endswith(OPTUNA_SUFFIX):
+        return method[:-len(OPTUNA_SUFFIX)]
+    return method
+
+
+def paired_method_order() -> list[str]:
+    out: list[str] = []
+    for method in MODELS + BASELINES:
+        out.append(method)
+        out.append(optuna_variant_key(method))
+    return out
+
+
+def method_line_style(method: str, kind: str | None = None) -> str:
+    if method.endswith(OPTUNA_SUFFIX):
+        return "-."
+    if kind == "baseline" or base_method_key(method) in BASELINES:
+        return "--"
+    return "-"
+
+
 def base_model_key(model: str) -> str:
+    model = base_method_key(model)
     if model.startswith("dbgnn_k"):
         return "dbgnn"
     return model
@@ -282,6 +359,8 @@ def build_model_config(network: str, model: str, r0_label: str, preset: Preset, 
 
 
 def build_eval_config(network: str, r0_label: str, preset: Preset) -> dict[str, Any]:
+    meta = read_network_meta(network)
+    sc = scenario(network, r0_label)
     return {
         "eval": {
             "min_outbreak": MIN_OUTBREAK,
@@ -289,12 +368,31 @@ def build_eval_config(network: str, r0_label: str, preset: Preset) -> dict[str, 
             "credible_p": [0.80, 0.90],
             "inverse_rank_offset": [0],
             "n_truth": preset.n_truth,
+            "reps": preset.reps,
+            "seed": 0,
         },
-        "baselines": BASELINES,
+        "baselines": HEURISTIC_BASELINES,
+        "baseline_params": {
+            "default": {"chunk_size": 8192},
+            "betweenness": {"normalized": True},
+            "mc_mean_field": {"eps": 1e-6, "batch_size": 4096},
+            "soft_margin": {
+                "beta": sc["beta"],
+                "mu": sc["mu"],
+                "n_steps": meta["t_max"],
+                "n_mc": min(100, preset.mc_runs),
+            },
+            "mcs_mean_field": {
+                "beta": sc["beta"],
+                "mu": sc["mu"],
+                "n_steps": meta["t_max"],
+                "n_mc": min(100, preset.mc_runs),
+            },
+        },
         "experiment": {
             "network": network,
             "r0_label": r0_label,
-            **scenario(network, r0_label),
+            **sc,
         },
     }
 
@@ -330,6 +428,13 @@ def write_manifest(run_dir: Path, args: argparse.Namespace, networks: list[str],
         "mus": {n: MUS[n] for n in networks if n in MUS},
         "baselines": BASELINES,
         "wandb_project": WANDB_PROJECT,
+        "hpo": {
+            "enabled": bool(getattr(args, "with_hpo", False)),
+            "trials": int(getattr(args, "hpo_trials", 0)),
+            "timeout": getattr(args, "hpo_timeout", None),
+            "sampler": getattr(args, "hpo_sampler", None),
+            "pruner": getattr(args, "hpo_pruner", None),
+        },
     }
     with open(run_dir / "manifest.json", "w") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
@@ -452,17 +557,109 @@ def stage_tsir(args: argparse.Namespace, run_dir: Path, status_path: Path, netwo
     return art
 
 
-def stage_train(args: argparse.Namespace, run_dir: Path, status_path: Path, network: str, r0_label: str, model: str, art: str) -> str | None:
-    if args.skip_train:
-        update_status(status_path, {"network": network, "r0_label": r0_label, "stage": "train", "model": model, "status": "skipped", "artifact": art})
+def stage_hpo(
+    args: argparse.Namespace,
+    run_dir: Path,
+    status_path: Path,
+    network: str,
+    r0_label: str,
+    model: str,
+    art: str,
+) -> Path | None:
+    if not args.with_hpo:
         return None
-    if should_skip(status_path, args, network, r0_label, "train", model):
-        rows = read_status(status_path)
-        return next((r.get("run_id") for r in rows if r.get("network") == network and r.get("r0_label") == r0_label and r.get("stage") == "train" and r.get("model") == model), None)
+    tuned_model = optuna_variant_key(model)
+    if should_skip(status_path, args, network, r0_label, "hpo", tuned_model):
+        best = run_dir / "hpo" / f"{network}_{r0_label}_{model}" / "best_config.yml"
+        return best if best.exists() else None
 
-    cfg_path = run_dir / "configs" / network / r0_label / f"{model}.yml"
-    write_yaml(cfg_path, build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs))
-    log_path = run_dir / network / r0_label / "logs" / f"train_{model}.log"
+    base_cfg_path = run_dir / "configs" / network / r0_label / f"{model}.hpo_base.yml"
+    write_yaml(base_cfg_path, build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs))
+    study_name = f"{network}_{r0_label}_{model}"
+    log_path = run_dir / network / r0_label / "logs" / f"hpo_{model}.log"
+    cmd = [
+        sys.executable,
+        "main_optuna.py",
+        "--cfg",
+        str(base_cfg_path),
+        "--data",
+        f"{art}:latest",
+        "--output-dir",
+        str(run_dir / "hpo"),
+        "--study-name",
+        study_name,
+        "--n-trials",
+        str(args.hpo_trials),
+        "--sampler",
+        args.hpo_sampler,
+        "--pruner",
+        args.hpo_pruner,
+    ]
+    if args.hpo_timeout is not None:
+        cmd.extend(["--timeout", str(args.hpo_timeout)])
+    rc, stdout = run_command(cmd, log_path, args.dry_run)
+    best_cfg = run_dir / "hpo" / study_name / "best_config.yml"
+    status = "success" if rc == 0 else "failed"
+    update_status(status_path, {
+        "network": network, "r0_label": r0_label, "stage": "hpo", "model": tuned_model,
+        "status": status, "artifact": art, "returncode": rc,
+        "message": str(best_cfg) if status == "success" else status,
+        "log_path": log_path,
+    })
+    if rc != 0 and not args.dry_run:
+        raise RuntimeError(f"Optuna HPO failed for {network}/{r0_label}/{model}; see {log_path}")
+    if args.dry_run:
+        return best_cfg
+    return best_cfg if best_cfg.exists() else None
+
+
+def write_untuned_paired_config(
+    args: argparse.Namespace,
+    run_dir: Path,
+    network: str,
+    r0_label: str,
+    model: str,
+    best_cfg_path: Path | None,
+) -> Path:
+    """Write the untuned control config paired to an Optuna final window."""
+    cfg = build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs)
+    if best_cfg_path is not None and best_cfg_path.exists():
+        with open(best_cfg_path) as f:
+            best_cfg = yaml.safe_load(f)
+        for key in ("truth_start", "n_truth"):
+            if key in best_cfg.get("eval", {}):
+                cfg["eval"][key] = best_cfg["eval"][key]
+    cfg.setdefault("experiment", {})["hpo_condition"] = "none"
+    cfg["experiment"]["paired_optuna_variant"] = optuna_variant_key(model)
+    cfg_path = run_dir / "configs" / network / r0_label / f"{model}.untuned.yml"
+    write_yaml(cfg_path, cfg)
+    return cfg_path
+
+
+def stage_train(
+    args: argparse.Namespace,
+    run_dir: Path,
+    status_path: Path,
+    network: str,
+    r0_label: str,
+    model: str,
+    art: str,
+    cfg_override: Path | None = None,
+    status_model: str | None = None,
+) -> str | None:
+    row_model = status_model or model
+    if args.skip_train:
+        update_status(status_path, {"network": network, "r0_label": r0_label, "stage": "train", "model": row_model, "status": "skipped", "artifact": art})
+        return None
+    if should_skip(status_path, args, network, r0_label, "train", row_model):
+        rows = read_status(status_path)
+        return next((r.get("run_id") for r in rows if r.get("network") == network and r.get("r0_label") == r0_label and r.get("stage") == "train" and r.get("model") == row_model), None)
+
+    cfg_path = cfg_override
+    if cfg_path is None:
+        cfg_path = run_dir / "configs" / network / r0_label / f"{model}.yml"
+        write_yaml(cfg_path, build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs))
+    log_path = run_dir / network / r0_label / "logs" / f"train_{row_model}.log"
     cmd = [sys.executable, "main_train.py", "--cfg", str(cfg_path), "--data", f"{art}:latest"]
     if args.save_probs:
         cmd.append("--save-probs")
@@ -470,7 +667,7 @@ def stage_train(args: argparse.Namespace, run_dir: Path, status_path: Path, netw
     run_id = extract_run_id(stdout) or ("dryrun00" if args.dry_run else "")
     status = "success" if rc == 0 else "loss_guard_aborted" if rc == 88 or "LOSS_GUARD_ABORT" in stdout else "failed"
     update_status(status_path, {
-        "network": network, "r0_label": r0_label, "stage": "train", "model": model,
+        "network": network, "r0_label": r0_label, "stage": "train", "model": row_model,
         "status": status, "run_id": run_id, "artifact": art, "returncode": rc,
         "message": status, "log_path": log_path,
     })
@@ -506,11 +703,12 @@ def method_entries(status_rows: list[dict[str, str]], network: str, r0_label: st
         if row.get("network") != network or row.get("r0_label") != r0_label:
             continue
         if row.get("stage") == "train" and row.get("status") == "success" and row.get("run_id"):
-            entries.append({"method": row["model"], "kind": "model", "run_id": row["run_id"], "baseline": ""})
+            kind = "baseline" if base_method_key(row["model"]) in TRAINABLE_BASELINES else "model"
+            entries.append({"method": row["model"], "kind": kind, "run_id": row["run_id"], "baseline": ""})
         if row.get("stage") == "eval" and row.get("status") == "success" and row.get("run_id"):
-            for baseline in BASELINES:
+            for baseline in HEURISTIC_BASELINES:
                 entries.append({"method": baseline, "kind": "baseline", "run_id": row["run_id"], "baseline": baseline})
-    order = {m: i for i, m in enumerate(MODELS + BASELINES)}
+    order = {m: i for i, m in enumerate(paired_method_order())}
     return sorted(entries, key=lambda e: order.get(e["method"], 999))
 
 
@@ -633,7 +831,7 @@ def plot_scenario_outputs(run_dir: Path, status_rows: list[dict[str, str]], netw
         cents, vals, ses, _ = binned_topk(sizes, ranks, 5)
         valid = ~np.isnan(vals)
         ax.fill_between(cents[valid], (vals - ses)[valid], (vals + ses)[valid], color=style["color"], alpha=0.12)
-        ls = "-" if entry["kind"] == "model" else "--"
+        ls = method_line_style(entry["method"], entry["kind"])
         ax.plot(cents[valid], vals[valid], color=style["color"], lw=2.2, ls=ls, label=style["label"])
     ax.set_title(f"Top-5 Score vs Outbreak Size: {title_suffix}")
     ax.set_xlabel("outbreak_size")
@@ -652,7 +850,7 @@ def plot_scenario_outputs(run_dir: Path, status_rows: list[dict[str, str]], netw
         cents, means, p25, p75 = binned_rank(sizes, ranks)
         valid = ~np.isnan(means)
         ax.fill_between(cents[valid], p25[valid], p75[valid], color=style["color"], alpha=0.12)
-        ls = "-" if entry["kind"] == "model" else "--"
+        ls = method_line_style(entry["method"], entry["kind"])
         ax.plot(cents[valid], means[valid], color=style["color"], lw=2.2, ls=ls, label=style["label"])
     ax.set_title(f"Rank vs Outbreak Size: {title_suffix}")
     ax.set_xlabel("outbreak_size")
@@ -703,7 +901,7 @@ def plot_training_curve(run_dir: Path, row: dict[str, str]) -> None:
         label = f"rep {rep.group(1)}" if rep else path.stem
         ax.plot(epochs, train, alpha=0.45, ls="--", label=f"{label} train")
         ax.plot(epochs, val, alpha=0.9, label=f"{label} val")
-    ax.set_title(f"Training Curves: {MODEL_LABELS.get(model, model)}")
+    ax.set_title(f"Training Curves: {model_style(model)['label']}")
     ax.set_xlabel("epoch")
     ax.set_ylabel("NLL loss")
     ax.legend(fontsize=8)
@@ -724,17 +922,18 @@ def metric_rows_from_status(status_rows: list[dict[str, str]]) -> tuple[list[dic
         base = {"network": network, "r0_label": r0_label, "r0": sc["r0"], "beta": sc["beta"], "mu": sc["mu"], "run_id": row["run_id"]}
         if row.get("stage") == "train":
             run_data = Path("data") / row["run_id"]
+            kind = "baseline" if base_method_key(row["model"]) in TRAINABLE_BASELINES else "model"
             summary_path = run_data / "metrics_summary.json"
             if summary_path.exists():
                 payload = json.loads(summary_path.read_text())
                 metrics = payload.get("metrics", {})
-                rec = {**base, "method": row["model"], "kind": "model", "status": row["status"], **metrics}
+                rec = {**base, "method": row["model"], "kind": kind, "status": row["status"], **metrics}
                 summary_rows.append(rec)
             for rep_path in sorted(run_data.glob("metrics_rep*.json")):
                 payload = json.loads(rep_path.read_text())
                 rep = payload.get("rep", "")
                 for metric, value in payload.get("metrics", {}).items():
-                    long_rows.append({**base, "method": row["model"], "kind": "model", "rep": rep, "metric": metric, "value": value})
+                    long_rows.append({**base, "method": row["model"], "kind": kind, "rep": rep, "metric": metric, "value": value})
         elif row.get("stage") == "eval":
             csv_path = Path("data") / row["run_id"] / "baseline_metrics.csv"
             if not csv_path.exists():
@@ -789,14 +988,23 @@ def write_benchmark_table(run_dir: Path, rows: list[dict[str, Any]]) -> None:
         "Network & Method & MRR & Top-5 & Norm-Brier \\\\",
         "\\midrule",
     ]
-    for (network, method), vals in sorted(agg.items()):
+    network_order = {network: i for i, network in enumerate(NETWORKS)}
+    method_order = {method: i for i, method in enumerate(paired_method_order())}
+    for (network, method), vals in sorted(
+        agg.items(),
+        key=lambda item: (
+            network_order.get(item[0][0], 999),
+            method_order.get(item[0][1], 999),
+            item[0][1],
+        ),
+    ):
         mrr = np.nanmean([v.get("eval/mrr_mean", np.nan) for v in vals])
         top5 = np.nanmean([v.get("eval/top_5_mean", np.nan) for v in vals])
         brier = np.nanmean([v.get("eval/norm_brier_mean", np.nan) for v in vals])
-        label = MODEL_LABELS.get(method, method).replace("_", "\\_")
+        label = model_style(method)["label"].replace("_", "\\_")
         ntex = network.replace("_", "\\_")
         lines.append(f"{ntex} & {label} & {mrr:.4f} & {100 * top5:.1f} & {brier:.4f} \\\\")
-        csv_rows.append([network, MODEL_LABELS.get(method, method), f"{mrr:.6g}", f"{top5:.6g}", f"{brier:.6g}"])
+        csv_rows.append([network, model_style(method)["label"], f"{mrr:.6g}", f"{top5:.6g}", f"{brier:.6g}"])
     lines += ["\\bottomrule", "\\end{tabular}"]
     (tbl_dir / "benchmark_table.tex").write_text("\n".join(lines) + "\n")
     with open(tbl_dir / "benchmark_table.csv", "w", newline="") as f:
@@ -807,7 +1015,7 @@ def plot_metric_vs_r0(rows: list[dict[str, Any]], output: Path, metric: str, tit
     networks = [n for n in NETWORKS if any(r["network"] == n and metric in r for r in rows)]
     if not networks:
         return
-    methods = [m for m in MODELS + BASELINES if any(r["method"] == m and metric in r for r in rows)]
+    methods = [m for m in paired_method_order() if any(r["method"] == m and metric in r for r in rows)]
     apply_style()
     ncols = 2
     nrows = math.ceil(len(networks) / ncols)
@@ -819,7 +1027,7 @@ def plot_metric_vs_r0(rows: list[dict[str, Any]], output: Path, metric: str, tit
                 continue
             x, y = zip(*vals)
             style = model_style(method)
-            ls = "-" if method in MODELS else "--"
+            ls = method_line_style(method)
             ax.plot(x, y, marker=style["marker"], color=style["color"], ls=ls, label=style["label"])
         ax.set_title(network)
         ax.set_xlabel("R0")
@@ -838,7 +1046,7 @@ def plot_top5_heatmap(rows: list[dict[str, Any]], output: Path) -> None:
     usable = [r for r in rows if "eval/top_5_mean" in r]
     if not usable:
         return
-    row_keys = [(n, m) for n in NETWORKS for m in MODELS if any(r["network"] == n and r["method"] == m for r in usable)]
+    row_keys = [(n, m) for n in NETWORKS for m in paired_method_order() if any(r["network"] == n and r["method"] == m for r in usable)]
     if not row_keys:
         return
     matrix = np.full((len(row_keys), len(R0_LABELS)), np.nan)
@@ -851,7 +1059,7 @@ def plot_top5_heatmap(rows: list[dict[str, Any]], output: Path) -> None:
     fig, ax = plt.subplots(figsize=(9, max(6, 0.35 * len(row_keys))))
     im = ax.imshow(matrix, aspect="auto", vmin=0, vmax=1, cmap="viridis")
     ax.set_xticks(range(len(R0_LABELS)), [str(R0_VALUES[l]) for l in R0_LABELS])
-    ax.set_yticks(range(len(row_keys)), [f"{n} / {MODEL_LABELS.get(m, m)}" for n, m in row_keys])
+    ax.set_yticks(range(len(row_keys)), [f"{n} / {model_style(m)['label']}" for n, m in row_keys])
     ax.set_xlabel("R0")
     ax.set_title("Top-5 Accuracy Heatmap")
     fig.colorbar(im, ax=ax, label="Top-5 accuracy")
@@ -942,7 +1150,7 @@ def plot_top5_outbreak_grid(run_dir: Path, status_rows: list[dict[str, str]]) ->
                 style = model_style(entry["method"])
                 cents, vals, _, _ = binned_topk(sizes, ranks, 5, n_bins=28)
                 valid = ~np.isnan(vals)
-                ls = "-" if entry["kind"] == "model" else "--"
+                ls = method_line_style(entry["method"], entry["kind"])
                 ax.plot(
                     cents[valid],
                     vals[valid],
@@ -1003,17 +1211,30 @@ def run_network_stats_table(args: argparse.Namespace, run_dir: Path, networks: l
     run_command(cmd, run_dir / "logs" / "network_stats.log", args.dry_run)
 
 
+def refresh_result_bundle(run_dir: Path, status_path: Path) -> Path:
+    """Refresh the publication-facing result bundle."""
+    return sync_publication_result(
+        run_dir=run_dir,
+        status_rows=read_status(status_path),
+        experiment_name="thesis_final",
+    )
+
+
 def main() -> None:
     args = parse_args()
+    global HEURISTIC_BASELINES, BASELINES
     networks = args.networks
     r0_labels = normalize_r0_labels(args.r0)
     args.models = normalize_model_keys(args.models)
+    HEURISTIC_BASELINES = normalize_baseline_keys(args.baselines)
+    BASELINES = TRAINABLE_BASELINES + HEURISTIC_BASELINES
     preset = PRESETS[args.preset]
     run_dir = resolve_run_dir(args)
     run_dir.mkdir(parents=True, exist_ok=True)
     status_path = run_dir / "status.csv"
 
     write_manifest(run_dir, args, networks, r0_labels)
+    refresh_result_bundle(run_dir, status_path)
     print("=" * 72)
     print("Thesis Final Experiment Runner")
     print("=" * 72)
@@ -1023,6 +1244,14 @@ def main() -> None:
     print(f"R0       : {', '.join(r0_labels)}")
     print(f"Models   : {', '.join(args.models)}")
     print(f"Baselines: {', '.join(BASELINES)}")
+    print(
+        "HPO      : "
+        + (
+            f"enabled, paired untuned/+Optuna finals, trials={args.hpo_trials}, "
+            f"sampler={args.hpo_sampler}, pruner={args.hpo_pruner}"
+            if args.with_hpo else "disabled"
+        )
+    )
     if args.dry_run:
         print("DRY RUN: commands will be printed, not executed")
 
@@ -1034,8 +1263,10 @@ def main() -> None:
             print(f"\n### {network} / {r0_label}  R0={sc['r0']} beta={sc['beta']} mu={sc['mu']}")
             try:
                 art = stage_tsir(args, run_dir, status_path, network, r0_label)
+                refresh_result_bundle(run_dir, status_path)
             except Exception as exc:
                 print(f"  FATAL TSIR stage failed, skipping scenario: {exc}")
+                refresh_result_bundle(run_dir, status_path)
                 continue
 
             for model in args.models:
@@ -1043,20 +1274,69 @@ def main() -> None:
                     print(f"  SKIP unknown/out-of-scope model: {model}")
                     update_status(status_path, {"network": network, "r0_label": r0_label, "stage": "train", "model": model, "status": "skipped", "message": "unknown_model"})
                     continue
-                stage_train(args, run_dir, status_path, network, r0_label, model, art)
+                if args.with_hpo:
+                    best_cfg = stage_hpo(args, run_dir, status_path, network, r0_label, model, art)
+                    refresh_result_bundle(run_dir, status_path)
+                    untuned_cfg = write_untuned_paired_config(args, run_dir, network, r0_label, model, best_cfg)
+                    stage_train(args, run_dir, status_path, network, r0_label, model, art, untuned_cfg)
+                    refresh_result_bundle(run_dir, status_path)
+                    stage_train(
+                        args,
+                        run_dir,
+                        status_path,
+                        network,
+                        r0_label,
+                        model,
+                        art,
+                        best_cfg,
+                        status_model=optuna_variant_key(model),
+                    )
+                    refresh_result_bundle(run_dir, status_path)
+                else:
+                    stage_train(args, run_dir, status_path, network, r0_label, model, art)
+                    refresh_result_bundle(run_dir, status_path)
+
+            for baseline in TRAINABLE_BASELINES:
+                if args.with_hpo:
+                    best_cfg = stage_hpo(args, run_dir, status_path, network, r0_label, baseline, art)
+                    refresh_result_bundle(run_dir, status_path)
+                    untuned_cfg = write_untuned_paired_config(args, run_dir, network, r0_label, baseline, best_cfg)
+                    stage_train(args, run_dir, status_path, network, r0_label, baseline, art, untuned_cfg)
+                    refresh_result_bundle(run_dir, status_path)
+                    stage_train(
+                        args,
+                        run_dir,
+                        status_path,
+                        network,
+                        r0_label,
+                        baseline,
+                        art,
+                        best_cfg,
+                        status_model=optuna_variant_key(baseline),
+                    )
+                    refresh_result_bundle(run_dir, status_path)
+                else:
+                    stage_train(args, run_dir, status_path, network, r0_label, baseline, art)
+                    refresh_result_bundle(run_dir, status_path)
 
             stage_eval(args, run_dir, status_path, network, r0_label, art)
+            refresh_result_bundle(run_dir, status_path)
             if not args.skip_viz and not args.dry_run:
                 plot_scenario_outputs(run_dir, read_status(status_path), network, r0_label)
+                refresh_result_bundle(run_dir, status_path)
 
     status_rows = read_status(status_path)
     summary_rows = write_metrics_outputs(run_dir, status_rows)
+    refresh_result_bundle(run_dir, status_path)
     if not args.skip_viz and not args.dry_run:
         plot_global_outputs(run_dir, summary_rows)
+        refresh_result_bundle(run_dir, status_path)
     run_network_stats_table(args, run_dir, networks)
+    result_dir = refresh_result_bundle(run_dir, status_path)
 
     print("\nDone.")
     print(f"Status : {status_path}")
+    print(f"Result : {result_dir}")
     print(f"Results: {run_dir}")
 
 

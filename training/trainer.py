@@ -151,6 +151,16 @@ def static_gnn_forward(
     return model(x, batched_ei, batched_ew, batch_vec)  # [B, N]
 
 
+def static_mlp_forward(
+    model: torch.nn.Module,
+    x_batch: torch.Tensor,   # [B, N, F]
+    graph_data: dict,
+    device: torch.device,
+) -> torch.Tensor:           # [B, N]
+    """Graph-free batching for the flattened-observation MLP baseline."""
+    return model(x_batch.to(device, non_blocking=True))
+
+
 def backtracking_forward(
     model: torch.nn.Module,
     x_batch: torch.Tensor,   # [B, N, 3]
@@ -292,6 +302,9 @@ class Trainer:
         wandb_run=None,
         rep: int = 0,
         loss_guard: dict | None = None,
+        optuna_trial=None,
+        optuna_report_sign: float = 1.0,
+        optuna_step_offset: int = 0,
     ) -> tuple[list[float], list[float]]:
         """Train with early stopping on validation NLL.
 
@@ -304,6 +317,16 @@ class Trainer:
             as ``train/loss_rep{rep}`` and ``val/loss_rep{rep}``.
         rep:
             Repetition index (for W&B key naming).
+        optuna_trial:
+            Optional Optuna trial.  When provided, validation loss is reported
+            after each epoch so Optuna pruners can stop unpromising trials.
+        optuna_report_sign:
+            Multiplier for the reported validation loss.  Use ``-1`` for
+            maximize studies so lower validation NLL becomes a larger
+            intermediate value.
+        optuna_step_offset:
+            Offset added to epoch numbers when reporting repeated fits in the
+            same trial.
 
         Returns
         -------
@@ -395,6 +418,15 @@ class Trainer:
             )
             if guard_reason is not None:
                 raise LossGuardAbort(guard_reason, epoch, tl, vl)
+
+            if optuna_trial is not None:
+                optuna_trial.report(optuna_report_sign * vl, step=optuna_step_offset + epoch)
+                if optuna_trial.should_prune():
+                    import optuna
+
+                    raise optuna.TrialPruned(
+                        f"pruned at epoch {epoch}: val_loss={vl:.6g}"
+                    )
 
             # Early stopping
             if vl < best_val:

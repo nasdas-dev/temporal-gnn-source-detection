@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from torch_geometric.nn import SAGEConv
+from torch_geometric.nn.conv import SAGEConv
 
 
 class TemporalGNN(torch.nn.Module):
@@ -40,4 +40,3 @@ class TemporalGNN(torch.nn.Module):
             x = F.relu(self.convs[count](x, edge_indeces[t]))  # [N, hidden]
         x = self.lin_post(x).squeeze(-1)                     # [N]
         return F.log_softmax(x, dim=-1)                      # [N]
-

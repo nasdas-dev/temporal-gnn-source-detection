@@ -30,11 +30,63 @@ from .scores import (
     credible_set,
     credible_set_size_mean,
     error_distance,
+    logarithmic_score,
     normalized_entropy,
     proper_brier_score,
     rank_score,
     top_k_score,
 )
+
+
+def precompute_graph_metric_context(H_static, n_nodes: int) -> dict[str, np.ndarray]:
+    """Precompute graph objects shared by every evaluated method.
+
+    Baseline runs evaluate several predictors on the same static projection.
+    Computing all-pairs distances and the resistance-distance matrix once keeps
+    the metrics identical while avoiding repeated NetworkX and linear-algebra
+    work for every baseline.
+    """
+    import networkx as nx
+
+    dist_matrix = _shortest_path_distance_matrix(H_static, n_nodes)
+
+    A = nx.to_numpy_array(H_static, nodelist=sorted(H_static.nodes()))
+    D_deg = np.diag(A.sum(axis=1))
+    L = D_deg - A
+    L_pinv = np.linalg.pinv(L)
+    diag = np.diag(L_pinv)
+    omega = diag[:, None] + diag[None, :] - 2.0 * L_pinv
+
+    return {
+        "dist_matrix": dist_matrix,
+        "omega": omega.astype(np.float64, copy=False),
+    }
+
+
+def _rng_from_eval_cfg(eval_cfg: dict) -> np.random.Generator:
+    """Build a deterministic RNG for stochastic tie-breaking in metrics."""
+    return np.random.default_rng(int(eval_cfg.get("seed", 0)))
+
+
+def _shortest_path_distance_matrix(H_static, n_nodes: int) -> np.ndarray:
+    """Return graph distances, penalising disconnected pairs explicitly."""
+    import networkx as nx
+
+    dist_dict = dict(nx.all_pairs_shortest_path_length(H_static))
+    finite_distances = [
+        d
+        for src_dists in dist_dict.values()
+        for d in src_dists.values()
+        if d > 0
+    ]
+    unreachable = (max(finite_distances) + 1) if finite_distances else n_nodes
+    dist_matrix = np.full((n_nodes, n_nodes), float(unreachable), dtype=np.float64)
+    np.fill_diagonal(dist_matrix, 0.0)
+    for i in range(n_nodes):
+        for j, d in dist_dict.get(i, {}).items():
+            if 0 <= j < n_nodes:
+                dist_matrix[i, j] = float(d)
+    return dist_matrix
 
 
 def per_sample_arrays(
@@ -85,9 +137,11 @@ def per_sample_arrays(
     # true source for row s * n_runs + r is node s
     true_sources = np.repeat(np.arange(n_nodes), n_runs)
 
-    # Apply lik_possible masking before ranking (impossible nodes → -inf)
+    rng = _rng_from_eval_cfg(eval_cfg)
+
+    # Apply lik_possible masking before ranking (impossible nodes -> -inf)
     log_probs = np.log(np.clip(probs, 1e-12, 1.0)) - lik_possible
-    ranks = compute_ranks(log_probs, n_nodes=n_nodes, n_runs=n_runs)
+    ranks = compute_ranks(log_probs, n_nodes=n_nodes, n_runs=n_runs, rng=rng)
 
     return {
         "ranks":          ranks,
@@ -105,6 +159,7 @@ def compute_all_metrics(
     n_nodes: int,
     n_runs: int,
     H_static=None,          # nx.Graph | None — optional, enables graph metrics
+    graph_metric_context: dict[str, np.ndarray] | None = None,
 ) -> dict[str, float]:
     """Compute the full evaluation metric suite for one set of predictions.
 
@@ -161,9 +216,13 @@ def compute_all_metrics(
     credible_ps = eval_cfg.get("credible_p", [0.90])
 
     metrics: dict[str, float] = {}
+    n_total = float(len(sel))
+    n_valid = float(sel.sum())
 
     # --- Rank-based ---
     metrics["eval/mrr"] = float(rank_score(ranks, sel, offset=0))
+    metrics["eval/mean_rank"] = float(np.mean(ranks[sel])) if np.any(sel) else float("nan")
+    metrics["eval/median_rank"] = float(np.median(ranks[sel])) if np.any(sel) else float("nan")
     for k in top_k_vals:
         metrics[f"eval/top_{k}"] = float(top_k_score(ranks, sel, k))
     for o in offsets:
@@ -176,6 +235,19 @@ def compute_all_metrics(
     brier_uniform = (n_nodes - 1) / n_nodes
     metrics["eval/norm_brier"] = brier_raw / brier_uniform if brier_uniform > 0 else float("nan")
 
+    log_raw = float(logarithmic_score(probs, true_sources, sel))
+    metrics["eval/log_score"] = log_raw
+    metrics["eval/norm_log_score"] = log_raw / np.log(n_nodes) if n_nodes > 1 else float("nan")
+
+    if np.any(sel):
+        idx = np.arange(len(true_sources))
+        true_probs = probs[idx, true_sources.astype(int)]
+        metrics["eval/mean_true_prob"] = float(np.mean(true_probs[sel]))
+        metrics["eval/map_confidence"] = float(np.mean(np.max(probs[sel], axis=1)))
+    else:
+        metrics["eval/mean_true_prob"] = float("nan")
+        metrics["eval/map_confidence"] = float("nan")
+
     # --- Calibration: entropy ---
     metrics["eval/norm_entropy"] = float(normalized_entropy(probs, n_nodes, sel))
 
@@ -185,45 +257,42 @@ def compute_all_metrics(
         metrics[f"eval/cred_cov_{p_int}"] = float(
             credible_set(probs, sel, p, n_nodes, n_runs)
         )
-
-    metrics["eval/n_valid"] = float(sel.sum())
-
-    if H_static is not None:
-        import networkx as nx
-
-        # All-pairs shortest path → distance matrix
-        dist_dict = dict(nx.all_pairs_shortest_path_length(H_static))
-        dist_matrix = np.array(
-            [[dist_dict.get(i, {}).get(j, 0) for j in range(n_nodes)] for i in range(n_nodes)],
-            dtype=np.float64,
+        metrics[f"eval/cred_set_size_{p_int}"] = float(
+            credible_set_size_mean(probs, sel, p)
         )
+
+    metrics["eval/n_valid"] = n_valid
+    metrics["eval/n_total"] = n_total
+    metrics["eval/valid_frac"] = n_valid / n_total if n_total > 0 else float("nan")
+
+    if H_static is not None or graph_metric_context is not None:
+        if graph_metric_context is None:
+            graph_metric_context = precompute_graph_metric_context(H_static, n_nodes)
 
         # Error distance (MAP prediction vs true source)
+        dist_matrix = graph_metric_context["dist_matrix"]
         metrics["eval/error_dist"] = float(
-            error_distance(probs, true_sources, dist_matrix, sel)
+            error_distance(probs, true_sources, dist_matrix, sel, rng=_rng_from_eval_cfg(eval_cfg))
         )
 
-        # Credible set size (mean number of nodes) for each configured p
-        for p in credible_ps:
-            p_int = int(round(p * 100))
-            metrics[f"eval/cred_set_size_{p_int}"] = float(
-                credible_set_size_mean(probs, sel, p)
-            )
-
         # Resistance distance scoring rule: S(p,i) = (Ω@p)[i] - 0.5 p^T Ω p
-        A = nx.to_numpy_array(H_static, nodelist=sorted(H_static.nodes()))
-        D_deg = np.diag(A.sum(axis=1))
-        L = D_deg - A
-        L_pinv = np.linalg.pinv(L)
-        diag = np.diag(L_pinv)
-        Omega = diag[:, None] + diag[None, :] - 2.0 * L_pinv
-
+        Omega = graph_metric_context["omega"]
         probs_valid = probs[sel].astype(np.float64)
         true_src_valid = true_sources[sel].astype(int)
         n_valid_int = len(probs_valid)
-        OmegaP = Omega @ probs_valid.T               # [n_nodes, n_valid]
-        expected_res = OmegaP[true_src_valid, np.arange(n_valid_int)]
-        regularisation = 0.5 * np.sum((probs_valid @ Omega) * probs_valid, axis=1)
-        metrics["eval/resistance"] = float(np.mean(expected_res - regularisation))
+        if n_valid_int:
+            chunk_size = int(eval_cfg.get("graph_metric_chunk_size", 4096))
+            total = 0.0
+            for start in range(0, n_valid_int, chunk_size):
+                end = min(start + chunk_size, n_valid_int)
+                chunk = probs_valid[start:end]
+                omega_p = chunk @ Omega
+                idx = np.arange(end - start)
+                expected_res = omega_p[idx, true_src_valid[start:end]]
+                regularisation = 0.5 * np.sum(omega_p * chunk, axis=1)
+                total += float(np.sum(expected_res - regularisation))
+            metrics["eval/resistance"] = total / n_valid_int
+        else:
+            metrics["eval/resistance"] = float("nan")
 
     return metrics

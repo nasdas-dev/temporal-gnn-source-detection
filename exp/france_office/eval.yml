@@ -1,14 +1,21 @@
 eval:
   min_outbreak: 2        # must match model configs (consistent evaluation subset)
   top_k: [1, 3, 5, 10]
-  credible_p: [0.80, 0.90]       # top-k accuracy thresholds
+  credible_p: [0.80, 0.90]       # credible-set coverage levels
   inverse_rank_offset: [0]  # rank score offset (0 = 1/rank)
   n_truth: 1000          # ground-truth runs to evaluate per rep
+  reps: 3                # match the three non-overlapping model eval blocks
 
 baselines:
   - uniform              # uniform over possible sources
   - random               # random draw from possible sources
   - degree               # highest degree in infected subgraph
-  - closeness            # highest closeness centrality
-  - betweenness          # highest betweenness centrality
-  - jordan_center        # Jordan center of infected subgraph
+  - closeness            # static closeness prior, masked to feasible candidates
+  - betweenness          # static betweenness prior, masked to feasible candidates
+  - jordan_center        # static-distance Jordan center over observed candidates
+
+baseline_params:
+  default:
+    chunk_size: 8192
+  betweenness:
+    normalized: true

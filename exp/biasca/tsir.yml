@@ -1,0 +1,12 @@
+nwk:
+  type: empirical
+  name: biasca
+  t_max: 743         # full network (time_steps = 743 hours)
+
+sir:
+  beta: 0.274        # calibrated R0 ~= 2.0 in run_all_experiments.py
+  mu: 0.001
+  start_t: 0
+  end_t: 743
+  n_runs: 5000
+  mc_runs: 500

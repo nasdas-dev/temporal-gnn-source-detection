@@ -1,0 +1,15 @@
+nwk:
+  name: biasca
+  directed: false
+
+# Continuous-time SIR (paper's C binary, Sterchi et al. 2025)
+# biasca: 153 nodes, static-projection mean degree ~= 7.33
+# beta = 2*nu/mean_degree ~= 0.27 for R0 ~= 2.0
+sir:
+  beta: 0.27
+  nu:   1.0
+  T:    2.0
+  n_runs:   5000
+  mc_runs:  500
+
+project: source-detection

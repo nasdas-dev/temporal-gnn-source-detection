@@ -67,6 +67,20 @@ def parse_args() -> argparse.Namespace:
                     default=["top_5", "error_dist", "mrr", "cred_set_size_90", "resistance"],
                     help="Metric keys to include (eval/ prefix added automatically)")
 
+    # --- local_benchmark ---
+    lb = sub.add_parser(
+        "local_benchmark",
+        help="Generate benchmark comparison table from local metrics_summary.csv",
+    )
+    lb.add_argument("--summary", required=True,
+                    help="Path to metrics_summary.csv written by run_all_experiments.py")
+    lb.add_argument("--output", default="figures/tables/")
+    lb.add_argument("--group-by", nargs="+", default=["network"],
+                    help="Columns that define table blocks, e.g. network or network r0_label")
+    lb.add_argument("--metrics", nargs="+",
+                    default=["mrr", "top_1", "top_5", "norm_brier", "norm_entropy", "cred_cov_90", "n_valid"],
+                    help="Metric keys to include (eval/ prefix added automatically)")
+
     # --- network_stats ---
     ns = sub.add_parser("network_stats", help="Generate network statistics table")
     ns.add_argument("--networks", nargs="+", required=True,
@@ -92,6 +106,7 @@ def parse_args() -> argparse.Namespace:
 
 MODEL_ORDER = [
     "backtracking", "temporal_gnn", "static_gnn", "dbgnn_k2", "dbgnn_k3", "dbgnn", "dag_gnn",
+    "static_mlp", "mc_mean_field",
     "jordan_center", "betweenness", "closeness", "degree",
     "soft_margin", "mcs_mean_field", "uniform", "random",
 ]
@@ -104,6 +119,8 @@ MODEL_LABELS = {
     "dbgnn_k2":      "DBGNN k=2",
     "dbgnn_k3":      "DBGNN k=3",
     "dag_gnn":       "DAG-GNN",
+    "static_mlp":    "MLP Baseline",
+    "mc_mean_field": "MC Mean-Field",
     "jordan_center": "Jordan Center",
     "betweenness":   "Betweenness",
     "closeness":     "Closeness",
@@ -120,18 +137,28 @@ METRIC_LABELS = {
     "top_3":            "Top-3",
     "top_5":            "Top-5",
     "top_10":           "Top-10",
+    "mean_rank":        "Mean Rank",
+    "median_rank":      "Median Rank",
     "norm_brier":       "NBS",
+    "log_score":        "Log Score",
+    "norm_log_score":   "NLS",
     "norm_entropy":     "Entropy",
+    "mean_true_prob":   "True Prob.",
+    "map_confidence":   "MAP Conf.",
+    "cred_cov_80":      "Cred-80",
     "cred_cov_90":      "Cred-90",
+    "cred_set_size_80": "|80% CSS|",
     "error_dist":       "Error Dist.",
     "cred_set_size_90": "|90% CSS|",
     "resistance":       "Resistance",
+    "n_valid":          "$n$",
+    "valid_frac":       "Valid",
 }
 
 GNN_MODELS = {"backtracking", "temporal_gnn", "static_gnn", "dbgnn", "dbgnn_k2", "dbgnn_k3", "dag_gnn"}
 
 
-def _bold_best(values: list[str], raw: list[float | None],
+def _bold_best(values: list[str], raw: list[list[float | None]],
                higher_is_better: list[bool]) -> list[str]:
     """Bold the best value in each column."""
     result = list(values)
@@ -418,6 +445,145 @@ def benchmark_table(
 
 
 # ---------------------------------------------------------------------------
+# Local benchmark table (no W&B dependency)
+# ---------------------------------------------------------------------------
+
+def _parse_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _metric_value(row: dict[str, str], metric_key: str) -> float | None:
+    """Read metric from exact, mean, or eval-prefixed local summary columns."""
+    candidates = [
+        f"eval/{metric_key}_mean",
+        f"eval/{metric_key}",
+        f"{metric_key}_mean",
+        metric_key,
+    ]
+    for key in candidates:
+        if key in row:
+            value = _parse_float(row[key])
+            if value is not None:
+                return value
+    return None
+
+
+def _format_metric(metric_key: str, values: list[float]) -> tuple[str, float | None]:
+    valid = [v for v in values if v is not None and math.isfinite(v)]
+    if not valid:
+        return "---", None
+    mean = float(np.mean(valid))
+    std = float(np.std(valid, ddof=1)) if len(valid) > 1 else 0.0
+
+    is_percent = (
+        metric_key.startswith("top_")
+        or metric_key.startswith("cred_cov_")
+        or metric_key in {"valid_frac", "mean_true_prob", "map_confidence"}
+    )
+    if is_percent:
+        if len(valid) > 1:
+            return f"{100 * mean:.1f} $\\pm$ {100 * std:.1f}", mean
+        return f"{100 * mean:.1f}", mean
+    if metric_key == "n_valid":
+        if len(valid) > 1:
+            return f"{mean:.0f} $\\pm$ {std:.0f}", mean
+        return f"{mean:.0f}", mean
+    if len(valid) > 1:
+        return f"{mean:.4f} $\\pm$ {std:.4f}", mean
+    return f"{mean:.4f}", mean
+
+
+def local_benchmark_table(
+    summary_path: str,
+    group_by: list[str],
+    metric_keys: list[str],
+    output_dir: str,
+) -> None:
+    """Generate a paper table from ``run_all_experiments.py`` local metrics."""
+    print("=" * 60)
+    print("Local Benchmark Table")
+    print("=" * 60)
+
+    with open(summary_path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    if not rows:
+        print(f"  No rows found in {summary_path}")
+        return
+
+    missing_group_cols = [col for col in group_by if col not in rows[0]]
+    if missing_group_cols:
+        raise ValueError(f"Missing group-by columns in {summary_path}: {missing_group_cols}")
+
+    grouped: dict[tuple[str, ...], dict[str, list[dict[str, str]]]] = {}
+    for row in rows:
+        method = row.get("method", "")
+        if not method:
+            continue
+        group = tuple(row.get(col, "") for col in group_by)
+        grouped.setdefault(group, {}).setdefault(method, []).append(row)
+
+    higher = {
+        "mrr": True, "top_1": True, "top_3": True, "top_5": True, "top_10": True,
+        "mean_true_prob": True, "map_confidence": True, "cred_cov_80": True,
+        "cred_cov_90": True, "valid_frac": True, "n_valid": True,
+        "norm_brier": False, "log_score": False, "norm_log_score": False,
+        "norm_entropy": False, "mean_rank": False, "median_rank": False,
+        "error_dist": False, "cred_set_size_80": False, "cred_set_size_90": False,
+        "resistance": False,
+    }
+    hib = [higher.get(metric, True) for metric in metric_keys]
+    metric_header = " & ".join(METRIC_LABELS.get(metric, metric) for metric in metric_keys)
+    group_header = " / ".join(col.replace("_", "\\_") for col in group_by)
+
+    lines = [
+        "% Local benchmark table — generated by eval/tables.py",
+        f"\\begin{{tabular}}{{ll{'c' * len(metric_keys)}}}",
+        "\\toprule",
+        f"{group_header} & Method & {metric_header} \\\\",
+        "\\midrule",
+    ]
+    csv_rows = [[*group_by, "Method", *[METRIC_LABELS.get(metric, metric) for metric in metric_keys]]]
+
+    order_map = {model: idx for idx, model in enumerate(MODEL_ORDER)}
+    for gi, (group, by_method) in enumerate(sorted(grouped.items())):
+        if gi > 0:
+            lines.append("\\midrule")
+        methods = sorted(by_method, key=lambda m: order_map.get(m, len(order_map)))
+
+        tex_rows_raw: list[str] = []
+        raw_vals: list[list[float | None]] = []
+        for mi, method in enumerate(methods):
+            method_rows = by_method[method]
+            cells: list[str] = []
+            vals: list[float | None] = []
+            for metric in metric_keys:
+                metric_values = [
+                    v for row in method_rows
+                    if (v := _metric_value(row, metric)) is not None
+                ]
+                cell, raw = _format_metric(metric, metric_values)
+                cells.append(cell)
+                vals.append(raw)
+
+            group_cell = " / ".join(x.replace("_", "\\_") for x in group) if mi == 0 else ""
+            label = MODEL_LABELS.get(method, method).replace("_", "\\_")
+            tex_rows_raw.append(f"{group_cell} & {label} & " + " & ".join(cells) + " \\\\")
+            raw_vals.append(vals)
+            csv_rows.append([*group, MODEL_LABELS.get(method, method), *cells])
+
+        lines.extend(_bold_best(tex_rows_raw, raw_vals, hib))
+
+    lines += ["\\bottomrule", "\\end{tabular}"]
+    _write_files(lines, csv_rows, output_dir, "local_benchmark_table")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -434,6 +600,14 @@ def main() -> None:
             project     = args.project,
             entity      = args.entity,
             output_dir  = args.output,
+        )
+
+    if args.command == "local_benchmark":
+        local_benchmark_table(
+            summary_path=args.summary,
+            group_by=args.group_by,
+            metric_keys=args.metrics,
+            output_dir=args.output,
         )
 
     print("\nDone.")

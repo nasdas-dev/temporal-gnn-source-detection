@@ -12,6 +12,12 @@ Networks with more than 300 nodes are sampled before TSIR using a connected
 activity/degree-stratified temporal snowball sampler. The sampler keeps the
 sample in a temporally active connected region while preserving low, medium,
 and high activity/degree strata as much as possible under the node/edge budget.
+
+Every run maintains a publication bundle under:
+    results/dbgnn_higher_order/<run-name>/result/
+
+The bundle mirrors metrics, figures, tables, and lightweight run assets, and
+includes latex_inputs.json for downstream LaTeX/report generation.
 """
 
 from __future__ import annotations
@@ -29,11 +35,17 @@ from pathlib import Path
 from typing import Any
 
 import networkx as nx
+import numpy as np
 import yaml
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from run_all_experiments import (
     BETAS,
     LOSS_GUARD,
+    MIN_OUTBREAK,
     MUS,
     NETWORKS,
     R0_VALUES,
@@ -42,11 +54,14 @@ from run_all_experiments import (
     read_network_meta,
     scenario,
 )
+from scripts.publication_bundle import sync_publication_result
+from viz.style import apply_style, finish_fig
 
 
 DEFAULT_R0 = ["0.8", "1.0", "1.5", "2.0", "2.5"]
 DEFAULT_ORDERS = [2, 3, 4, 5]
 WANDB_PROJECT = "source-detection"
+OPTUNA_SUFFIX = "_optuna"
 
 
 @dataclass(frozen=True)
@@ -106,6 +121,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--force", action="store_true", help="Rerun stages even when a terminal status exists")
     p.add_argument("--dry-run", action="store_true", help="Print commands without executing them")
     p.add_argument("--save-probs", action="store_true", help="Save probs_rep*.pt tensors from main_train.py")
+    p.add_argument("--with-hpo", dest="with_hpo", action="store_true",
+                   help="Run paired untuned and Optuna-tuned final evaluations (default)")
+    p.add_argument("--no-hpo", dest="with_hpo", action="store_false",
+                   help="Disable Optuna and run only untuned DBGNN order configs")
+    p.add_argument("--hpo-trials", type=int, default=30,
+                   help="Optuna trials per network/R0/order when HPO is enabled")
+    p.add_argument("--hpo-timeout", type=int, default=None,
+                   help="Optional Optuna study timeout in seconds")
+    p.add_argument("--hpo-sampler", choices=["tpe", "random"], default="tpe")
+    p.add_argument("--hpo-pruner", choices=["hyperband", "median", "none"], default="hyperband")
     p.add_argument("--skip-tsir", action="store_true")
     p.add_argument("--skip-train", action="store_true")
     p.add_argument("--no-sampling", action="store_true", help="Disable large-network sampling")
@@ -154,6 +179,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-db-nodes", type=int, default=500_000)
     p.add_argument("--max-db-edges", type=int, default=2_000_000)
     p.add_argument("--seed", type=int, default=42)
+    p.set_defaults(with_hpo=True)
     return p.parse_args()
 
 
@@ -244,6 +270,10 @@ def variant_name(order: int) -> str:
     return f"dbgnn_k{order}"
 
 
+def optuna_variant_name(order: int) -> str:
+    return f"{variant_name(order)}{OPTUNA_SUFFIX}"
+
+
 def higher_order_controls(order: int, args: argparse.Namespace | None = None) -> dict[str, Any]:
     """Return resource controls for the requested DBGNN order."""
     controls: dict[str, Any] = {
@@ -326,7 +356,7 @@ def build_dbgnn_config(
     cfg["model"] = "dbgnn"
     cfg["eval"] = {
         **cfg.get("eval", {}),
-        "min_outbreak": 1,
+        "min_outbreak": MIN_OUTBREAK,
         "top_k": [1, 3, 5, 10],
         "credible_p": [0.80, 0.90],
         "inverse_rank_offset": [0],
@@ -427,6 +457,15 @@ def write_manifest(
             "max_temporal_states": args.max_temporal_states,
             "max_db_nodes": args.max_db_nodes,
             "max_db_edges": args.max_db_edges,
+        },
+        "hpo": {
+            "enabled": bool(getattr(args, "with_hpo", True)),
+            "trials": int(getattr(args, "hpo_trials", 0)),
+            "timeout": getattr(args, "hpo_timeout", None),
+            "sampler": getattr(args, "hpo_sampler", None),
+            "pruner": getattr(args, "hpo_pruner", None),
+            "paired_final_evaluation": True,
+            "locked_params": ["dbgnn.order"],
         },
         "network_stats": {n: stats[n].__dict__ for n in sorted(stats)},
         "wandb_project": WANDB_PROJECT,
@@ -613,6 +652,104 @@ def stage_tsir(
     return artifact
 
 
+def stage_hpo(
+    args: argparse.Namespace,
+    run_dir: Path,
+    status_path: Path,
+    network: str,
+    r0_label: str,
+    order: int,
+    artifact: str,
+) -> Path | None:
+    if not args.with_hpo:
+        return None
+
+    base_variant = variant_name(order)
+    tuned_variant = optuna_variant_name(order)
+    if should_skip(status_path, args, network, r0_label, "hpo", tuned_variant, order):
+        best = run_dir / "hpo" / f"{network}_{r0_label}_{base_variant}" / "best_config.yml"
+        return best if best.exists() else None
+
+    cfg = build_dbgnn_config(network, r0_label, order, PRESETS[args.preset], args.save_probs, args)
+    cfg.setdefault("hpo", {})["locked_params"] = ["dbgnn.order"]
+    cfg["hpo"]["study_note"] = "DBGNN higher-order experiment fixes dbgnn.order as the independent variable."
+    base_cfg_path = run_dir / "configs" / network / r0_label / f"{base_variant}.hpo_base.yml"
+    write_yaml(base_cfg_path, cfg)
+
+    study_name = f"{network}_{r0_label}_{base_variant}"
+    log_path = run_dir / network / r0_label / "logs" / f"hpo_{base_variant}.log"
+    cmd = [
+        sys.executable,
+        "main_optuna.py",
+        "--cfg",
+        str(base_cfg_path),
+        "--data",
+        f"{artifact}:latest",
+        "--output-dir",
+        str(run_dir / "hpo"),
+        "--study-name",
+        study_name,
+        "--n-trials",
+        str(args.hpo_trials),
+        "--sampler",
+        args.hpo_sampler,
+        "--pruner",
+        args.hpo_pruner,
+    ]
+    if args.hpo_timeout is not None:
+        cmd.extend(["--timeout", str(args.hpo_timeout)])
+    rc, stdout = run_command(cmd, log_path, args.dry_run, args.timeout_seconds)
+    best_cfg = run_dir / "hpo" / study_name / "best_config.yml"
+    status = (
+        "success" if rc == 0
+        else "timeout_skipped" if rc == 124 or "TIMEOUT_SKIP" in stdout
+        else "failed"
+    )
+    update_status(
+        status_path,
+        {
+            "network": network,
+            "r0_label": r0_label,
+            "stage": "hpo",
+            "variant": tuned_variant,
+            "order": order,
+            "status": status,
+            "artifact": artifact,
+            "returncode": rc,
+            "message": str(best_cfg) if status == "success" else status,
+            "log_path": log_path,
+        },
+    )
+    if rc != 0 and not args.dry_run:
+        raise RuntimeError(f"Optuna HPO failed for {network}/{r0_label}/{base_variant}; see {log_path}")
+    if args.dry_run:
+        return best_cfg
+    return best_cfg if best_cfg.exists() else None
+
+
+def write_untuned_paired_config(
+    args: argparse.Namespace,
+    run_dir: Path,
+    network: str,
+    r0_label: str,
+    order: int,
+    best_cfg_path: Path | None,
+) -> Path:
+    """Write the untuned control config paired to an Optuna final window."""
+    cfg = build_dbgnn_config(network, r0_label, order, PRESETS[args.preset], args.save_probs, args)
+    if best_cfg_path is not None and best_cfg_path.exists():
+        with open(best_cfg_path) as f:
+            best_cfg = yaml.safe_load(f)
+        for key in ("truth_start", "n_truth"):
+            if key in best_cfg.get("eval", {}):
+                cfg["eval"][key] = best_cfg["eval"][key]
+    cfg.setdefault("experiment", {})["hpo_condition"] = "none"
+    cfg["experiment"]["paired_optuna_variant"] = optuna_variant_name(order)
+    cfg_path = run_dir / "configs" / network / r0_label / f"{variant_name(order)}.untuned.yml"
+    write_yaml(cfg_path, cfg)
+    return cfg_path
+
+
 def stage_train(
     args: argparse.Namespace,
     run_dir: Path,
@@ -621,8 +758,10 @@ def stage_train(
     r0_label: str,
     order: int,
     artifact: str,
+    cfg_override: Path | None = None,
+    status_variant: str | None = None,
 ) -> str | None:
-    variant = variant_name(order)
+    variant = status_variant or variant_name(order)
     if args.skip_train:
         update_status(
             status_path,
@@ -652,8 +791,10 @@ def stage_train(
             None,
         )
 
-    cfg_path = run_dir / "configs" / network / r0_label / f"{variant}.yml"
-    write_yaml(cfg_path, build_dbgnn_config(network, r0_label, order, PRESETS[args.preset], args.save_probs, args))
+    cfg_path = cfg_override
+    if cfg_path is None:
+        cfg_path = run_dir / "configs" / network / r0_label / f"{variant}.yml"
+        write_yaml(cfg_path, build_dbgnn_config(network, r0_label, order, PRESETS[args.preset], args.save_probs, args))
     log_path = run_dir / network / r0_label / "logs" / f"train_{variant}.log"
     cmd = [sys.executable, "main_train.py", "--cfg", str(cfg_path), "--data", f"{artifact}:latest"]
     if args.save_probs:
@@ -708,6 +849,272 @@ def write_summary_csv(run_dir: Path, status_rows: list[dict[str, str]]) -> None:
                 })
 
 
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text())
+
+
+def _float_or_nan(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def _condition_from_variant(variant: str) -> str:
+    return "optuna" if variant.endswith(OPTUNA_SUFFIX) else "untuned"
+
+
+def metric_rows_from_status(status_rows: list[dict[str, str]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Collect run-level and rep-level metrics for DBGNN order experiments."""
+    long_rows: list[dict[str, Any]] = []
+    summary_rows: list[dict[str, Any]] = []
+    for row in status_rows:
+        if row.get("stage") != "train" or row.get("status") != "success" or not row.get("run_id"):
+            continue
+        run_data = Path("data") / row["run_id"]
+        summary_path = run_data / "metrics_summary.json"
+        if not summary_path.exists():
+            continue
+        sc = scenario(row["network"], row["r0_label"])
+        variant = row.get("variant", "")
+        base = {
+            "network": row["network"],
+            "r0_label": row["r0_label"],
+            "r0": sc["r0"],
+            "beta": sc["beta"],
+            "mu": sc["mu"],
+            "variant": variant,
+            "condition": _condition_from_variant(variant),
+            "order": int(row.get("order", 0) or 0),
+            "run_id": row["run_id"],
+            "status": row["status"],
+        }
+        payload = _read_json(summary_path)
+        summary_rows.append({**base, **payload.get("metrics", {})})
+        for rep_path in sorted(run_data.glob("metrics_rep*.json")):
+            rep_payload = _read_json(rep_path)
+            rep = rep_payload.get("rep", "")
+            for metric, value in rep_payload.get("metrics", {}).items():
+                long_rows.append({**base, "rep": rep, "metric": metric, "value": value})
+    return long_rows, summary_rows
+
+
+def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fields: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in fields:
+                fields.append(key)
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: _jsonable(row.get(key, "")) for key in fields})
+
+
+def _format_metric(value: float, percent: bool = False) -> str:
+    if not np.isfinite(value):
+        return "---"
+    if percent:
+        return f"{100 * value:.1f}"
+    return f"{value:.4f}"
+
+
+def write_dbgnn_order_tables(run_dir: Path, rows: list[dict[str, Any]]) -> None:
+    tbl_dir = run_dir / "tables"
+    tbl_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = [[
+        "Network", "R0", "Variant", "Order", "Condition", "MRR", "Top-5",
+        "Norm-Brier", "Norm-Entropy", "n_valid",
+    ]]
+    detail_tex = [
+        "% DBGNN order results generated from local metrics",
+        "\\begin{tabular}{lllrccccc}",
+        "\\toprule",
+        "Network & $R_0$ & Variant & $k$ & Cond. & MRR & Top-5 & NBS & $n$ \\\\",
+        "\\midrule",
+    ]
+    for row in sorted(rows, key=lambda r: (r["network"], r["r0"], r["order"], r["variant"])):
+        mrr = _float_or_nan(row.get("eval/mrr_mean"))
+        top5 = _float_or_nan(row.get("eval/top_5_mean"))
+        brier = _float_or_nan(row.get("eval/norm_brier_mean"))
+        entropy = _float_or_nan(row.get("eval/norm_entropy_mean"))
+        n_valid = _float_or_nan(row.get("eval/n_valid_mean"))
+        network_tex = row["network"].replace("_", "\\_")
+        variant_tex = row["variant"].replace("_", "\\_")
+        detail_csv.append([
+            row["network"], row["r0"], row["variant"], row["order"], row["condition"],
+            _format_metric(mrr), _format_metric(top5, percent=True),
+            _format_metric(brier), _format_metric(entropy), _format_metric(n_valid),
+        ])
+        detail_tex.append(
+            f"{network_tex} & {row['r0']} & "
+            f"{variant_tex} & {row['order']} & {row['condition']} & "
+            f"{_format_metric(mrr)} & {_format_metric(top5, percent=True)} & "
+            f"{_format_metric(brier)} & {_format_metric(n_valid)} \\\\"
+        )
+    detail_tex += ["\\bottomrule", "\\end{tabular}"]
+    (tbl_dir / "dbgnn_order_results.tex").write_text("\n".join(detail_tex) + "\n")
+    with open(tbl_dir / "dbgnn_order_results.csv", "w", newline="") as f:
+        csv.writer(f).writerows(detail_csv)
+
+    agg: dict[tuple[int, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        agg.setdefault((int(row["order"]), row["condition"]), []).append(row)
+    agg_csv = [["Order", "Condition", "Mean MRR", "Std MRR", "Mean Top-5", "Std Top-5", "Cells"]]
+    agg_tex = [
+        "% DBGNN order aggregate table generated from local metrics",
+        "\\begin{tabular}{lrcccr}",
+        "\\toprule",
+        "Cond. & $k$ & MRR & Top-5 & NBS & Cells \\\\",
+        "\\midrule",
+    ]
+    for (order, condition), vals in sorted(agg.items()):
+        mrr_vals = np.array([_float_or_nan(v.get("eval/mrr_mean")) for v in vals], dtype=float)
+        top5_vals = np.array([_float_or_nan(v.get("eval/top_5_mean")) for v in vals], dtype=float)
+        brier_vals = np.array([_float_or_nan(v.get("eval/norm_brier_mean")) for v in vals], dtype=float)
+        mrr_vals = mrr_vals[np.isfinite(mrr_vals)]
+        top5_vals = top5_vals[np.isfinite(top5_vals)]
+        brier_vals = brier_vals[np.isfinite(brier_vals)]
+        mrr_mean = float(np.mean(mrr_vals)) if len(mrr_vals) else float("nan")
+        mrr_std = float(np.std(mrr_vals, ddof=1)) if len(mrr_vals) > 1 else 0.0
+        top5_mean = float(np.mean(top5_vals)) if len(top5_vals) else float("nan")
+        top5_std = float(np.std(top5_vals, ddof=1)) if len(top5_vals) > 1 else 0.0
+        brier_mean = float(np.mean(brier_vals)) if len(brier_vals) else float("nan")
+        agg_csv.append([
+            order, condition, _format_metric(mrr_mean), _format_metric(mrr_std),
+            _format_metric(top5_mean, percent=True), _format_metric(top5_std, percent=True), len(vals),
+        ])
+        agg_tex.append(
+            f"{condition} & {order} & {_format_metric(mrr_mean)} $\\pm$ {_format_metric(mrr_std)} & "
+            f"{_format_metric(top5_mean, percent=True)} $\\pm$ {_format_metric(top5_std, percent=True)} & "
+            f"{_format_metric(brier_mean)} & {len(vals)} \\\\"
+        )
+    agg_tex += ["\\bottomrule", "\\end{tabular}"]
+    (tbl_dir / "dbgnn_order_aggregate.tex").write_text("\n".join(agg_tex) + "\n")
+    with open(tbl_dir / "dbgnn_order_aggregate.csv", "w", newline="") as f:
+        csv.writer(f).writerows(agg_csv)
+
+
+def write_metrics_outputs(run_dir: Path, status_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+    long_rows, summary_rows = metric_rows_from_status(status_rows)
+    write_csv(run_dir / "metrics_long.csv", long_rows)
+    write_csv(run_dir / "metrics_summary.csv", summary_rows)
+    write_dbgnn_order_tables(run_dir, summary_rows)
+    return summary_rows
+
+
+def plot_metric_vs_order(rows: list[dict[str, Any]], run_dir: Path, metric: str, ylabel: str) -> None:
+    usable = [r for r in rows if metric in r and int(r.get("order", 0)) > 0]
+    if not usable:
+        return
+    apply_style()
+    fig, ax = plt.subplots(figsize=(7.2, 4.6))
+    for condition, marker in [("untuned", "o"), ("optuna", "s")]:
+        orders = sorted({int(r["order"]) for r in usable if r["condition"] == condition})
+        if not orders:
+            continue
+        means, stds = [], []
+        for order in orders:
+            vals = np.array([
+                _float_or_nan(r.get(metric))
+                for r in usable
+                if r["condition"] == condition and int(r["order"]) == order
+            ], dtype=float)
+            vals = vals[np.isfinite(vals)]
+            means.append(float(np.mean(vals)) if len(vals) else np.nan)
+            stds.append(float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0)
+        means_arr = np.array(means)
+        stds_arr = np.array(stds)
+        ax.plot(orders, means_arr, marker=marker, lw=2.2, label=condition)
+        ax.fill_between(orders, means_arr - stds_arr, means_arr + stds_arr, alpha=0.15)
+    ax.set_xlabel("DBGNN order $k$")
+    ax.set_ylabel(ylabel)
+    ax.set_title(f"{ylabel} vs DBGNN order")
+    ax.legend()
+    out = run_dir / "figures" / f"dbgnn_order_{metric.replace('/', '_').replace('_mean', '')}.pdf"
+    finish_fig(fig, str(out))
+    write_plot_readme(out, f"{ylabel} vs DBGNN order", f"Aggregates `{metric}` over all completed network/R0 cells.", {"metric": metric})
+
+
+def plot_order_heatmap(rows: list[dict[str, Any]], run_dir: Path, metric: str, title: str) -> None:
+    usable = [r for r in rows if metric in r and int(r.get("order", 0)) > 0]
+    if not usable:
+        return
+    networks = sorted({r["network"] for r in usable})
+    orders = sorted({int(r["order"]) for r in usable})
+    if not networks or not orders:
+        return
+    matrix = np.full((len(networks), len(orders)), np.nan)
+    for i, network in enumerate(networks):
+        for j, order in enumerate(orders):
+            vals = np.array([
+                _float_or_nan(r.get(metric))
+                for r in usable
+                if r["network"] == network and int(r["order"]) == order
+            ], dtype=float)
+            vals = vals[np.isfinite(vals)]
+            if len(vals):
+                matrix[i, j] = float(np.mean(vals))
+    apply_style()
+    fig, ax = plt.subplots(figsize=(max(6, 1.2 * len(orders)), max(4, 0.5 * len(networks))))
+    im = ax.imshow(matrix, aspect="auto", cmap="viridis")
+    ax.set_xticks(range(len(orders)), [str(order) for order in orders])
+    ax.set_yticks(range(len(networks)), [n.replace("_", " ") for n in networks])
+    ax.set_xlabel("DBGNN order $k$")
+    ax.set_title(title)
+    fig.colorbar(im, ax=ax, label=metric)
+    out = run_dir / "figures" / f"dbgnn_order_heatmap_{metric.replace('/', '_').replace('_mean', '')}.pdf"
+    finish_fig(fig, str(out))
+    write_plot_readme(out, title, f"Network by order heatmap for `{metric}` averaged over completed R0/condition cells.", {"metric": metric})
+
+
+def plot_dbgnn_outputs(run_dir: Path, summary_rows: list[dict[str, Any]]) -> None:
+    fig_dir = run_dir / "figures"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    plot_metric_vs_order(summary_rows, run_dir, "eval/mrr_mean", "MRR")
+    plot_metric_vs_order(summary_rows, run_dir, "eval/top_5_mean", "Top-5 accuracy")
+    plot_metric_vs_order(summary_rows, run_dir, "eval/norm_brier_mean", "Norm-Brier")
+    plot_order_heatmap(summary_rows, run_dir, "eval/mrr_mean", "Mean MRR by network and DBGNN order")
+    plot_order_heatmap(summary_rows, run_dir, "eval/top_5_mean", "Mean Top-5 by network and DBGNN order")
+
+
+def write_plot_readme(plot_pdf: Path, title: str, description: str, params: dict[str, Any]) -> None:
+    readme = plot_pdf.with_suffix(".README.md")
+    lines = [
+        f"# {title}",
+        "",
+        description,
+        "",
+        "## Parameters",
+        "",
+    ]
+    lines += [f"- `{key}`: `{value}`" for key, value in params.items()]
+    readme.write_text("\n".join(lines) + "\n")
+
+
+def refresh_result_bundle(run_dir: Path, status_path: Path) -> Path:
+    """Refresh the publication-facing result bundle."""
+    return sync_publication_result(
+        run_dir=run_dir,
+        status_rows=read_status(status_path),
+        experiment_name="dbgnn_higher_order",
+    )
+
+
 def main() -> None:
     args = parse_args()
     networks = resolve_networks(args.networks)
@@ -729,6 +1136,7 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     status_path = run_dir / "status.csv"
     write_manifest(run_dir, args, networks, r0_labels, orders, stats, sample_budget)
+    refresh_result_bundle(run_dir, status_path)
 
     print("=" * 72)
     print("DBGNN Higher-Order Experiment Runner")
@@ -738,6 +1146,14 @@ def main() -> None:
     print(f"Networks : {', '.join(networks)}")
     print(f"R0       : {', '.join(r0_labels)}")
     print(f"Orders   : {', '.join(str(k) for k in orders)}")
+    print(
+        "HPO      : "
+        + (
+            f"enabled, paired untuned/+Optuna finals, trials={args.hpo_trials}, "
+            f"sampler={args.hpo_sampler}, pruner={args.hpo_pruner}"
+            if args.with_hpo else "disabled"
+        )
+    )
     if args.no_sampling:
         print("Sampling : disabled")
     else:
@@ -788,21 +1204,48 @@ def main() -> None:
                 if r0_label not in artifact_cache:
                     try:
                         artifact_cache[r0_label] = stage_tsir(args, run_dir, status_path, network, r0_label, sample_cfg)
+                        refresh_result_bundle(run_dir, status_path)
                     except Exception as exc:
                         artifact_cache[r0_label] = None
                         print(f"    FATAL TSIR stage failed, skipping scenario: {exc}")
+                        refresh_result_bundle(run_dir, status_path)
                         continue
                 artifact = artifact_cache[r0_label]
                 if artifact is None:
                     print("    Skipping train because TSIR artifact is unavailable")
                     continue
-                stage_train(args, run_dir, status_path, network, r0_label, order, artifact)
+                if args.with_hpo:
+                    best_cfg = stage_hpo(args, run_dir, status_path, network, r0_label, order, artifact)
+                    refresh_result_bundle(run_dir, status_path)
+                    untuned_cfg = write_untuned_paired_config(args, run_dir, network, r0_label, order, best_cfg)
+                    stage_train(args, run_dir, status_path, network, r0_label, order, artifact, untuned_cfg)
+                    refresh_result_bundle(run_dir, status_path)
+                    stage_train(
+                        args,
+                        run_dir,
+                        status_path,
+                        network,
+                        r0_label,
+                        order,
+                        artifact,
+                        best_cfg,
+                        status_variant=optuna_variant_name(order),
+                    )
+                    refresh_result_bundle(run_dir, status_path)
+                else:
+                    stage_train(args, run_dir, status_path, network, r0_label, order, artifact)
+                    refresh_result_bundle(run_dir, status_path)
 
     status_rows = read_status(status_path)
     write_summary_csv(run_dir, status_rows)
+    summary_rows = write_metrics_outputs(run_dir, status_rows)
+    if not args.dry_run:
+        plot_dbgnn_outputs(run_dir, summary_rows)
+    result_dir = refresh_result_bundle(run_dir, status_path)
     print("\nDone.")
     print(f"Status : {status_path}")
     print(f"Summary: {run_dir / 'run_matrix_summary.csv'}")
+    print(f"Result : {result_dir}")
     print(f"Results: {run_dir}")
 
 

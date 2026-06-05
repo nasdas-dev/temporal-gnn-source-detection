@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from eval.metrics import compute_all_metrics, per_sample_arrays
+from eval.benchmark import mc_mean_field
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +118,15 @@ class TestPerSampleArrays:
         expected = np.repeat(np.arange(n_nodes), n_runs)
         np.testing.assert_array_equal(result["true_sources"], expected)
 
+    def test_seeded_tie_breaking_is_reproducible(self):
+        n_nodes, n_runs = 20, 50
+        probs, lik_possible, truth_S_flat = make_synthetic(n_nodes, n_runs)
+        cfg = make_eval_cfg()
+        cfg["seed"] = 123
+        first = per_sample_arrays(probs, lik_possible, truth_S_flat, cfg, n_nodes, n_runs)
+        second = per_sample_arrays(probs, lik_possible, truth_S_flat, cfg, n_nodes, n_runs)
+        np.testing.assert_array_equal(first["ranks"], second["ranks"])
+
 
 # ---------------------------------------------------------------------------
 # Tests: compute_all_metrics
@@ -129,12 +139,16 @@ class TestComputeAllMetrics:
         result = compute_all_metrics(probs, lik_possible, truth_S_flat, cfg, n_nodes=20, n_runs=50)
         expected_keys = {
             "eval/mrr",
+            "eval/mean_rank", "eval/median_rank",
             "eval/top_1", "eval/top_3", "eval/top_5", "eval/top_10",
             "eval/rank_score_off0",
             "eval/brier", "eval/norm_brier",
+            "eval/log_score", "eval/norm_log_score",
             "eval/norm_entropy",
+            "eval/mean_true_prob", "eval/map_confidence",
             "eval/cred_cov_80", "eval/cred_cov_90",
-            "eval/n_valid",
+            "eval/cred_set_size_80", "eval/cred_set_size_90",
+            "eval/n_valid", "eval/n_total", "eval/valid_frac",
         }
         assert expected_keys.issubset(result.keys()), (
             f"Missing keys: {expected_keys - result.keys()}"
@@ -243,3 +257,28 @@ class TestComputeAllMetrics:
         result = compute_all_metrics(probs, lik_possible, truth_S_flat, cfg, n_nodes=20, n_runs=50)
         for k, v in result.items():
             assert isinstance(v, float), f"Metric '{k}' is {type(v)}, expected float"
+
+
+class TestMonteCarloMeanFieldBaseline:
+    def test_mc_mean_field_returns_probabilities(self):
+        n_nodes, n_truth, mc_runs = 4, 3, 5
+        mc_S = np.ones((n_nodes, mc_runs, n_nodes), dtype=np.int8)
+        mc_I = np.zeros_like(mc_S)
+        mc_R = np.zeros_like(mc_S)
+        for s in range(n_nodes):
+            mc_S[s, :, s] = 0
+            mc_R[s, :, s] = 1
+
+        truth_S = np.ones((n_nodes, n_truth, n_nodes), dtype=np.int8)
+        truth_I = np.zeros_like(truth_S)
+        truth_R = np.zeros_like(truth_S)
+        possible = np.ones_like(truth_S)
+        for s in range(n_nodes):
+            truth_S[s, :, s] = 0
+            truth_R[s, :, s] = 1
+
+        probs = mc_mean_field(mc_S, mc_I, mc_R, truth_S, truth_I, truth_R, possible)
+
+        assert probs.shape == (n_nodes * n_truth, n_nodes)
+        np.testing.assert_allclose(probs.sum(axis=1), 1.0, atol=1e-6)
+        assert (probs >= 0).all()
