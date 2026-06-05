@@ -30,6 +30,7 @@ from typing import Any
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
+import numpy as np
 import yaml
 
 from hpo import apply_trial_params, describe_search_space, suggest_hyperparameters
@@ -186,8 +187,6 @@ def _truth_indices_for_rep(
     reps: int,
 ):
     """Return the held-out truth-run indices for one repetition."""
-    import numpy as np
-
     truth_start = int(eval_cfg.get("truth_start", 0))
     if truth_start < 0:
         raise ValueError(f"eval.truth_start must be non-negative, got {truth_start}")
@@ -353,8 +352,6 @@ def _is_resource_error(exc: BaseException) -> bool:
 
 
 def _aggregate_metrics(rep_metric_lists: dict[str, list[float]]) -> dict[str, float]:
-    import numpy as np
-
     out: dict[str, float] = {}
     for key, vals in sorted(rep_metric_lists.items()):
         out[f"{key}_mean"] = float(np.mean(vals))
