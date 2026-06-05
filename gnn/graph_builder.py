@@ -17,6 +17,8 @@ build_dag_event_graph       → DAGGNN (Rey et al.)
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 import networkx as nx
 import numpy as np
 import torch
@@ -269,11 +271,43 @@ def build_temporal_snapshots(
 # De Bruijn graph  (DBGNN)
 # ---------------------------------------------------------------------------
 
+def _coarsen_contact_times(
+    H_array: np.ndarray,
+    time_bin_size: int,
+) -> tuple[np.ndarray, dict[str, int]]:
+    """Aggregate contacts into wider time bins for higher-order graphs."""
+    if time_bin_size < 1:
+        raise ValueError(f"time_bin_size must be >= 1, got {time_bin_size}")
+    if len(H_array) == 0:
+        return H_array, {
+            "time_bin_size": time_bin_size,
+            "time_bin_t_min": 0,
+            "contacts_before_time_bin": 0,
+            "contacts_after_time_bin": 0,
+        }
+
+    arr = np.asarray(H_array, dtype=np.int64).copy()
+    t_min = int(arr[:, 2].min())
+    if time_bin_size > 1:
+        arr[:, 2] = (arr[:, 2] - t_min) // time_bin_size
+        arr = np.unique(arr, axis=0)
+    return arr, {
+        "time_bin_size": time_bin_size,
+        "time_bin_t_min": t_min,
+        "contacts_before_time_bin": int(len(H_array)),
+        "contacts_after_time_bin": int(len(arr)),
+    }
+
+
 def build_de_bruijn_graph(
     H: nx.Graph,
     directed: bool | None = None,
     delta: int | None = None,
     order: int = 2,
+    time_bin_size: int = 1,
+    max_temporal_states: int | None = None,
+    max_db_nodes: int | None = None,
+    max_db_edges: int | None = None,
 ) -> dict:
     """Build the k-th order De Bruijn graph for DBGNN.
 
@@ -294,6 +328,14 @@ def build_de_bruijn_graph(
         Maximum allowed time gap for causal walks. ``None`` = no constraint.
     order:
         De Bruijn order k. Must be at least 2.
+    time_bin_size:
+        Aggregate contacts into bins of this width before constructing the
+        higher-order graph. ``1`` keeps the original time scale. Values above
+        one collapse duplicate ``(u, v, bin)`` contacts, mirroring the
+        interaction aggregation used in the DBGNN paper for dense proximity
+        data.
+    max_temporal_states, max_db_nodes, max_db_edges:
+        Optional fail-fast limits for higher-order graph construction.
 
     Returns
     -------
@@ -307,7 +349,7 @@ def build_de_bruijn_graph(
         ``static_edge_index``    LongTensor [2, E_st]  — time-aggregated graph
         ``static_edge_weight``   FloatTensor [E_st]    — GCN-normalised, incl. self-loops
     """
-    from utils.make_de_bruijn_graph import make_de_bruijn_graph as _make_db
+    from utils.make_de_bruijn_graph import make_de_bruijn_graph_compact as _make_db_compact
     from setup.read_network import make_array_from_networkx
 
     if order < 2:
@@ -315,7 +357,8 @@ def build_de_bruijn_graph(
 
     n_nodes = H.number_of_nodes()
     is_directed = H.is_directed() if directed is None else bool(directed)
-    H_array = make_array_from_networkx(H)
+    H_array_raw = make_array_from_networkx(H)
+    H_array, bin_stats = _coarsen_contact_times(H_array_raw, time_bin_size)
 
     empty_static_ei, empty_static_ew = normalize_gcn_edges(
         torch.zeros(2, 0, dtype=torch.long),
@@ -329,6 +372,17 @@ def build_de_bruijn_graph(
         "directed":            is_directed,
         "n_db_nodes":          0,
         "db_edge_count":       0,
+        "time_bin_size":       time_bin_size,
+        "db_stats":            {
+            "order": order,
+            "delta": delta,
+            "directed": is_directed,
+            "expanded_contacts": 0,
+            "temporal_state_count": 0,
+            "n_db_nodes": 0,
+            "db_edge_count": 0,
+            **bin_stats,
+        },
         "db_edge_index":       torch.zeros(2, 0, dtype=torch.long),
         "db_edge_weight":      torch.zeros(0, dtype=torch.float32),
         "db_node_to_original": torch.zeros(0, order, dtype=torch.long),
@@ -342,10 +396,16 @@ def build_de_bruijn_graph(
     # ----------------------------------------------------------------
     # De Bruijn graph G^(k)
     # ----------------------------------------------------------------
-    B = _make_db(H_array, delta=delta, directed=is_directed, order=order)
-
-    node_list   = list(B.nodes())
-    node_to_idx = {node: i for i, node in enumerate(node_list)}
+    node_list, edge_triples, db_stats = _make_db_compact(
+        H_array,
+        delta=delta,
+        directed=is_directed,
+        order=order,
+        max_temporal_states=max_temporal_states,
+        max_db_nodes=max_db_nodes,
+        max_db_edges=max_db_edges,
+    )
+    db_stats = {**db_stats, **bin_stats}
     n_db_nodes  = len(node_list)
 
     if n_db_nodes > 0:
@@ -356,8 +416,6 @@ def build_de_bruijn_graph(
         db_node_last = db_node_to_original[:, -1]
 
         # DB edges with raw count weights
-        edge_triples = [(node_to_idx[u], node_to_idx[v], d.get("weight", 1))
-                        for u, v, d in B.edges(data=True)]
         db_edge_count = len(edge_triples)
         if edge_triples:
             db_src = torch.tensor([e[0] for e in edge_triples], dtype=torch.long)
@@ -380,16 +438,19 @@ def build_de_bruijn_graph(
     # ----------------------------------------------------------------
     # Static time-aggregated graph G^(1)  (for first-order GCN branch)
     # ----------------------------------------------------------------
-    st_src, st_dst, st_w_raw = [], [], []
-    for u, v, data in H.edges(data=True):
-        cnt = float(len(data.get("times", [1])))
-        st_src.append(u); st_dst.append(v); st_w_raw.append(cnt)
-        if not is_directed:
-            st_src.append(v); st_dst.append(u); st_w_raw.append(cnt)
+    st_weight_by_edge: dict[tuple[int, int], float] = defaultdict(float)
+    for u, v, _ in H_array.tolist():
+        st_weight_by_edge[(int(u), int(v))] += 1.0
+        if not is_directed and u != v:
+            st_weight_by_edge[(int(v), int(u))] += 1.0
 
-    if st_src:
-        static_edge_index_raw = torch.tensor([st_src, st_dst], dtype=torch.long)
-        static_w_raw = torch.tensor(st_w_raw, dtype=torch.float32)
+    if st_weight_by_edge:
+        static_edges = list(st_weight_by_edge.items())
+        static_edge_index_raw = torch.tensor(
+            [[u for (u, _), _ in static_edges], [v for (_, v), _ in static_edges]],
+            dtype=torch.long,
+        )
+        static_w_raw = torch.tensor([w for _, w in static_edges], dtype=torch.float32)
     else:
         static_edge_index_raw = torch.zeros(2, 0, dtype=torch.long)
         static_w_raw = torch.zeros(0, dtype=torch.float32)
@@ -403,6 +464,8 @@ def build_de_bruijn_graph(
         "directed":            is_directed,
         "n_db_nodes":          n_db_nodes,
         "db_edge_count":       db_edge_count,
+        "time_bin_size":       time_bin_size,
+        "db_stats":            db_stats,
         "db_edge_index":       db_edge_index,
         "db_edge_weight":      db_edge_weight,
         "db_node_to_original": db_node_to_original,

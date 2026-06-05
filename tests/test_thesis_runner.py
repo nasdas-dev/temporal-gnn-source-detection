@@ -173,9 +173,16 @@ def test_dbgnn_higher_order_dry_run_expands_orders_and_sampling(tmp_path):
     assert sorted(r["order"] for r in rows if r["stage"] == "train") == ["10", "2"]
 
     tsir_cfg = (tmp_path / "dry" / "configs" / "students" / "r0_10" / "tsir.yml").read_text()
+    k2_cfg = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k2.yml").read_text())
     k10_cfg = yaml.safe_load((tmp_path / "dry" / "configs" / "students" / "r0_10" / "dbgnn_k10.yml").read_text())
     assert "activity_snowball" in tsir_cfg
+    assert k2_cfg["dbgnn"]["delta"] == 24
+    assert k2_cfg["dbgnn"]["time_bin_size"] == 1
     assert k10_cfg["dbgnn"]["order"] == 10
+    assert k10_cfg["dbgnn"]["delta"] == 4
+    assert k10_cfg["dbgnn"]["time_bin_size"] == 8
+    assert k10_cfg["train"]["batch_size"] == 8
+    assert k10_cfg["dbgnn"]["max_temporal_states"] == 2_000_000
 
 
 def test_dbgnn_sampling_budget_uses_students_factor_72():

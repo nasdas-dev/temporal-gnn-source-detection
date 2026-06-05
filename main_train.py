@@ -98,6 +98,10 @@ def _builder_kwargs(model_name: str, model_cfg: dict) -> dict:
             "order": model_cfg.get("order", 2),
             "delta": model_cfg.get("delta", 24),
             "directed": model_cfg.get("directed", None),
+            "time_bin_size": model_cfg.get("time_bin_size", 1),
+            "max_temporal_states": model_cfg.get("max_temporal_states", None),
+            "max_db_nodes": model_cfg.get("max_db_nodes", None),
+            "max_db_edges": model_cfg.get("max_db_edges", None),
         }
     if model_name == "backtracking":
         return {
@@ -214,8 +218,17 @@ def main() -> None:
     for k, v in graph_data.items():
         if hasattr(v, "shape"):
             print(f"  {k:20s}: {tuple(v.shape)}")
+        elif isinstance(v, dict):
+            preview = ", ".join(f"{dk}={dv}" for dk, dv in v.items())
+            print(f"  {k:20s}: {preview}")
         elif not isinstance(v, dict):
             print(f"  {k:20s}: {v}")
+
+    db_stats = graph_data.get("db_stats")
+    if isinstance(db_stats, dict):
+        for key, value in db_stats.items():
+            if isinstance(value, (int, float, bool)) or value is None:
+                wandb.summary[f"graph/{key}"] = value
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\n  Device  : {device}")

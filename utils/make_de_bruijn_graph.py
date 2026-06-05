@@ -20,6 +20,15 @@ from collections.abc import Iterable
 import networkx as nx
 
 
+def _check_limit(name: str, value: int, limit: int | None, *, order: int) -> None:
+    if limit is not None and value > limit:
+        raise RuntimeError(
+            f"De Bruijn order k={order} exceeded {name} limit: "
+            f"{value:,} > {limit:,}. Reduce dbgnn.delta, increase "
+            "dbgnn.time_bin_size, sample the network, or raise the limit."
+        )
+
+
 def _expanded_contacts(
     H_array: Iterable,
     directed: bool,
@@ -60,6 +69,9 @@ def make_de_bruijn_graph(
     delta: int | None = None,
     directed: bool = False,
     order: int = 2,
+    max_temporal_states: int | None = None,
+    max_db_nodes: int | None = None,
+    max_db_edges: int | None = None,
 ) -> nx.DiGraph:
     """Build G^(k): the k-th order De Bruijn graph of causal walks.
 
@@ -75,6 +87,10 @@ def make_de_bruijn_graph(
     order : int
         De Bruijn order k. Must be at least 2. Nodes are causal walks with
         ``order`` original nodes, i.e. ``order - 1`` temporal contacts.
+    max_temporal_states, max_db_nodes, max_db_edges : int or None
+        Optional safety limits. They do not change the graph; they fail early
+        with an actionable error before an impractically large higher-order
+        graph consumes all RAM.
 
     Returns
     -------
@@ -82,14 +98,54 @@ def make_de_bruijn_graph(
         Nodes are ordered tuples of length ``order``. Edges carry ``'weight'``
         attribute = number of causal walk completions through that edge.
     """
+    node_list, edge_triples, stats = make_de_bruijn_graph_compact(
+        H_array,
+        delta=delta,
+        directed=directed,
+        order=order,
+        max_temporal_states=max_temporal_states,
+        max_db_nodes=max_db_nodes,
+        max_db_edges=max_db_edges,
+    )
+    B = nx.DiGraph()
+    B.add_nodes_from(node_list)
+    for src, dst, weight in edge_triples:
+        B.add_edge(node_list[src], node_list[dst], weight=weight)
+    B.graph["stats"] = stats
+    return B
+
+
+def make_de_bruijn_graph_compact(
+    H_array,
+    delta: int | None = None,
+    directed: bool = False,
+    order: int = 2,
+    max_temporal_states: int | None = None,
+    max_db_nodes: int | None = None,
+    max_db_edges: int | None = None,
+) -> tuple[list[tuple[int, ...]], list[tuple[int, int, int]], dict[str, int | bool | None]]:
+    """Build compact arrays for the k-th order De Bruijn graph.
+
+    This is equivalent to :func:`make_de_bruijn_graph`, but avoids storing one
+    Python object per temporal realization. Identical ``(walk, last_time)``
+    states are grouped with a count; extending a grouped state multiplies the
+    downstream edge weight by that count.
+    """
     if order < 2:
         raise ValueError(f"De Bruijn order must be >= 2, got {order}")
 
-    B = nx.DiGraph()
-
     contacts = _expanded_contacts(H_array, directed=directed)
+    stats: dict[str, int | bool | None] = {
+        "order": order,
+        "delta": delta,
+        "directed": directed,
+        "expanded_contacts": len(contacts),
+        "temporal_state_count": 0,
+        "n_db_nodes": 0,
+        "db_edge_count": 0,
+    }
     if not contacts:
-        return B
+        return [], [], stats
 
     outgoing: dict[int, list[tuple[int, int]]] = defaultdict(list)
     outgoing_times: dict[int, list[int]] = defaultdict(list)
@@ -97,33 +153,67 @@ def make_de_bruijn_graph(
         outgoing[u].append((t, v))
         outgoing_times[u].append(t)
 
-    # Temporal realizations of length-one causal walks (single contacts).
-    walks: list[tuple[tuple[int, ...], int]] = [
-        ((u, v), t) for u, v, t in contacts
-    ]
+    states: dict[tuple[tuple[int, ...], int], int] = defaultdict(int)
+    for u, v, t in contacts:
+        states[((u, v), t)] += 1
+    _check_limit("temporal-state", len(states), max_temporal_states, order=order)
 
-    # Nodes of G^(k) are causal walks with k - 1 contacts.
+    # Nodes of G^(k) are temporal realizations of k-node causal walks, grouped
+    # by both their node sequence and final contact time.
     for _ in range(2, order):
-        walks = _extend_causal_walks(walks, outgoing, outgoing_times, delta)
-        if not walks:
-            return B
+        next_states: dict[tuple[tuple[int, ...], int], int] = defaultdict(int)
+        for (seq, last_t), count in states.items():
+            current = seq[-1]
+            times = outgoing_times.get(current)
+            if not times:
+                continue
 
-    for seq, _ in walks:
-        B.add_node(seq)
+            lo = bisect_right(times, last_t)
+            hi = len(times) if delta is None else bisect_right(times, last_t + delta)
+            for t_next, next_node in outgoing[current][lo:hi]:
+                next_states[(seq + (next_node,), t_next)] += count
 
-    # Edges of G^(k) are causal walks with k contacts, projected to overlapping
-    # source/destination k-node sequences.
-    edge_walks = _extend_causal_walks(walks, outgoing, outgoing_times, delta)
-    edge_weights: dict[tuple[tuple[int, ...], tuple[int, ...]], int] = defaultdict(int)
-    for seq, _ in edge_walks:
-        db_src = seq[:-1]
-        db_dst = seq[1:]
-        edge_weights[(db_src, db_dst)] += 1
+        states = next_states
+        _check_limit("temporal-state", len(states), max_temporal_states, order=order)
+        if not states:
+            return [], [], stats
 
-    for (db_src, db_dst), weight in edge_weights.items():
-        B.add_edge(db_src, db_dst, weight=weight)
+    node_list: list[tuple[int, ...]] = []
+    node_to_idx: dict[tuple[int, ...], int] = {}
+    for seq, _ in states:
+        if seq not in node_to_idx:
+            node_to_idx[seq] = len(node_list)
+            node_list.append(seq)
+            _check_limit("DB-node", len(node_list), max_db_nodes, order=order)
 
-    return B
+    edge_weights: dict[tuple[int, int], int] = defaultdict(int)
+    for (seq, last_t), count in states.items():
+        current = seq[-1]
+        times = outgoing_times.get(current)
+        if not times:
+            continue
+
+        lo = bisect_right(times, last_t)
+        hi = len(times) if delta is None else bisect_right(times, last_t + delta)
+        src_idx = node_to_idx[seq]
+        for t_next, next_node in outgoing[current][lo:hi]:
+            dst_seq = seq[1:] + (next_node,)
+            dst_idx = node_to_idx.get(dst_seq)
+            if dst_idx is None:
+                dst_idx = len(node_list)
+                node_to_idx[dst_seq] = dst_idx
+                node_list.append(dst_seq)
+                _check_limit("DB-node", len(node_list), max_db_nodes, order=order)
+            edge_weights[(src_idx, dst_idx)] += count
+            _check_limit("DB-edge", len(edge_weights), max_db_edges, order=order)
+
+    edge_triples = [(src, dst, weight) for (src, dst), weight in edge_weights.items()]
+    stats.update({
+        "temporal_state_count": len(states),
+        "n_db_nodes": len(node_list),
+        "db_edge_count": len(edge_triples),
+    })
+    return node_list, edge_triples, stats
 
 
 def plot_de_bruijn(G: nx.DiGraph, path: str, plot_labels: bool = True) -> None:

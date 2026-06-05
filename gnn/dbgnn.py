@@ -45,10 +45,27 @@ class WeightedGCNLayer(torch.nn.Module):
         if E == 0:
             return F.elu(self.linear(h))
 
-        messages = h[:, src, :] * edge_weight.to(h.device).view(1, E, 1)
-        dst_idx = dst.view(1, E, 1).expand(B, E, in_dim)
-        agg = h.new_zeros(B, N, in_dim)
-        agg.scatter_add_(1, dst_idx, messages)
+        values = edge_weight.to(device=h.device, dtype=h.dtype)
+        if h.device.type != "cuda":
+            agg = h.new_zeros(B, N, in_dim)
+            for b in range(B):
+                messages_b = h[b].index_select(0, src) * values.view(E, 1)
+                agg[b].index_add_(0, dst, messages_b)
+            return F.elu(self.linear(agg))
+
+        # Computes agg[b, dst, :] += weight(src, dst) * h[b, src, :] exactly
+        # like the explicit edge-message tensor, but without materializing
+        # [B, E, D]. This is the same weighted GCN operator used by the paper.
+        adj = torch.sparse_coo_tensor(
+            torch.stack([dst, src], dim=0),
+            values,
+            size=(N, N),
+            device=h.device,
+            dtype=h.dtype,
+        ).coalesce()
+        h_flat = h.permute(1, 0, 2).contiguous().reshape(N, B * in_dim)
+        agg_flat = torch.sparse.mm(adj, h_flat)
+        agg = agg_flat.reshape(N, B, in_dim).permute(1, 0, 2).contiguous()
         return F.elu(self.linear(agg))
 
 

@@ -111,6 +111,33 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--sample-reference", default="students", help="Network used to derive the sampling budget")
     p.add_argument("--sample-budget-factor", type=float, default=72.0, help="Reference node*edge cost divisor")
     p.add_argument("--min-sample-nodes", type=int, default=8)
+    p.add_argument(
+        "--high-order-delta",
+        type=int,
+        default=4,
+        help="Causal time-window delta used for DBGNN k>=4. The paper uses delta=4 after aggregation.",
+    )
+    p.add_argument(
+        "--high-order-time-bin-size",
+        type=int,
+        default=4,
+        help="Aggregate contacts into this many original time steps for DBGNN k>=4.",
+    )
+    p.add_argument(
+        "--very-high-order-time-bin-size",
+        type=int,
+        default=8,
+        help="Minimum time-bin size for DBGNN k>=6, including k=10.",
+    )
+    p.add_argument(
+        "--high-order-batch-size",
+        type=int,
+        default=8,
+        help="Maximum train.batch_size for DBGNN k>=4.",
+    )
+    p.add_argument("--max-temporal-states", type=int, default=2_000_000)
+    p.add_argument("--max-db-nodes", type=int, default=500_000)
+    p.add_argument("--max-db-edges", type=int, default=2_000_000)
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -198,6 +225,27 @@ def variant_name(order: int) -> str:
     return f"dbgnn_k{order}"
 
 
+def higher_order_controls(order: int, args: argparse.Namespace | None = None) -> dict[str, Any]:
+    """Return resource controls for the requested DBGNN order."""
+    controls: dict[str, Any] = {
+        "time_bin_size": 1,
+        "delta": None,
+        "batch_size_cap": None,
+    }
+    if order >= 4:
+        controls["delta"] = int(getattr(args, "high_order_delta", 4))
+        controls["time_bin_size"] = int(getattr(args, "high_order_time_bin_size", 4))
+        controls["batch_size_cap"] = int(getattr(args, "high_order_batch_size", 8))
+        if order >= 6:
+            controls["time_bin_size"] = max(
+                controls["time_bin_size"],
+                int(getattr(args, "very_high_order_time_bin_size", 8)),
+            )
+    elif order == 3:
+        controls["batch_size_cap"] = 32
+    return controls
+
+
 def build_tsir_config(
     network: str,
     r0_label: str,
@@ -249,6 +297,7 @@ def build_dbgnn_config(
     order: int,
     preset: Preset,
     save_probs: bool,
+    args: argparse.Namespace | None = None,
 ) -> dict[str, Any]:
     if order < 2:
         raise ValueError(f"DBGNN order must be >= 2, got {order}")
@@ -270,11 +319,19 @@ def build_dbgnn_config(
         "reps": preset.reps,
         "loss_guard": LOSS_GUARD,
     }
+    controls = higher_order_controls(order, args)
+    batch_cap = controls.get("batch_size_cap")
+    if batch_cap is not None:
+        cfg["train"]["batch_size"] = min(int(cfg["train"].get("batch_size", batch_cap)), int(batch_cap))
     cfg.setdefault("output", {})["save_probs"] = save_probs
 
     db_cfg = cfg.setdefault("dbgnn", {})
     db_cfg["order"] = int(order)
-    db_cfg["delta"] = db_cfg.get("delta", 24)
+    db_cfg["delta"] = int(controls["delta"]) if controls["delta"] is not None else db_cfg.get("delta", 24)
+    db_cfg["time_bin_size"] = int(controls["time_bin_size"])
+    db_cfg["max_temporal_states"] = int(getattr(args, "max_temporal_states", 2_000_000))
+    db_cfg["max_db_nodes"] = int(getattr(args, "max_db_nodes", 500_000))
+    db_cfg["max_db_edges"] = int(getattr(args, "max_db_edges", 2_000_000))
     db_cfg["bipartite_agg"] = db_cfg.get("bipartite_agg", "sum")
     db_cfg["directed"] = read_network_meta(network)["directed"]
 
@@ -337,6 +394,15 @@ def write_manifest(
         "sample_reference": args.sample_reference,
         "sample_budget_factor": args.sample_budget_factor,
         "sample_policies": sample_policies,
+        "higher_order_controls": {
+            "k_ge_4_delta": args.high_order_delta,
+            "k_ge_4_time_bin_size": args.high_order_time_bin_size,
+            "k_ge_6_time_bin_size": args.very_high_order_time_bin_size,
+            "k_ge_4_batch_size_cap": args.high_order_batch_size,
+            "max_temporal_states": args.max_temporal_states,
+            "max_db_nodes": args.max_db_nodes,
+            "max_db_edges": args.max_db_edges,
+        },
         "network_stats": {n: stats[n].__dict__ for n in sorted(stats)},
         "wandb_project": WANDB_PROJECT,
     }
@@ -519,7 +585,7 @@ def stage_train(
         )
 
     cfg_path = run_dir / "configs" / network / r0_label / f"{variant}.yml"
-    write_yaml(cfg_path, build_dbgnn_config(network, r0_label, order, PRESETS[args.preset], args.save_probs))
+    write_yaml(cfg_path, build_dbgnn_config(network, r0_label, order, PRESETS[args.preset], args.save_probs, args))
     log_path = run_dir / network / r0_label / "logs" / f"train_{variant}.log"
     cmd = [sys.executable, "main_train.py", "--cfg", str(cfg_path), "--data", f"{artifact}:latest"]
     if args.save_probs:
@@ -606,6 +672,16 @@ def main() -> None:
             f"node*edge budget {sample_budget:,} "
             f"({args.sample_reference}/{args.sample_budget_factor:g})"
         )
+    print(
+        "k>=4    : "
+        f"delta={args.high_order_delta}, "
+        f"time_bin={args.high_order_time_bin_size}, "
+        f"batch<={args.high_order_batch_size}, "
+        f"limits(states={args.max_temporal_states:,}, "
+        f"nodes={args.max_db_nodes:,}, edges={args.max_db_edges:,})"
+    )
+    if any(order >= 6 for order in orders):
+        print(f"k>=6    : time_bin>={args.very_high_order_time_bin_size}")
     if args.dry_run:
         print("DRY RUN: commands will be printed, not executed")
 
