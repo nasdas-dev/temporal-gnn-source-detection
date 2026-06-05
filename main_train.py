@@ -99,6 +99,11 @@ def _builder_kwargs(model_name: str, model_cfg: dict) -> dict:
             "delta": model_cfg.get("delta", 24),
             "directed": model_cfg.get("directed", None),
         }
+    if model_name == "backtracking":
+        return {
+            "directed": model_cfg.get("directed", None),
+            "dense_edge_attr": model_cfg.get("dense_edge_attr", False),
+        }
     return {}
 
 

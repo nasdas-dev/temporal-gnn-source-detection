@@ -26,6 +26,8 @@ Key equations (from the paper):
     L = −Σ_i  y_i · log softmax(h_i)   (cross-entropy)
 """
 
+from __future__ import annotations
+
 import torch
 import torch.nn.functional as F
 from torch.nn import Linear, Sequential, ReLU, ModuleList
@@ -127,11 +129,42 @@ class BacktrackingNetwork(torch.nn.Module):
         # layer" h_i ∈ ℝ mentioned just before Eq. 5)
         self.final = Linear(hidden_dim, 1)
 
+    def _project_edge_features(
+        self,
+        edge_attr: torch.Tensor | None,
+        edge_time_index: torch.Tensor | None,
+        edge_time_edge_index: torch.Tensor | None,
+        n_edges: int | None,
+    ) -> torch.Tensor:
+        """Apply ``p_e`` to dense or sparse binary edge textures exactly."""
+        if edge_attr is not None:
+            return self.p_e(edge_attr)
+
+        if edge_time_index is None or edge_time_edge_index is None or n_edges is None:
+            raise ValueError(
+                "BacktrackingNetwork.forward requires either dense edge_attr or "
+                "sparse edge_time_index, edge_time_edge_index, and n_edges."
+            )
+
+        linear = self.p_e[0]
+        activation = self.p_e[1]
+        hidden_dim = linear.weight.size(0)
+        out = linear.weight.new_zeros(int(n_edges), hidden_dim)
+        if edge_time_index.numel() > 0:
+            active_cols = linear.weight.index_select(1, edge_time_index).transpose(0, 1)
+            out.index_add_(0, edge_time_edge_index, active_cols)
+        if linear.bias is not None:
+            out = out + linear.bias
+        return activation(out)
+
     def forward(
         self,
         x: torch.Tensor,           # [B, N, 3]  one-hot node states at final time
         edge_index: torch.Tensor,  # [2, E]     aggregated graph G̃_a
-        edge_attr: torch.Tensor,   # [E, T]     binary activation patterns X_e
+        edge_attr: torch.Tensor | None = None,             # [E, T]
+        edge_time_index: torch.Tensor | None = None,       # [nnz]
+        edge_time_edge_index: torch.Tensor | None = None,  # [nnz]
+        n_edges: int | None = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -140,9 +173,14 @@ class BacktrackingNetwork(torch.nn.Module):
                         Shape: [B, N, 3]  (batched) or [N, 3] (single sample).
             edge_index: COO edge index of the aggregated (static) network G̃_a.
                         Shape: [2, E].
-            edge_attr:  Binary vector per edge recording at which time slices the
-                        edge was active (X_e from the paper).
+            edge_attr:  Dense binary vector per edge recording at which time
+                        slices the edge was active (X_e from the paper).
                         Shape: [E, T].
+            edge_time_index, edge_time_edge_index:
+                        Sparse exact representation of the same binary edge
+                        textures. ``edge_time_index[k]`` is an active time and
+                        ``edge_time_edge_index[k]`` is its owning edge.
+            n_edges:    Number of edges when sparse edge textures are used.
 
         Returns:
             Log-probabilities over nodes. Shape: [B, N] or [N] (single sample).
@@ -158,7 +196,12 @@ class BacktrackingNetwork(torch.nn.Module):
         # 1. Initial projections
         # ------------------------------------------------------------------
         h = self.p_v(x)                                         # [B, N, D]
-        g = self.p_e(edge_attr)                                 # [E,  D]
+        g = self._project_edge_features(
+            edge_attr=edge_attr,
+            edge_time_index=edge_time_index,
+            edge_time_edge_index=edge_time_edge_index,
+            n_edges=n_edges,
+        )                                                       # [E, D]
         # Edge hiddens start shared across batch items; they diverge at layer 1
         # because f^e uses per-sample node hiddens h^l_src (see Eq. 3).
         g = g.unsqueeze(0).expand(B, -1, -1).contiguous()      # [B, E, D]

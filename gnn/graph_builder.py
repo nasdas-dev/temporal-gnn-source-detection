@@ -118,25 +118,37 @@ def build_static_graph(
 
 def build_temporal_activation(
     H: nx.Graph,
+    directed: bool | None = None,
+    dense_edge_attr: bool = False,
 ) -> dict:
-    """Build the aggregated static graph + binary temporal activation patterns.
+    """Build the aggregated graph + temporal activation patterns.
 
     For each edge (u, v) in the static projection, ``edge_attr[e, t] = 1`` iff
-    the edge was active at time step *t*.  Both (u, v) and (v, u) are included
-    with the same activation pattern (undirected contacts).
+    the edge was active at time step *t*.  Undirected contacts are represented
+    in both directions. Directed contacts are kept in their observed direction.
 
     Parameters
     ----------
     H:
         Temporal NetworkX graph with ``'times'`` edge attribute.
+    directed:
+        If ``True``, keep observed edge directions. If ``False``, add reverse
+        copies for every edge. If ``None``, infer this from ``H``.
+    dense_edge_attr:
+        If ``True``, also return dense binary ``edge_attr`` for compatibility.
+        The default returns a sparse exact representation of the same vectors.
 
     Returns
     -------
     dict with keys:
-        ``n_nodes``     int
-        ``T``           int   — number of time steps (t_max + 1)
-        ``edge_index``  LongTensor [2, 2*|E|]
-        ``edge_attr``   FloatTensor [2*|E|, T]  — binary activation pattern
+        ``n_nodes``              int
+        ``T``                    int   — number of time steps (t_max + 1)
+        ``edge_index``           LongTensor [2, E]
+        ``edge_time_index``      LongTensor [nnz] — active time per nonzero
+        ``edge_time_edge_index`` LongTensor [nnz] — owning edge per nonzero
+
+    When ``dense_edge_attr=True``, the returned dict also includes:
+        ``edge_attr`` FloatTensor [E, T] — binary activation pattern
     """
     n_nodes  = H.number_of_nodes()
     all_times = [t for _, _, data in H.edges(data=True) for t in data.get("times", [])]
@@ -144,28 +156,46 @@ def build_temporal_activation(
         raise ValueError("Graph has no temporal edge data ('times' attribute missing).")
     t_max = max(all_times)
     T = t_max + 1
+    is_directed = H.is_directed() if directed is None else bool(directed)
 
-    src_list:  list[int] = []
-    dst_list:  list[int] = []
-    attr_list: list[torch.Tensor] = []
+    src_list: list[int] = []
+    dst_list: list[int] = []
+    edge_time_index: list[int] = []
+    edge_time_edge_index: list[int] = []
+    attr_list: list[torch.Tensor] | None = [] if dense_edge_attr else None
+
+    def append_edge(src: int, dst: int, times: list[int]) -> None:
+        edge_id = len(src_list)
+        src_list.append(src)
+        dst_list.append(dst)
+        edge_time_index.extend(times)
+        edge_time_edge_index.extend([edge_id] * len(times))
+        if attr_list is not None:
+            act = torch.zeros(T, dtype=torch.float32)
+            if times:
+                act[torch.tensor(times, dtype=torch.long)] = 1.0
+            attr_list.append(act)
 
     for u, v, data in H.edges(data=True):
-        act = torch.zeros(T, dtype=torch.float32)
-        for t in data.get("times", []):
-            act[t] = 1.0
-
-        src_list.append(u); dst_list.append(v); attr_list.append(act)
-        src_list.append(v); dst_list.append(u); attr_list.append(act.clone())
+        times = sorted(set(int(t) for t in data.get("times", [])))
+        append_edge(int(u), int(v), times)
+        if not is_directed:
+            append_edge(int(v), int(u), times)
 
     edge_index = torch.tensor([src_list, dst_list], dtype=torch.long)
-    edge_attr  = torch.stack(attr_list, dim=0)  # [2|E|, T]
-
-    return {
-        "n_nodes":    n_nodes,
-        "T":          T,
-        "edge_index": edge_index,
-        "edge_attr":  edge_attr,
+    graph_data = {
+        "n_nodes":              n_nodes,
+        "T":                    T,
+        "edge_index":           edge_index,
+        "edge_time_index":      torch.tensor(edge_time_index, dtype=torch.long),
+        "edge_time_edge_index": torch.tensor(edge_time_edge_index, dtype=torch.long),
+        "n_edges":              edge_index.size(1),
+        "directed":             is_directed,
     }
+    if attr_list is not None:
+        graph_data["edge_attr"] = torch.stack(attr_list, dim=0)
+
+    return graph_data
 
 
 # ---------------------------------------------------------------------------

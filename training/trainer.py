@@ -37,6 +37,19 @@ from torch.utils.data import DataLoader, Subset
 from .data import SIRDataset
 
 
+def _move_graph_data_to_device(value, device: torch.device):
+    """Recursively move static graph tensors to the training device once."""
+    if torch.is_tensor(value):
+        return value.to(device)
+    if isinstance(value, dict):
+        return {k: _move_graph_data_to_device(v, device) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_move_graph_data_to_device(v, device) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_move_graph_data_to_device(v, device) for v in value)
+    return value
+
+
 class LossGuardAbort(RuntimeError):
     """Raised when training loss becomes clearly unusable for this run."""
 
@@ -144,10 +157,18 @@ def backtracking_forward(
     graph_data: dict,
     device: torch.device,
 ) -> torch.Tensor:           # [B, N]
-    x          = x_batch.to(device)
-    edge_index = graph_data["edge_index"].to(device)
-    edge_attr  = graph_data["edge_attr"].to(device)
-    return model(x, edge_index, edge_attr)  # [B, N]
+    x = x_batch.to(device, non_blocking=True)
+    edge_index = graph_data["edge_index"]
+    edge_attr = graph_data.get("edge_attr")
+    if edge_attr is not None:
+        return model(x, edge_index, edge_attr=edge_attr)  # [B, N]
+    return model(
+        x,
+        edge_index,
+        edge_time_index=graph_data["edge_time_index"],
+        edge_time_edge_index=graph_data["edge_time_edge_index"],
+        n_edges=graph_data["n_edges"],
+    )  # [B, N]
 
 
 def temporal_gnn_forward(
@@ -243,8 +264,8 @@ class Trainer:
     ) -> None:
         self.model      = model.to(device)
         self.forward_fn = forward_fn
-        self.graph_data = graph_data
         self.device     = device
+        self.graph_data = _move_graph_data_to_device(graph_data, device)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -305,12 +326,14 @@ class Trainer:
             batch_size = batch_size,
             shuffle    = True,
             num_workers = 0,
+            pin_memory = self.device.type == "cuda",
         )
         val_loader = DataLoader(
             Subset(dataset, va_idx),
             batch_size = batch_size,
             shuffle    = False,
             num_workers = 0,
+            pin_memory = self.device.type == "cuda",
         )
 
         optimizer = torch.optim.Adam(
@@ -331,13 +354,13 @@ class Trainer:
             train_loss = 0.0
             for x_batch, y_batch in train_loader:
                 x_batch = x_batch.float()
-                y_batch = y_batch.to(self.device)
-                optimizer.zero_grad()
+                y_batch = y_batch.to(self.device, non_blocking=True)
+                optimizer.zero_grad(set_to_none=True)
                 out  = self._forward(x_batch)
-                loss = F.nll_loss(out, y_batch, reduction="sum")
+                loss = F.nll_loss(out, y_batch, reduction="mean")
                 loss.backward()
                 optimizer.step()
-                train_loss += loss.item()
+                train_loss += loss.item() * y_batch.size(0)
 
             # --- Validate ---
             self.model.eval()
@@ -345,9 +368,12 @@ class Trainer:
             with torch.no_grad():
                 for x_batch, y_batch in val_loader:
                     x_batch = x_batch.float()
-                    y_batch = y_batch.to(self.device)
+                    y_batch = y_batch.to(self.device, non_blocking=True)
                     out      = self._forward(x_batch)
-                    val_loss += F.nll_loss(out, y_batch, reduction="sum").item()
+                    val_loss += (
+                        F.nll_loss(out, y_batch, reduction="mean").item()
+                        * y_batch.size(0)
+                    )
 
             tl = train_loss / len(tr_idx)
             vl = val_loss   / len(va_idx)

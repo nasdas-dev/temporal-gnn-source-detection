@@ -11,7 +11,7 @@ train:
   n_mc: 500
   reps: 3
   test_size: 0.20
-  batch_size: 32
+  batch_size: 128
   epochs: 300
   patience: 30
   lr: 0.001
