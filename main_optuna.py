@@ -49,6 +49,9 @@ DEFAULT_HPO = {
     "final_truth_start": None,
     "final_n_truth": None,
     "tune_n_mc": False,
+    "trial_epochs": None,
+    "trial_patience": None,
+    "trial_n_mc": None,
     "study_name": None,
     "storage": None,
     "output_dir": "results/optuna",
@@ -86,6 +89,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--direction", choices=["maximize", "minimize"], default=None)
     p.add_argument("--sampler", choices=["tpe", "random"], default=None)
     p.add_argument("--pruner", choices=["hyperband", "median", "none"], default=None)
+    p.add_argument("--trial-epochs", type=int, default=None,
+                   help="Optional epoch cap used only inside Optuna trials")
+    p.add_argument("--trial-patience", type=int, default=None,
+                   help="Optional early-stopping patience cap used only inside Optuna trials")
+    p.add_argument("--trial-n-mc", type=int, default=None,
+                   help="Optional train.n_mc cap used only inside Optuna trials")
     p.add_argument("--wandb-project", default="source-detection")
     p.add_argument("--dry-run", action="store_true", help="Print study plan only")
     return p.parse_args()
@@ -212,6 +221,9 @@ def _hpo_settings(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, An
         ("direction", "direction"),
         ("sampler", "sampler"),
         ("pruner", "pruner"),
+        ("trial_epochs", "trial_epochs"),
+        ("trial_patience", "trial_patience"),
+        ("trial_n_mc", "trial_n_mc"),
     ):
         value = getattr(args, attr)
         if value is not None:
@@ -292,19 +304,20 @@ def resolve_truth_budget(
     )
 
 
-def _make_sampler(optuna, name: str, seed: int):
+def _make_sampler(optuna, name: str, seed: int, n_trials: int):
     if name == "random":
         return optuna.samplers.RandomSampler(seed=seed)
     if name == "tpe":
+        n_startup_trials = max(1, min(10, max(1, n_trials) // 3))
         try:
             return optuna.samplers.TPESampler(
                 seed=seed,
                 multivariate=True,
                 group=True,
-                n_startup_trials=10,
+                n_startup_trials=n_startup_trials,
             )
         except TypeError:
-            return optuna.samplers.TPESampler(seed=seed, n_startup_trials=10)
+            return optuna.samplers.TPESampler(seed=seed, n_startup_trials=n_startup_trials)
     raise ValueError(f"Unknown sampler: {name}")
 
 
@@ -323,6 +336,33 @@ def _make_pruner(optuna, name: str, max_epochs: int):
             reduction_factor=3,
         )
     raise ValueError(f"Unknown pruner: {name}")
+
+
+def _positive_int(value: Any, name: str) -> int | None:
+    if value is None:
+        return None
+    value_int = int(value)
+    if value_int <= 0:
+        raise ValueError(f"hpo.{name} must be positive when set, got {value}")
+    return value_int
+
+
+def apply_trial_budget(trial_cfg: dict[str, Any], hpo_cfg: dict[str, Any]) -> None:
+    """Apply short-budget settings to Optuna trials without changing final configs."""
+    train_cfg = trial_cfg.setdefault("train", {})
+    trial_epochs = _positive_int(hpo_cfg.get("trial_epochs"), "trial_epochs")
+    trial_patience = _positive_int(hpo_cfg.get("trial_patience"), "trial_patience")
+    trial_n_mc = _positive_int(hpo_cfg.get("trial_n_mc"), "trial_n_mc")
+
+    if trial_epochs is not None:
+        current = int(train_cfg.get("epochs", trial_epochs))
+        train_cfg["epochs"] = min(current, trial_epochs)
+    if trial_patience is not None:
+        current = int(train_cfg.get("patience", trial_patience))
+        train_cfg["patience"] = min(current, trial_patience)
+    if trial_n_mc is not None:
+        current = int(train_cfg.get("n_mc", trial_n_mc))
+        train_cfg["n_mc"] = min(current, trial_n_mc)
 
 
 def _objective_from_metrics(metrics: dict[str, float], metric: str) -> float:
@@ -610,6 +650,12 @@ def main() -> None:
         print(f"Output dir : {output_dir}")
         print(f"Storage    : {storage}")
         print(f"Metric     : {hpo_cfg['metric']} ({hpo_cfg['direction']})")
+        print(
+            "Trial caps : "
+            f"epochs={hpo_cfg.get('trial_epochs')}, "
+            f"patience={hpo_cfg.get('trial_patience')}, "
+            f"n_mc={hpo_cfg.get('trial_n_mc')}"
+        )
         print("Search space:")
         for key, value in describe_search_space(model_name).items():
             print(f"  {key}: {value}")
@@ -676,8 +722,10 @@ def main() -> None:
     }
     _write_json(str(output_dir / "manifest.json"), manifest)
 
-    sampler = _make_sampler(optuna, str(hpo_cfg["sampler"]), int(hpo_cfg["seed"]))
-    pruner = _make_pruner(optuna, str(hpo_cfg["pruner"]), int(cfg["train"]["epochs"]))
+    n_trials = int(hpo_cfg["n_trials"])
+    pruner_epochs = int(hpo_cfg.get("trial_epochs") or cfg["train"]["epochs"])
+    sampler = _make_sampler(optuna, str(hpo_cfg["sampler"]), int(hpo_cfg["seed"]), n_trials)
+    pruner = _make_pruner(optuna, str(hpo_cfg["pruner"]), pruner_epochs)
     study = optuna.create_study(
         study_name=study_name,
         storage=storage,
@@ -700,6 +748,7 @@ def main() -> None:
             max_n_mc=data.mc_runs,
         )
         apply_trial_params(trial_cfg, params)
+        apply_trial_budget(trial_cfg, hpo_cfg)
         trial_cfg["train"]["reps"] = truth_budget.hpo_reps
         trial_cfg["train"]["seed"] = int(cfg["train"].get("seed", 42)) + trial.number * 1009
         trial_cfg["eval"]["n_truth"] = truth_budget.hpo_n_truth
@@ -721,6 +770,11 @@ def main() -> None:
                     "metric": hpo_cfg["metric"],
                     "direction": hpo_cfg["direction"],
                     "params": _jsonable(params),
+                    "trial_budget": {
+                        "epochs": trial_cfg["train"].get("epochs"),
+                        "patience": trial_cfg["train"].get("patience"),
+                        "n_mc": trial_cfg["train"].get("n_mc"),
+                    },
                 },
             },
             tags=["optuna", "optuna_trial", f"model:{model_name}"],
@@ -779,7 +833,7 @@ def main() -> None:
 
     study.optimize(
         objective,
-        n_trials=int(hpo_cfg["n_trials"]),
+        n_trials=n_trials,
         timeout=hpo_cfg.get("timeout"),
         gc_after_trial=True,
     )

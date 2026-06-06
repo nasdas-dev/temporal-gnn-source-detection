@@ -12,10 +12,15 @@ includes latex_inputs.json for downstream LaTeX/report generation.
 
 Default run:
     python run_all_experiments.py
+        # uses the day-scale paired Optuna protocol: paper_24h, 5 HPO trials,
+        # network-scope HPO reuse across R0s, short HPO trial budgets,
+        # capped final training
 
 Useful controls:
     python run_all_experiments.py --dry-run
     python run_all_experiments.py --preset fast --networks lyon_ward --models static_gnn
+    python run_all_experiments.py --hpo-scope scenario --preset max_quality --hpo-trials 30 \
+        --max-train-epochs 0 --max-train-patience 0
     python run_all_experiments.py --no-hpo --preset fast
         # disables the default paired <method> and <method>_optuna final evaluations
     python run_all_experiments.py --resume --run-name 20260512_010000
@@ -47,6 +52,7 @@ import matplotlib.pyplot as plt
 from viz.rank_vs_outbreak import load_eval_arrays
 from viz.style import MODEL_COLORS, MODEL_LABELS, apply_style, finish_fig, model_style
 from scripts.publication_bundle import sync_publication_result
+from hpo import apply_trial_params
 
 
 WANDB_PROJECT = "source-detection"
@@ -119,8 +125,9 @@ class Preset:
 
 
 PRESETS = {
+    "paper_24h": Preset(n_runs=300, mc_runs=180, n_mc=160, reps=1, n_truth=150),
+    "balanced": Preset(n_runs=500, mc_runs=300, n_mc=300, reps=1, n_truth=300),
     "max_quality": Preset(n_runs=1000, mc_runs=500, n_mc=500, reps=1, n_truth=1000),
-    "balanced": Preset(n_runs=1000, mc_runs=500, n_mc=500, reps=1, n_truth=1000),
     "fast": Preset(n_runs=120, mc_runs=80, n_mc=80, reps=1, n_truth=40),
 }
 
@@ -136,7 +143,8 @@ LOSS_GUARD = {
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--preset", choices=sorted(PRESETS), default="max_quality")
+    p.add_argument("--preset", choices=sorted(PRESETS), default="paper_24h",
+                   help="Runtime/quality preset. Use max_quality for the full expensive grid.")
     p.add_argument("--networks", nargs="+", default=NETWORKS)
     p.add_argument("--models", nargs="+", default=MODELS)
     p.add_argument("--baselines", nargs="+", default=["paper"],
@@ -152,10 +160,26 @@ def parse_args() -> argparse.Namespace:
                    help="Run paired untuned and Optuna-tuned final evaluations (default)")
     p.add_argument("--no-hpo", dest="with_hpo", action="store_false",
                    help="Disable Optuna and run only the untuned configs")
-    p.add_argument("--hpo-trials", type=int, default=30,
+    p.add_argument("--hpo-trials", type=int, default=5,
                    help="Optuna trials per network/R0/model when --with-hpo is enabled")
     p.add_argument("--hpo-timeout", type=int, default=None,
                    help="Optional Optuna timeout in seconds per study")
+    p.add_argument("--hpo-scope", choices=["network", "scenario"], default="network",
+                   help="Tune once per network/model and reuse across R0s, or tune every scenario")
+    p.add_argument("--hpo-reference-r0", default="r0_10",
+                   help="R0 used for network-scope HPO when present; falls back to the first selected R0")
+    p.add_argument("--hpo-n-truth", type=int, default=100,
+                   help="Validation truth runs per HPO study, clamped to the preset budget")
+    p.add_argument("--hpo-n-mc", type=int, default=80,
+                   help="MC samples used inside HPO trials only")
+    p.add_argument("--hpo-epochs", type=int, default=120,
+                   help="Epoch cap used inside HPO trials only")
+    p.add_argument("--hpo-patience", type=int, default=12,
+                   help="Early-stopping patience cap used inside HPO trials only")
+    p.add_argument("--max-train-epochs", type=int, default=250,
+                   help="Cap final train.epochs for generated configs; set 0 to keep template values")
+    p.add_argument("--max-train-patience", type=int, default=20,
+                   help="Cap final train.patience for generated configs; set 0 to keep template values")
     p.add_argument("--hpo-sampler", choices=["tpe", "random"], default="tpe")
     p.add_argument("--hpo-pruner", choices=["hyperband", "median", "none"], default="hyperband")
     p.add_argument("--skip-tsir", action="store_true")
@@ -165,6 +189,46 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--skip-tables", action="store_true")
     p.set_defaults(with_hpo=True)
     return p.parse_args()
+
+
+def _positive_cap(value: int | None) -> int | None:
+    if value is None or int(value) <= 0:
+        return None
+    return int(value)
+
+
+def apply_final_train_caps(cfg: dict[str, Any], args: argparse.Namespace | None) -> None:
+    """Bound definitive training runs for day-scale experiment execution."""
+    if args is None:
+        return
+    train_cfg = cfg.setdefault("train", {})
+    epoch_cap = _positive_cap(getattr(args, "max_train_epochs", None))
+    patience_cap = _positive_cap(getattr(args, "max_train_patience", None))
+    if epoch_cap is not None:
+        train_cfg["epochs"] = min(int(train_cfg.get("epochs", epoch_cap)), epoch_cap)
+    if patience_cap is not None:
+        train_cfg["patience"] = min(int(train_cfg.get("patience", patience_cap)), patience_cap)
+
+
+def effective_hpo_n_truth(args: argparse.Namespace, preset: Preset) -> int:
+    """Keep HPO and final truth windows disjoint even on small presets."""
+    requested = _positive_cap(getattr(args, "hpo_n_truth", None)) or max(1, preset.n_runs // 3)
+    return min(requested, max(1, preset.n_runs // 3))
+
+
+def effective_hpo_n_mc(args: argparse.Namespace, preset: Preset) -> int | None:
+    requested = _positive_cap(getattr(args, "hpo_n_mc", None))
+    if requested is None:
+        return None
+    return min(requested, preset.n_mc, preset.mc_runs)
+
+
+def attach_hpo_budget(cfg: dict[str, Any], args: argparse.Namespace, preset: Preset) -> None:
+    hpo_cfg = cfg.setdefault("hpo", {})
+    hpo_cfg["n_truth"] = effective_hpo_n_truth(args, preset)
+    hpo_cfg["trial_epochs"] = _positive_cap(getattr(args, "hpo_epochs", None))
+    hpo_cfg["trial_patience"] = _positive_cap(getattr(args, "hpo_patience", None))
+    hpo_cfg["trial_n_mc"] = effective_hpo_n_mc(args, preset)
 
 
 def normalize_r0_labels(raw: list[str]) -> list[str]:
@@ -183,6 +247,18 @@ def normalize_r0_labels(raw: list[str]) -> list[str]:
             raise ValueError(f"Unknown R0 selector '{item}'. Use one of {R0_LABELS}.") from exc
         out.append(label)
     return out
+
+
+def resolve_hpo_reference_r0(raw: str, r0_labels: list[str]) -> str:
+    if not r0_labels:
+        raise ValueError("At least one R0 label is required.")
+    if raw in {"auto", "middle"}:
+        return "r0_10" if "r0_10" in r0_labels else r0_labels[len(r0_labels) // 2]
+    try:
+        label = normalize_r0_labels([raw])[0]
+    except ValueError:
+        label = raw
+    return label if label in r0_labels else r0_labels[0]
 
 
 def normalize_model_keys(raw: list[str]) -> list[str]:
@@ -314,7 +390,14 @@ def _template_path(network: str, model: str) -> Path:
     raise FileNotFoundError(f"No model config template found for {network}/{model}")
 
 
-def build_model_config(network: str, model: str, r0_label: str, preset: Preset, save_probs: bool = False) -> dict[str, Any]:
+def build_model_config(
+    network: str,
+    model: str,
+    r0_label: str,
+    preset: Preset,
+    save_probs: bool = False,
+    args: argparse.Namespace | None = None,
+) -> dict[str, Any]:
     base_model = base_model_key(model)
     with open(_template_path(network, base_model)) as f:
         cfg = yaml.safe_load(f)
@@ -345,6 +428,7 @@ def build_model_config(network: str, model: str, r0_label: str, preset: Preset, 
         db_cfg["directed"] = read_network_meta(network)["directed"]
         batch_cap = 8 if order >= 3 else 16
         cfg["train"]["batch_size"] = min(int(cfg["train"].get("batch_size", batch_cap)), batch_cap)
+    apply_final_train_caps(cfg, args)
     cfg["experiment"] = {
         "network": network,
         "r0_label": r0_label,
@@ -432,8 +516,16 @@ def write_manifest(run_dir: Path, args: argparse.Namespace, networks: list[str],
             "enabled": bool(getattr(args, "with_hpo", False)),
             "trials": int(getattr(args, "hpo_trials", 0)),
             "timeout": getattr(args, "hpo_timeout", None),
+            "scope": getattr(args, "hpo_scope", None),
+            "reference_r0": resolve_hpo_reference_r0(getattr(args, "hpo_reference_r0", "r0_10"), r0_labels),
             "sampler": getattr(args, "hpo_sampler", None),
             "pruner": getattr(args, "hpo_pruner", None),
+            "n_truth": effective_hpo_n_truth(args, preset),
+            "trial_n_mc": effective_hpo_n_mc(args, preset),
+            "trial_epochs": _positive_cap(getattr(args, "hpo_epochs", None)),
+            "trial_patience": _positive_cap(getattr(args, "hpo_patience", None)),
+            "final_epoch_cap": _positive_cap(getattr(args, "max_train_epochs", None)),
+            "final_patience_cap": _positive_cap(getattr(args, "max_train_patience", None)),
         },
     }
     with open(run_dir / "manifest.json", "w") as f:
@@ -573,8 +665,11 @@ def stage_hpo(
         best = run_dir / "hpo" / f"{network}_{r0_label}_{model}" / "best_config.yml"
         return best if best.exists() else None
 
+    preset = PRESETS[args.preset]
     base_cfg_path = run_dir / "configs" / network / r0_label / f"{model}.hpo_base.yml"
-    write_yaml(base_cfg_path, build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs))
+    hpo_base_cfg = build_model_config(network, model, r0_label, preset, args.save_probs, args)
+    attach_hpo_budget(hpo_base_cfg, args, preset)
+    write_yaml(base_cfg_path, hpo_base_cfg)
     study_name = f"{network}_{r0_label}_{model}"
     log_path = run_dir / network / r0_label / "logs" / f"hpo_{model}.log"
     cmd = [
@@ -622,7 +717,7 @@ def write_untuned_paired_config(
     best_cfg_path: Path | None,
 ) -> Path:
     """Write the untuned control config paired to an Optuna final window."""
-    cfg = build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs)
+    cfg = build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs, args)
     if best_cfg_path is not None and best_cfg_path.exists():
         with open(best_cfg_path) as f:
             best_cfg = yaml.safe_load(f)
@@ -632,6 +727,42 @@ def write_untuned_paired_config(
     cfg.setdefault("experiment", {})["hpo_condition"] = "none"
     cfg["experiment"]["paired_optuna_variant"] = optuna_variant_key(model)
     cfg_path = run_dir / "configs" / network / r0_label / f"{model}.untuned.yml"
+    write_yaml(cfg_path, cfg)
+    return cfg_path
+
+
+def write_reused_optuna_config(
+    args: argparse.Namespace,
+    run_dir: Path,
+    network: str,
+    r0_label: str,
+    model: str,
+    reference_r0: str,
+    best_cfg_path: Path | None,
+) -> Path:
+    """Write a scenario-local tuned config using network-scope Optuna params."""
+    cfg = build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs, args)
+    params: dict[str, Any] = {}
+    if best_cfg_path is not None and best_cfg_path.exists():
+        with open(best_cfg_path) as f:
+            best_cfg = yaml.safe_load(f)
+        params = dict(best_cfg.get("hpo_result", {}).get("params") or {})
+        apply_trial_params(cfg, params)
+        for key in ("truth_start", "n_truth"):
+            if key in best_cfg.get("eval", {}):
+                cfg["eval"][key] = best_cfg["eval"][key]
+        cfg["hpo_result"] = {
+            **best_cfg.get("hpo_result", {}),
+            "reused_from_r0": reference_r0,
+            "reused_from_config": str(best_cfg_path),
+        }
+    elif not args.dry_run:
+        raise FileNotFoundError(f"Cannot reuse missing Optuna config: {best_cfg_path}")
+
+    cfg.setdefault("experiment", {})["hpo_condition"] = "optuna_reused"
+    cfg["experiment"]["hpo_reference_r0"] = reference_r0
+    cfg["experiment"]["model_variant"] = optuna_variant_key(model)
+    cfg_path = run_dir / "configs" / network / r0_label / f"{model}.optuna.yml"
     write_yaml(cfg_path, cfg)
     return cfg_path
 
@@ -658,7 +789,7 @@ def stage_train(
     cfg_path = cfg_override
     if cfg_path is None:
         cfg_path = run_dir / "configs" / network / r0_label / f"{model}.yml"
-        write_yaml(cfg_path, build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs))
+        write_yaml(cfg_path, build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs, args))
     log_path = run_dir / network / r0_label / "logs" / f"train_{row_model}.log"
     cmd = [sys.executable, "main_train.py", "--cfg", str(cfg_path), "--data", f"{art}:latest"]
     if args.save_probs:
@@ -1232,6 +1363,63 @@ def main() -> None:
     run_dir = resolve_run_dir(args)
     run_dir.mkdir(parents=True, exist_ok=True)
     status_path = run_dir / "status.csv"
+    hpo_reference_r0 = resolve_hpo_reference_r0(args.hpo_reference_r0, r0_labels)
+    artifact_cache: dict[tuple[str, str], str] = {}
+    hpo_best_cache: dict[tuple[str, str], Path | None] = {}
+
+    def ensure_artifact(network: str, r0_label: str) -> str:
+        key = (network, r0_label)
+        if key not in artifact_cache:
+            artifact_cache[key] = stage_tsir(args, run_dir, status_path, network, r0_label)
+            refresh_result_bundle(run_dir, status_path)
+        return artifact_cache[key]
+
+    def resolve_hpo_config(network: str, r0_label: str, method: str, artifact: str) -> Path | None:
+        if args.hpo_scope == "scenario":
+            best_cfg = stage_hpo(args, run_dir, status_path, network, r0_label, method, artifact)
+            refresh_result_bundle(run_dir, status_path)
+            return best_cfg
+
+        cache_key = (network, method)
+        if cache_key not in hpo_best_cache:
+            ref_artifact = artifact if r0_label == hpo_reference_r0 else ensure_artifact(network, hpo_reference_r0)
+            hpo_best_cache[cache_key] = stage_hpo(
+                args,
+                run_dir,
+                status_path,
+                network,
+                hpo_reference_r0,
+                method,
+                ref_artifact,
+            )
+            refresh_result_bundle(run_dir, status_path)
+
+        best_cfg = hpo_best_cache[cache_key]
+        if r0_label == hpo_reference_r0:
+            return best_cfg
+
+        tuned_cfg = write_reused_optuna_config(
+            args,
+            run_dir,
+            network,
+            r0_label,
+            method,
+            hpo_reference_r0,
+            best_cfg,
+        )
+        update_status(status_path, {
+            "network": network,
+            "r0_label": r0_label,
+            "stage": "hpo",
+            "model": optuna_variant_key(method),
+            "status": "success",
+            "artifact": artifact,
+            "returncode": 0,
+            "message": f"reused network-scope HPO from {hpo_reference_r0}: {best_cfg}",
+            "log_path": "",
+        })
+        refresh_result_bundle(run_dir, status_path)
+        return tuned_cfg
 
     write_manifest(run_dir, args, networks, r0_labels)
     refresh_result_bundle(run_dir, status_path)
@@ -1248,9 +1436,18 @@ def main() -> None:
         "HPO      : "
         + (
             f"enabled, paired untuned/+Optuna finals, trials={args.hpo_trials}, "
-            f"sampler={args.hpo_sampler}, pruner={args.hpo_pruner}"
+            f"sampler={args.hpo_sampler}, pruner={args.hpo_pruner}, "
+            f"scope={args.hpo_scope}, reference_r0={hpo_reference_r0}, "
+            f"trial_epochs={_positive_cap(args.hpo_epochs)}, "
+            f"trial_n_truth={effective_hpo_n_truth(args, preset)}, "
+            f"trial_n_mc={effective_hpo_n_mc(args, preset)}"
             if args.with_hpo else "disabled"
         )
+    )
+    print(
+        "Train cap: "
+        f"epochs={_positive_cap(args.max_train_epochs)}, "
+        f"patience={_positive_cap(args.max_train_patience)}"
     )
     if args.dry_run:
         print("DRY RUN: commands will be printed, not executed")
@@ -1262,8 +1459,7 @@ def main() -> None:
             sc = scenario(network, r0_label)
             print(f"\n### {network} / {r0_label}  R0={sc['r0']} beta={sc['beta']} mu={sc['mu']}")
             try:
-                art = stage_tsir(args, run_dir, status_path, network, r0_label)
-                refresh_result_bundle(run_dir, status_path)
+                art = ensure_artifact(network, r0_label)
             except Exception as exc:
                 print(f"  FATAL TSIR stage failed, skipping scenario: {exc}")
                 refresh_result_bundle(run_dir, status_path)
@@ -1275,8 +1471,7 @@ def main() -> None:
                     update_status(status_path, {"network": network, "r0_label": r0_label, "stage": "train", "model": model, "status": "skipped", "message": "unknown_model"})
                     continue
                 if args.with_hpo:
-                    best_cfg = stage_hpo(args, run_dir, status_path, network, r0_label, model, art)
-                    refresh_result_bundle(run_dir, status_path)
+                    best_cfg = resolve_hpo_config(network, r0_label, model, art)
                     untuned_cfg = write_untuned_paired_config(args, run_dir, network, r0_label, model, best_cfg)
                     stage_train(args, run_dir, status_path, network, r0_label, model, art, untuned_cfg)
                     refresh_result_bundle(run_dir, status_path)
@@ -1298,8 +1493,7 @@ def main() -> None:
 
             for baseline in TRAINABLE_BASELINES:
                 if args.with_hpo:
-                    best_cfg = stage_hpo(args, run_dir, status_path, network, r0_label, baseline, art)
-                    refresh_result_bundle(run_dir, status_path)
+                    best_cfg = resolve_hpo_config(network, r0_label, baseline, art)
                     untuned_cfg = write_untuned_paired_config(args, run_dir, network, r0_label, baseline, best_cfg)
                     stage_train(args, run_dir, status_path, network, r0_label, baseline, art, untuned_cfg)
                     refresh_result_bundle(run_dir, status_path)
