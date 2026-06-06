@@ -146,6 +146,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--preset", choices=sorted(PRESETS), default="paper_24h",
                    help="Runtime/quality preset. Use max_quality for the full expensive grid.")
     p.add_argument("--networks", nargs="+", default=NETWORKS)
+    p.add_argument("--reverse-networks", action="store_true",
+                   help="Run selected networks in reverse order, useful for splitting work across machines.")
     p.add_argument("--models", nargs="+", default=MODELS)
     p.add_argument("--baselines", nargs="+", default=["paper"],
                    help="Heuristic baseline keys or presets: fast, paper, all. Default: paper")
@@ -1354,7 +1356,9 @@ def refresh_result_bundle(run_dir: Path, status_path: Path) -> Path:
 def main() -> None:
     args = parse_args()
     global HEURISTIC_BASELINES, BASELINES
-    networks = args.networks
+    networks = list(args.networks)
+    if args.reverse_networks:
+        networks.reverse()
     r0_labels = normalize_r0_labels(args.r0)
     args.models = normalize_model_keys(args.models)
     HEURISTIC_BASELINES = normalize_baseline_keys(args.baselines)
