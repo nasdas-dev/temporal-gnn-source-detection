@@ -60,6 +60,14 @@ DEFAULT_HPO = {
 }
 
 
+def _extra_wandb_tags_from_env() -> list[str]:
+    return [
+        tag.strip()
+        for tag in os.getenv("WANDB_TAGS", "").split(",")
+        if tag.strip()
+    ]
+
+
 @dataclass(frozen=True)
 class TruthBudget:
     """Validation and final-evaluation truth windows."""
@@ -665,7 +673,7 @@ def _log_summary_run(
         group=study_name,
         name=f"{study_name}-summary",
         config={"hpo": hpo_cfg, "storage": storage},
-        tags=["optuna", "optuna_summary"],
+        tags=["optuna", "optuna_summary", *_extra_wandb_tags_from_env()],
     )
     table = wandb.Table(columns=["number", "state", "value", "params"])
     for trial in study.trials:
@@ -752,7 +760,7 @@ def main() -> None:
         group=study_name,
         name=f"{study_name}-controller",
         config={"model": model_name, "data_name": args.data, **cfg, "hpo": hpo_cfg},
-        tags=["optuna", "optuna_controller", f"model:{model_name}"],
+        tags=["optuna", "optuna_controller", f"model:{model_name}", *_extra_wandb_tags_from_env()],
     )
     H, data = load_tsir_data(args.data)
     controller.summary["data/n_nodes"] = data.n_nodes
@@ -837,7 +845,7 @@ def main() -> None:
                     },
                 },
             },
-            tags=["optuna", "optuna_trial", f"model:{model_name}"],
+            tags=["optuna", "optuna_trial", f"model:{model_name}", *_extra_wandb_tags_from_env()],
         )
         run_dir = Path("data") / wandb.run.id
         run_dir.mkdir(parents=True, exist_ok=True)
