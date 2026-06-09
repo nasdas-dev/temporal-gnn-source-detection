@@ -460,7 +460,7 @@ def select_representative_window(
     if start_max <= start_min:
         candidate_starts = [start_min]
     else:
-        n_candidates = int(cfg_get(time_cfg, "candidate_windows", 64))
+        n_candidates = int(cfg_get(time_cfg, "candidate_windows", 32))
         candidate_starts = np.linspace(start_min, start_max, num=min(n_candidates, start_max - start_min + 1))
         candidate_starts = sorted(set(int(round(x)) for x in candidate_starts))
 
@@ -684,4 +684,3 @@ def apply_network_reduction(H: nx.Graph, nwk_cfg: Any) -> tuple[nx.Graph, dict[s
     G.graph["reduction_report"] = report
     G.graph["sample"] = report.get("node", {})
     return G, report
-

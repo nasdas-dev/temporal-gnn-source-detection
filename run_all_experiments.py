@@ -205,7 +205,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--reduction-reps", type=int, default=1,
                    help="Number of reduction seeds to record for robustness runs.")
     p.add_argument("--use-full-betas", action="store_true",
-                   help="Use the static BETAS table instead of reduced-graph calibration.")
+                   help="Use the static BETAS table instead of per-artifact beta calibration.")
     p.add_argument("--skip-tsir", action="store_true")
     p.add_argument("--skip-train", action="store_true")
     p.add_argument("--skip-eval", action="store_true")
@@ -416,6 +416,7 @@ def reduction_config_for_network(
         "method": "representative_window",
         "apply_if_time_steps_gt": 1000,
         "max_steps_days": 365,
+        "candidate_windows": 32,
         "reindex_to_zero": True,
     }
     window_steps = str(getattr(args, "time_window_steps", "auto"))
@@ -457,7 +458,7 @@ def build_tsir_config(
         "n_runs": preset.n_runs,
         "mc_runs": preset.mc_runs,
     }
-    if reduction_cfg is not None and not bool(getattr(args, "use_full_betas", False)):
+    if args is not None and not bool(getattr(args, "use_full_betas", False)):
         sir_cfg["calibration"] = {
             "enabled": True,
             "target_r0": sc["r0"],
@@ -812,9 +813,10 @@ def stage_tsir(args: argparse.Namespace, run_dir: Path, status_path: Path, netwo
     cmd = [sys.executable, "main_tsir.py", "--cfg", str(cfg_path), "--data", art]
     rc, stdout = run_command(cmd, log_path, args.dry_run, args.target_runtime_seconds)
     status = "success" if rc == 0 else "timeout_skipped" if rc == 124 or "TIMEOUT_SKIP" in stdout else "failed"
+    run_id = extract_run_id(stdout) or ("dryrun00" if args.dry_run else "")
     update_status(status_path, {
         "network": network, "r0_label": r0_label, "stage": "tsir",
-        "status": status, "artifact": art, "returncode": rc,
+        "status": status, "artifact": art, "run_id": run_id, "returncode": rc,
         "message": "dry_run" if args.dry_run else "", "log_path": log_path,
     })
     if rc != 0 and not args.dry_run:

@@ -297,7 +297,7 @@ def test_dbgnn_higher_order_dry_run_expands_orders_and_sampling(tmp_path):
     assert "balanced_activity_snowball" in tsir_cfg
     assert "target_nodes: 300" in tsir_cfg
     assert k2_cfg["dbgnn"]["delta"] == 24
-    assert k2_cfg["dbgnn"]["time_bin_size"] == 1
+    assert k2_cfg["dbgnn"]["time_bin_size"] == 4
     assert k2_cfg["train"]["batch_size"] == 16
     assert k4_cfg["dbgnn"]["order"] == 4
     assert k4_cfg["dbgnn"]["delta"] == 4
@@ -418,6 +418,10 @@ def test_publication_bundle_copies_tables_figures_and_run_assets(tmp_path):
     run_data.mkdir(parents=True)
     (run_data / "metrics_summary.json").write_text('{"metrics": {"eval/mrr_mean": 0.5}}')
     (run_data / "eval_arrays_rep0.npz").write_bytes(b"npz")
+    tsir_data = data_root / "tsir1234"
+    tsir_data.mkdir(parents=True)
+    (tsir_data / "reduction_report.json").write_text('{"reduction_id": "students_safe_1h"}')
+    (tsir_data / "network_provenance.json").write_text('{"r0": {"target": 1.0}}')
 
     (run_dir / "tables").mkdir(parents=True)
     (run_dir / "tables" / "table.tex").write_text("\\begin{tabular}{c}x\\end{tabular}\n")
@@ -428,6 +432,7 @@ def test_publication_bundle_copies_tables_figures_and_run_assets(tmp_path):
     (scenario_dir / "scenario.png").write_bytes(b"png")
     (run_dir / "status.csv").write_text(
         "network,r0_label,stage,model,status,run_id\n"
+        "france_office,r0_10,tsir,,success,tsir1234\n"
         "france_office,r0_10,train,static_gnn,success,abc12345\n"
     )
 
@@ -438,5 +443,12 @@ def test_publication_bundle_copies_tables_figures_and_run_assets(tmp_path):
     assert (result_dir / "figures" / "global" / "global.pdf").exists()
     assert (result_dir / "figures" / "by_scenario" / "france_office" / "r0_10" / "scenario.png").exists()
     assert (result_dir / "runs" / "france_office" / "r0_10" / "static_gnn" / "metrics_summary.json").exists()
+    assert (result_dir / "runs" / "france_office" / "r0_10" / "tsir" / "reduction_report.json").exists()
+    assert (result_dir / "runs" / "france_office" / "r0_10" / "tsir" / "network_provenance.json").exists()
     manifest = yaml.safe_load((result_dir / "latex_inputs.json").read_text())
     assert "tables/table.tex" in manifest["categories"]["tables"]
+    assert "runs/france_office/r0_10/tsir/network_provenance.json" in manifest["categories"]["network_provenance"]
+
+
+def test_dbgnn_higher_order_default_r0_includes_r0_11():
+    assert ho_runner.DEFAULT_R0 == ["0.8", "1.0", "1.1", "1.5", "2.0", "2.5"]

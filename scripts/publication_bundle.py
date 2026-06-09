@@ -16,6 +16,8 @@ RUN_ASSET_PREFIXES = (
     "baseline_metrics",
     "loss_history",
     "eval_arrays",
+    "reduction_report",
+    "network_provenance",
 )
 
 
@@ -97,7 +99,7 @@ def _copy_run_assets(
             continue
         network = _clean_part(row.get("network", "unknown_network"))
         r0_label = _clean_part(row.get("r0_label", "unknown_r0"))
-        method = _clean_part(row.get("model") or row.get("variant") or "baselines")
+        method = "tsir" if row.get("stage") == "tsir" else _clean_part(row.get("model") or row.get("variant") or "baselines")
         dest_dir = result_dir / "runs" / network / r0_label / method
         for src in src_dir.iterdir():
             if not src.is_file():
@@ -136,6 +138,11 @@ def _build_manifest(
         "scenario_figures": [path for path in files if path.startswith("figures/by_scenario/") and Path(path).suffix in {".pdf", ".png"}],
         "metrics": [path for path in files if path in {"metrics_long.csv", "metrics_summary.csv", "run_matrix_summary.csv"}],
         "run_assets": [path for path in files if path.startswith("runs/")],
+        "network_provenance": [
+            path
+            for path in files
+            if path.endswith("network_provenance.json") or path.endswith("reduction_report.json")
+        ],
     }
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -173,6 +180,7 @@ def _write_readme(result_dir: Path, manifest: dict[str, Any], experiment_name: s
         f"- Scenario figures: {len(categories['scenario_figures'])}",
         f"- Metric CSV files: {len(categories['metrics'])}",
         f"- Run-level assets: {len(categories['run_assets'])}",
+        f"- Network provenance reports: {len(categories['network_provenance'])}",
         "",
         "## Suggested LaTeX Inputs",
         "",
@@ -180,6 +188,7 @@ def _write_readme(result_dir: Path, manifest: dict[str, Any], experiment_name: s
         "- Use `figures/global/*.pdf` for overview figures.",
         "- Use `figures/by_scenario/<network>/<r0_label>/*.pdf` for scenario-level panels.",
         "- Use `metrics_summary.csv` or `run_matrix_summary.csv` for generated result text.",
+        "- Use `runs/<network>/<r0_label>/tsir/network_provenance.json` to cite reduction, calibration, and observed R0 settings.",
         "",
     ]
     (result_dir / "README.md").write_text("\n".join(lines), encoding="utf-8")

@@ -98,6 +98,76 @@ def _summary_reduction(report: dict) -> None:
             wandb.summary[f"reduction/{key}"] = report[key]
 
 
+def _summary_get(key: str):
+    try:
+        return wandb.summary.get(key)
+    except Exception:
+        return None
+
+
+def _observed_r0_report() -> dict:
+    keys = [
+        "R0_ground_truth",
+        "avg_outbreak_size_ground_truth",
+        "R0_monte_carlo",
+        "avg_outbreak_size_monte_carlo",
+        "R0_maximal_outbreak",
+        "avg_outbreak_size_maximal_outbreak",
+    ]
+    return {key: _summary_get(key) for key in keys if _summary_get(key) is not None}
+
+
+def _network_provenance(
+    args: argparse.Namespace,
+    cfg,
+    H,
+    reduction_report: dict,
+    calibration_meta: dict,
+) -> dict:
+    experiment = getattr(cfg, "experiment", None)
+    target_r0 = _cfg_get(experiment, "r0", None)
+    calibration_target = calibration_meta.get("target_r0") if isinstance(calibration_meta, dict) else None
+    calibration_error = calibration_meta.get("error") if isinstance(calibration_meta, dict) else None
+    tolerance = _cfg_get(_cfg_get(cfg.sir, "calibration", {}), "tolerance", None)
+    observed = _observed_r0_report()
+    return {
+        "artifact_name": args.data,
+        "network": {
+            "name": cfg.nwk.name,
+            "type": _cfg_get(cfg.nwk, "type", None),
+            "directed": bool(cfg.nwk.directed),
+            "n_nodes": int(H.number_of_nodes()),
+            "n_edges": int(H.number_of_edges()),
+            "n_contacts": int(sum(len(d.get("times", [])) for _, _, d in H.edges(data=True))),
+            "t_max": int(cfg.nwk.t_max),
+        },
+        "sir": {
+            "beta": float(cfg.sir.beta),
+            "mu": float(cfg.sir.mu),
+            "start_t": int(cfg.sir.start_t),
+            "end_t": int(cfg.sir.end_t),
+            "n_runs": int(cfg.sir.n_runs),
+            "mc_runs": int(cfg.sir.mc_runs),
+        },
+        "r0": {
+            "label": _cfg_get(experiment, "r0_label", _cfg_get(experiment, "label", None)),
+            "target": float(target_r0) if target_r0 is not None else None,
+            "canonical_targets": [0.8, 1.0, 1.1, 1.5, 2.0, 2.5],
+            "calibration_target": float(calibration_target) if calibration_target is not None else None,
+            "calibration_error": float(calibration_error) if calibration_error is not None else None,
+            "calibration_tolerance": float(tolerance) if tolerance is not None else None,
+            "within_calibration_tolerance": (
+                bool(float(calibration_error) <= float(tolerance))
+                if calibration_error is not None and tolerance is not None
+                else None
+            ),
+            "observed": observed,
+        },
+        "calibration": calibration_meta or {},
+        "reduction": reduction_report or {},
+    }
+
+
 def _calibration_enabled(cfg) -> bool:
     calibration = _cfg_get(cfg.sir, "calibration", None)
     if calibration is None:
@@ -151,6 +221,12 @@ def _calibrate_beta_if_requested(cfg, H, local_folder: str, reduction_report: di
     if cached.get("target_r0") == target_r0 and cached.get("beta") is not None:
         cfg.sir.beta = float(cached["beta"])
         wandb.summary["calibration/cache_hit"] = True
+        wandb.summary["calibration/target_r0"] = target_r0
+        wandb.summary["calibration/beta"] = float(cached["beta"])
+        if cached.get("estimated_r0") is not None:
+            wandb.summary["calibration/estimated_r0"] = float(cached["estimated_r0"])
+        if cached.get("error") is not None:
+            wandb.summary["calibration/error"] = float(cached["error"])
         return dict(cached)
 
     print("\n" + "=" * 60)
@@ -324,6 +400,10 @@ def main() -> None:
     print("Maximal-outbreak SIR  (β=1, μ=0)")
     print("=" * 60)
     sir_maximal_outbreak(cfg, H_cread, n_nodes, local_folder)
+    observed_r0 = _observed_r0_report()
+    if reduction_report:
+        reduction_report.setdefault("observed", {}).update(observed_r0)
+        _write_json(f"{local_folder}/reduction_report.json", reduction_report)
 
     # ---------------------------------------------------------------
     # 7. Possible-sources mask
@@ -336,6 +416,8 @@ def main() -> None:
     possible.tofile(f"{local_folder}/possible_sources.bin")
     print(f"\nPossible-sources mask saved  "
           f"(avg. {possible.mean(axis=(1,2)).mean():.3f} feasible per run)")
+    network_provenance = _network_provenance(args, cfg, H, reduction_report, calibration_meta)
+    _write_json(f"{local_folder}/network_provenance.json", network_provenance)
 
     # ---------------------------------------------------------------
     # 8. Log as W&B artifact
@@ -362,6 +444,7 @@ def main() -> None:
             "sample":   sample_meta,
             "reduction": reduction_report,
             "calibration": calibration_meta,
+            "network_provenance": network_provenance,
         },
     )
     artifact.add_dir(local_folder)

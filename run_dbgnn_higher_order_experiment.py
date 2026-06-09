@@ -5,7 +5,7 @@ Runs DBGNN on all calibrated thesis networks for the requested R0 values and
 De Bruijn orders. The default matrix is:
 
     networks = lyon_ward, malawi, france_office, students, biasca, olten
-    R0       = 0.8, 1.0, 1.5, 2.0, 2.5
+    R0       = 0.8, 1.0, 1.1, 1.5, 2.0, 2.5
     k        = 2, 3, 4, 5
 
 Networks with more than 300 nodes are sampled before TSIR using a connected
@@ -64,7 +64,7 @@ from viz.style import apply_style, finish_fig
 from hpo import apply_trial_params
 
 
-DEFAULT_R0 = ["0.8", "1.0", "1.5", "2.0", "2.5"]
+DEFAULT_R0 = ["0.8", "1.0", "1.1", "1.5", "2.0", "2.5"]
 DEFAULT_ORDERS = [2, 3, 4, 5]
 WANDB_PROJECT = "source-detection"
 OPTUNA_SUFFIX = "_optuna"
@@ -161,15 +161,15 @@ def parse_args() -> argparse.Namespace:
                    help="Network reduction policy for TSIR artifacts. Default: safe_1h")
     p.add_argument("--no-reduction", dest="reduction", action="store_const", const="none",
                    help="Disable default network reduction.")
-    p.add_argument("--target-runtime-seconds", dest="timeout_seconds", type=int,
+    p.add_argument("--target-runtime-seconds", dest="timeout_seconds", type=int, default=3600,
                    help="Alias for --timeout-seconds.")
-    p.add_argument("--reduction-seed", dest="seed", type=int,
+    p.add_argument("--reduction-seed", dest="seed", type=int, default=42,
                    help="Alias for --seed used by reduction.")
     p.add_argument("--time-window-steps", default="auto",
                    help="Temporal window length for safe_1h, or auto.")
     p.add_argument("--reduction-reps", type=int, default=1)
     p.add_argument("--use-full-betas", action="store_true",
-                   help="Use static BETAS instead of reduced-graph calibration.")
+                   help="Use static BETAS instead of per-artifact beta calibration.")
     p.add_argument("--no-sampling", action="store_true", help="Disable large-network sampling")
     p.add_argument("--sample-method", default="balanced_activity_snowball",
                    choices=["balanced_activity_snowball", "activity_snowball"])
@@ -411,6 +411,7 @@ def build_tsir_config(
                 "method": "representative_window",
                 "apply_if_time_steps_gt": 1000,
                 "max_steps_days": 365,
+                "candidate_windows": 32,
                 "reindex_to_zero": True,
             }
             window_steps = str(getattr(args, "time_window_steps", "auto"))
@@ -426,7 +427,7 @@ def build_tsir_config(
         "n_runs": preset.n_runs,
         "mc_runs": preset.mc_runs,
     }
-    if sample_cfg is not None and not bool(getattr(args, "use_full_betas", False)):
+    if args is not None and not bool(getattr(args, "use_full_betas", False)):
         sir_cfg["calibration"] = {
             "enabled": True,
             "target_r0": sc["r0"],
@@ -769,6 +770,7 @@ def stage_tsir(
     cmd = [sys.executable, "main_tsir.py", "--cfg", str(cfg_path), "--data", artifact]
     rc, stdout = run_command(cmd, log_path, args.dry_run, args.timeout_seconds)
     status = "success" if rc == 0 else "timeout_skipped" if rc == 124 or "TIMEOUT_SKIP" in stdout else "failed"
+    run_id = extract_run_id(stdout) or ("dryrun00" if args.dry_run else "")
     update_status(
         status_path,
         {
@@ -777,6 +779,7 @@ def stage_tsir(
             "stage": "tsir",
             "status": status,
             "artifact": artifact,
+            "run_id": run_id,
             "returncode": rc,
             "message": "dry_run" if args.dry_run else status,
             "log_path": log_path,
