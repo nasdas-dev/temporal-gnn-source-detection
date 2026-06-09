@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import networkx as nx
 import numpy as np
+import pytest
 
-from main_eval import compute_baseline_probs
+from main_eval import _truth_indices, compute_baseline_probs
 
 
 def _sir_from_possible(possible: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -124,3 +125,14 @@ def test_jordan_center_prefers_static_distance_center():
     assert probs[0, 1] > probs[0, 0]
     assert probs[0, 1] > probs[0, 2]
     np.testing.assert_allclose(probs[1], np.array([0.5, 0.0, 0.5], dtype=np.float32))
+
+
+def test_eval_truth_indices_respect_truth_start():
+    indices = _truth_indices({"truth_start": 4}, n_eval_runs=5, n_runs=20)
+    np.testing.assert_array_equal(indices, np.array([4, 5, 6, 7, 8]))
+
+    with pytest.raises(ValueError, match="truth_start"):
+        _truth_indices({"truth_start": -1}, n_eval_runs=5, n_runs=20)
+
+    with pytest.raises(ValueError, match="exceeds"):
+        _truth_indices({"truth_start": 18}, n_eval_runs=5, n_runs=20)

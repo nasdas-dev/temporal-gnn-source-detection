@@ -6,6 +6,7 @@ import math
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import networkx as nx
 import numpy as np
@@ -103,6 +104,7 @@ def test_generated_max_quality_configs_are_consistent():
     tsir = runner.build_tsir_config("france_office", "r0_20", preset)
     model = runner.build_model_config("france_office", "dbgnn", "r0_20", preset)
     model_k3 = runner.build_model_config("france_office", "dbgnn_k3", "r0_20", preset)
+    temporal = runner.build_model_config("france_office", "temporal_gnn", "r0_20", preset)
     mlp = runner.build_model_config("france_office", "static_mlp", "r0_20", preset)
     eval_cfg = runner.build_eval_config("france_office", "r0_20", preset)
 
@@ -117,11 +119,17 @@ def test_generated_max_quality_configs_are_consistent():
     assert model["dbgnn"]["delta"] == 24
     assert model["dbgnn"]["bipartite_agg"] == "sum"
     assert model["dbgnn"]["directed"] is False
+    assert model["hpo"]["locked_params"] == ["dbgnn.order"]
     assert model_k3["model"] == "dbgnn"
     assert model_k3["dbgnn"]["order"] == 3
+    assert model_k3["hpo"]["locked_params"] == ["dbgnn.order"]
     assert model["train"]["batch_size"] == 16
     assert model_k3["train"]["batch_size"] == 8
     assert model_k3["experiment"]["model_variant"] == "dbgnn_k3"
+    assert temporal["temporal_gnn"]["residual"] is True
+    assert temporal["temporal_gnn"]["layer_norm"] is True
+    assert temporal["temporal_gnn"]["dropout_rate"] == 0.0
+    assert temporal["temporal_gnn"]["readout"] == "jumping_mean"
     assert mlp["model"] == "static_mlp"
     assert mlp["train"]["n_mc"] == 500
     assert mlp["eval"]["n_truth"] == 1000
@@ -205,8 +213,47 @@ def test_dry_run_expands_full_thesis_matrix(tmp_path):
     assert {"dbgnn_k2", "dbgnn_k3"}.issubset(set(manifest["models"]))
     assert "static_mlp" in manifest["baselines"]
     assert manifest["hpo"]["enabled"] is True
+    k3_hpo_path = (
+        tmp_path / "dry" / "configs" / "france_office" / "r0_10" / "dbgnn_k3.hpo_base.yml"
+    )
+    k3_hpo = yaml.safe_load(k3_hpo_path.read_text())
+    assert k3_hpo["dbgnn"]["order"] == 3
+    assert k3_hpo["hpo"]["locked_params"] == ["dbgnn.order"]
     assert (tmp_path / "dry" / "result" / "latex_inputs.json").exists()
     assert (tmp_path / "dry" / "result" / "README.md").exists()
+
+
+def test_reused_optuna_config_preserves_named_dbgnn_order(tmp_path):
+    args = SimpleNamespace(preset="paper_24h", save_probs=False, dry_run=False)
+    best_cfg_path = tmp_path / "best_config.yml"
+    best_cfg_path.write_text(
+        yaml.safe_dump(
+            {
+                "eval": {"truth_start": 100, "n_truth": 150},
+                "hpo_result": {
+                    "params": {
+                        "dbgnn.order": 2,
+                        "dbgnn.time_bin_size": 4,
+                    }
+                },
+            }
+        )
+    )
+
+    cfg_path = runner.write_reused_optuna_config(
+        args,
+        tmp_path,
+        "france_office",
+        "r0_15",
+        "dbgnn_k3",
+        "r0_10",
+        best_cfg_path,
+    )
+    cfg = yaml.safe_load(cfg_path.read_text())
+
+    assert cfg["dbgnn"]["order"] == 3
+    assert cfg["dbgnn"]["time_bin_size"] == 4
+    assert cfg["experiment"]["model_variant"] == "dbgnn_k3_optuna"
 
 
 def test_dbgnn_higher_order_dry_run_expands_orders_and_sampling(tmp_path):

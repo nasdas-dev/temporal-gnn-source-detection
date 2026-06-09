@@ -78,7 +78,7 @@ def parse_args() -> argparse.Namespace:
     lb.add_argument("--group-by", nargs="+", default=["network"],
                     help="Columns that define table blocks, e.g. network or network r0_label")
     lb.add_argument("--metrics", nargs="+",
-                    default=["mrr", "top_1", "top_5", "norm_brier", "norm_entropy", "cred_cov_90", "n_valid"],
+                    default=["top_5", "error_dist", "mrr", "cred_set_size_90", "resistance"],
                     help="Metric keys to include (eval/ prefix added automatically)")
 
     # --- network_stats ---

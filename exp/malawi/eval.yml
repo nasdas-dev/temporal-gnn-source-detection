@@ -1,5 +1,6 @@
 eval:
   min_outbreak: 2        # must match model configs (consistent evaluation subset)
+  rank_scope: candidate  # Sterchi-style ranking over observed non-susceptible candidates
   top_k: [1, 3, 5, 10]
   credible_p: [0.80, 0.90]       # credible-set coverage levels
   inverse_rank_offset: [0]  # rank score offset (0 = 1/rank)

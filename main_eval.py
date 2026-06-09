@@ -75,6 +75,9 @@ PREFERRED_METRIC_KEYS = [
     "eval/n_valid",
     "eval/n_total",
     "eval/valid_frac",
+    "eval/rank_scope_candidate",
+    "eval/mean_candidate_count",
+    "eval/median_candidate_count",
 ]
 
 
@@ -161,6 +164,22 @@ def _apply_overrides(cfg_dict: dict, overrides: list[str]) -> None:
         for k in keys[:-1]:
             node = node.setdefault(k, {})
         node[keys[-1]] = raw_val
+
+
+def _truth_indices(eval_cfg: dict, n_eval_runs: int, n_runs: int) -> np.ndarray:
+    """Return the held-out truth window requested by eval config."""
+    truth_start = int(eval_cfg.get("truth_start", 0))
+    if truth_start < 0:
+        raise ValueError(f"eval.truth_start must be non-negative, got {truth_start}")
+    truth_stop = truth_start + n_eval_runs
+    if truth_stop > n_runs:
+        raise ValueError(
+            f"eval.truth_start + eval.reps * n_truth = {truth_start} + "
+            f"{n_eval_runs} = {truth_stop} exceeds n_runs={n_runs}. Reduce "
+            "eval.n_truth/eval.reps, lower eval.truth_start, or regenerate the "
+            "artifact with more ground-truth runs."
+        )
+    return np.arange(truth_start, truth_stop)
 
 
 # ---------------------------------------------------------------------------
@@ -609,11 +628,7 @@ def main() -> None:
     print(f"  n_nodes  : {n_nodes}")
     print(f"  n_runs   : {data.n_runs}  (ground-truth)")
 
-    if n_eval_runs > data.n_runs:
-        raise ValueError(
-            f"eval.reps * n_truth = {eval_reps} * {n_truth} = {n_eval_runs} "
-            f"requested but artifact only has {data.n_runs} runs."
-        )
+    select_truth = _truth_indices(eval_cfg, n_eval_runs=n_eval_runs, n_runs=data.n_runs)
 
     # Build static projection of H for topology-based baselines
     H_static = nx.Graph()
@@ -622,8 +637,7 @@ def main() -> None:
         H_static.add_edge(int(u), int(v))
     graph_metric_context = precompute_graph_metric_context(H_static, n_nodes)
 
-    # Select the same number of non-overlapping truth-run blocks used by model reps.
-    select_truth = np.arange(n_eval_runs)
+    # Select the same held-out truth window used by model evaluation.
     truth_S = data.truth_S[:, select_truth, :]   # [n_nodes, n_eval_runs, n_nodes]
     truth_I = data.truth_I[:, select_truth, :]
     truth_R = data.truth_R[:, select_truth, :]
@@ -775,6 +789,8 @@ def main() -> None:
     wandb.summary["data/name"] = args.data
     wandb.summary["eval/n_truth_per_rep"] = n_truth
     wandb.summary["eval/reps"] = eval_reps
+    wandb.summary["eval/truth_start"] = int(eval_cfg.get("truth_start", 0))
+    wandb.summary["eval/truth_stop"] = int(select_truth[-1]) + 1 if len(select_truth) else int(eval_cfg.get("truth_start", 0))
     wandb.summary["baseline/method_notes"] = {
         b: BASELINE_METHOD_NOTES.get(b, "") for b in baselines
     }
@@ -796,6 +812,8 @@ def main() -> None:
         {
             "status": "success",
             "data": args.data,
+            "truth_start": int(eval_cfg.get("truth_start", 0)),
+            "truth_stop": int(select_truth[-1]) + 1 if len(select_truth) else int(eval_cfg.get("truth_start", 0)),
             "baseline_method_notes": {
                 b: BASELINE_METHOD_NOTES.get(b, "") for b in baselines
             },

@@ -96,6 +96,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--trial-n-mc", type=int, default=None,
                    help="Optional train.n_mc cap used only inside Optuna trials")
     p.add_argument("--wandb-project", default="source-detection")
+    p.add_argument("--fresh", action="store_true",
+                   help="Ignore local trial checkpoints when training trial models.")
     p.add_argument("--dry-run", action="store_true", help="Print study plan only")
     return p.parse_args()
 
@@ -399,9 +401,16 @@ def _aggregate_metrics(rep_metric_lists: dict[str, list[float]]) -> dict[str, fl
     return out
 
 
+def _remaining_trials_for_target(trials, terminal_states: set, target_trials: int) -> int:
+    """Return how many additional trials are needed to reach a target total."""
+    finished_trials = sum(1 for trial in trials if trial.state in terminal_states)
+    return max(0, int(target_trials) - finished_trials)
+
+
 def run_trial(
     *,
     trial_cfg: dict[str, Any],
+    data_name: str,
     H: nx.Graph,
     H_static: nx.Graph,
     data,
@@ -410,6 +419,8 @@ def run_trial(
     optuna_trial,
     direction: str,
     run_dir: Path,
+    checkpoint_root: Path | None = None,
+    checkpoint_fresh: bool = False,
 ) -> dict[str, Any]:
     """Train/evaluate one Optuna trial and return aggregate metrics."""
     import torch
@@ -418,6 +429,7 @@ def run_trial(
     from eval import compute_all_metrics
     from gnn import get_model_spec
     from training import SIRDataset, Trainer
+    from training.checkpointing import atomic_json_dump, checkpoint_timestamp
 
     train_cfg = trial_cfg["train"]
     eval_cfg = trial_cfg["eval"]
@@ -451,6 +463,18 @@ def run_trial(
         model = spec.build_fn(model_cfg, data.n_nodes, graph_data)
         n_params = sum(p.numel() for p in model.parameters())
         trainer = Trainer(model, spec.forward_fn, graph_data, device)
+        rep_checkpoint_dir = checkpoint_root / f"rep{rep}" if checkpoint_root is not None else None
+        trial_metadata = {
+            "model": model_name,
+            "data": data_name,
+            "trial": int(optuna_trial.number),
+            "rep": int(rep),
+            "cfg": trial_cfg,
+            "n_nodes": int(data.n_nodes),
+            "graph_builder_kwargs": _builder_kwargs(model_name, model_cfg),
+            "selected_mc_indices": np.asarray(select, dtype=np.int64).tolist(),
+            "truth_budget": truth_budget.__dict__,
+        }
         train_losses, val_losses = trainer.fit(
             dataset=dataset,
             batch_size=int(train_cfg["batch_size"]),
@@ -466,8 +490,24 @@ def run_trial(
             optuna_trial=optuna_trial,
             optuna_report_sign=-1.0 if direction == "maximize" else 1.0,
             optuna_step_offset=rep * int(train_cfg["epochs"]),
+            checkpoint_dir=rep_checkpoint_dir,
+            checkpoint_metadata=trial_metadata,
+            checkpoint_enabled=True,
+            checkpoint_resume=True,
+            checkpoint_fresh=checkpoint_fresh,
+            checkpoint_save_every=int(trial_cfg.get("checkpoint", {}).get("save_every", 1)),
+            final_model_path=(
+                rep_checkpoint_dir / f"final_model_rep{rep}.pt"
+                if rep_checkpoint_dir is not None else None
+            ),
         )
         _write_loss_history(str(run_dir / f"loss_history_rep{rep}.csv"), train_losses, val_losses)
+        if rep_checkpoint_dir is not None:
+            _write_loss_history(
+                str(rep_checkpoint_dir / f"loss_history_rep{rep}.csv"),
+                train_losses,
+                val_losses,
+            )
 
         select_truth = _truth_indices_for_rep(
             eval_cfg,
@@ -498,6 +538,26 @@ def run_trial(
             str(run_dir / f"metrics_rep{rep}.json"),
             {"rep": rep, "metrics": rep_metrics},
         )
+        if rep_checkpoint_dir is not None:
+            _write_json(
+                str(rep_checkpoint_dir / f"metrics_rep{rep}.json"),
+                {"rep": rep, "metrics": rep_metrics},
+            )
+            atomic_json_dump(
+                {
+                    "status": "evaluated",
+                    "compatibility_hash": trainer.last_fit_info.get("compatibility_hash"),
+                    "updated_at": checkpoint_timestamp(),
+                    "model": model_name,
+                    "data": data_name,
+                    "trial": int(optuna_trial.number),
+                    "rep": int(rep),
+                    "n_params": int(n_params),
+                    "metrics_path": str(rep_checkpoint_dir / f"metrics_rep{rep}.json"),
+                    "final_model": str(rep_checkpoint_dir / f"final_model_rep{rep}.pt"),
+                },
+                rep_checkpoint_dir / "state.json",
+            )
         for key, value in rep_metrics.items():
             if key != "eval/n_valid":
                 rep_metric_lists.setdefault(key, []).append(float(value))
@@ -784,6 +844,7 @@ def main() -> None:
         try:
             metrics = run_trial(
                 trial_cfg=trial_cfg,
+                data_name=args.data,
                 H=H,
                 H_static=H_static,
                 data=data,
@@ -792,6 +853,8 @@ def main() -> None:
                 optuna_trial=trial,
                 direction=str(hpo_cfg["direction"]),
                 run_dir=run_dir,
+                checkpoint_root=output_dir / "checkpoints" / f"trial_{trial.number:04d}",
+                checkpoint_fresh=bool(args.fresh),
             )
             objective_value = _objective_from_metrics(metrics, str(hpo_cfg["metric"]))
             wandb.log({"optuna/objective": objective_value, **{f"hpo/{k}": v for k, v in metrics.items()}})
@@ -831,12 +894,30 @@ def main() -> None:
         finally:
             wandb.finish()
 
-    study.optimize(
-        objective,
-        n_trials=n_trials,
-        timeout=hpo_cfg.get("timeout"),
-        gc_after_trial=True,
-    )
+    terminal_states = {
+        optuna.trial.TrialState.COMPLETE,
+        optuna.trial.TrialState.PRUNED,
+        optuna.trial.TrialState.FAIL,
+    }
+    finished_trials = sum(1 for trial in study.trials if trial.state in terminal_states)
+    remaining_trials = _remaining_trials_for_target(study.trials, terminal_states, n_trials)
+    if remaining_trials == 0:
+        print(
+            f"Optuna study already has {finished_trials} finished trials; "
+            f"target is {n_trials}, so no new trials are scheduled."
+        )
+    else:
+        if finished_trials:
+            print(
+                f"Resuming Optuna study with {finished_trials}/{n_trials} "
+                f"finished trials; scheduling {remaining_trials} more."
+            )
+        study.optimize(
+            objective,
+            n_trials=remaining_trials,
+            timeout=hpo_cfg.get("timeout"),
+            gc_after_trial=True,
+        )
 
     completed = [
         trial for trial in study.trials

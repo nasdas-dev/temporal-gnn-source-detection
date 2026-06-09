@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -34,6 +35,17 @@ import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Subset
 
+from .checkpointing import (
+    array_fingerprint,
+    assert_compatible,
+    atomic_json_dump,
+    atomic_torch_save,
+    capture_rng_state,
+    checkpoint_timestamp,
+    compatibility_hash,
+    restore_rng_state,
+    torch_load,
+)
 from .data import SIRDataset
 
 
@@ -116,6 +128,56 @@ def check_loss_guard(
             return "uniform_stall"
 
     return None
+
+
+def make_train_val_split(
+    dataset: SIRDataset,
+    test_size: float,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the deterministic stratified split used by Trainer.fit."""
+    n_total = len(dataset)
+    indices = np.arange(n_total)
+    labels = dataset.y.numpy()
+    tr_idx, va_idx = train_test_split(
+        indices,
+        test_size=test_size,
+        stratify=labels,
+        random_state=seed,
+    )
+    return np.asarray(tr_idx, dtype=np.int64), np.asarray(va_idx, dtype=np.int64)
+
+
+def fit_compatibility_metadata(
+    *,
+    dataset: SIRDataset,
+    batch_size: int,
+    epochs: int,
+    patience: int,
+    lr: float,
+    weight_decay: float,
+    test_size: float,
+    seed: int,
+    checkpoint_metadata: dict | None,
+) -> tuple[dict, np.ndarray, np.ndarray, str]:
+    """Return compatibility metadata, split indices, and its hash."""
+    tr_idx, va_idx = make_train_val_split(dataset, test_size, seed)
+    metadata = {
+        **(checkpoint_metadata or {}),
+        "trainer": {
+            "batch_size": int(batch_size),
+            "epochs": int(epochs),
+            "patience": int(patience),
+            "lr": float(lr),
+            "weight_decay": float(weight_decay),
+            "test_size": float(test_size),
+            "seed": int(seed),
+            "n_total": int(len(dataset)),
+            "train_indices": array_fingerprint(tr_idx),
+            "val_indices": array_fingerprint(va_idx),
+        },
+    }
+    return metadata, tr_idx, va_idx, compatibility_hash(metadata)
 
 
 # ---------------------------------------------------------------------------
@@ -201,16 +263,18 @@ def temporal_gnn_forward(
     }
     time_order = list(graph_data.get("time_order", sorted(edge_indeces)))
 
-    x = F.relu(model.lin_pre(x))
+    x = model.encode_input(x)
+    history = [x]
     offsets = torch.arange(B, device=device) * N
     for count, t in enumerate(reversed(time_order)):
         edge_index = edge_indeces[t]
         E = edge_index.size(1)
         batch_offsets = offsets.repeat_interleave(E)
         batched_ei = edge_index.repeat(1, B) + batch_offsets.unsqueeze(0)
-        x = F.relu(model.convs[count](x, batched_ei))
+        x = model.apply_temporal_layer(count, x, batched_ei)
+        history.append(x)
 
-    scores = model.lin_post(x).view(B, N)
+    scores = model.score_nodes(x, history).view(B, N)
     return F.log_softmax(scores, dim=-1)
 
 
@@ -276,6 +340,7 @@ class Trainer:
         self.forward_fn = forward_fn
         self.device     = device
         self.graph_data = _move_graph_data_to_device(graph_data, device)
+        self.last_fit_info: dict = {}
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -305,6 +370,13 @@ class Trainer:
         optuna_trial=None,
         optuna_report_sign: float = 1.0,
         optuna_step_offset: int = 0,
+        checkpoint_dir: str | Path | None = None,
+        checkpoint_metadata: dict | None = None,
+        checkpoint_enabled: bool = True,
+        checkpoint_resume: bool = True,
+        checkpoint_fresh: bool = False,
+        checkpoint_save_every: int = 1,
+        final_model_path: str | Path | None = None,
     ) -> tuple[list[float], list[float]]:
         """Train with early stopping on validation NLL.
 
@@ -333,15 +405,16 @@ class Trainer:
         train_losses, val_losses:
             Per-epoch average NLL (one value per epoch trained).
         """
-        n_total = len(dataset)
-        indices = np.arange(n_total)
-        labels  = dataset.y.numpy()
-
-        tr_idx, va_idx = train_test_split(
-            indices,
-            test_size    = test_size,
-            stratify     = labels,
-            random_state = seed,
+        fit_metadata, tr_idx, va_idx, fit_hash = fit_compatibility_metadata(
+            dataset=dataset,
+            batch_size=batch_size,
+            epochs=epochs,
+            patience=patience,
+            lr=lr,
+            weight_decay=weight_decay,
+            test_size=test_size,
+            seed=seed,
+            checkpoint_metadata=checkpoint_metadata,
         )
 
         train_loader = DataLoader(
@@ -366,12 +439,105 @@ class Trainer:
         train_losses: list[float] = []
         val_losses:   list[float] = []
         best_val      = float("inf")
+        best_epoch    = 0
         best_state    = None
         patience_ctr  = 0
         guard_cfg     = make_loss_guard_config(loss_guard)
         n_nodes       = int(self.graph_data.get("n_nodes", 1))
+        start_epoch   = 1
+        stopped_early = False
+        checkpoint_save_every = max(1, int(checkpoint_save_every))
+        ckpt_dir = Path(checkpoint_dir) if checkpoint_dir is not None else None
+        latest_path = ckpt_dir / "latest.pt" if ckpt_dir is not None else None
+        best_path = ckpt_dir / "best.pt" if ckpt_dir is not None else None
+        final_path = Path(final_model_path) if final_model_path is not None else None
 
-        for epoch in range(1, epochs + 1):
+        def _base_payload(epoch: int) -> dict:
+            return {
+                "version": 1,
+                "kind": "trainer_epoch",
+                "saved_at": checkpoint_timestamp(),
+                "compatibility_hash": fit_hash,
+                "metadata": fit_metadata,
+                "epoch": int(epoch),
+                "best_epoch": int(best_epoch),
+                "best_val": float(best_val),
+                "patience_ctr": int(patience_ctr),
+                "train_losses": list(train_losses),
+                "val_losses": list(val_losses),
+                "train_indices": tr_idx,
+                "val_indices": va_idx,
+                "rng_state": capture_rng_state(),
+            }
+
+        def _save_manifest(status: str, epoch: int) -> None:
+            if ckpt_dir is None:
+                return
+            atomic_json_dump(
+                {
+                    "status": status,
+                    "compatibility_hash": fit_hash,
+                    "updated_at": checkpoint_timestamp(),
+                    "epoch": int(epoch),
+                    "best_epoch": int(best_epoch),
+                    "best_val": None if best_val == float("inf") else float(best_val),
+                    "latest": str(latest_path) if latest_path is not None else "",
+                    "best": str(best_path) if best_path is not None else "",
+                    "final_model": str(final_path) if final_path is not None else "",
+                    "metadata": fit_metadata,
+                },
+                ckpt_dir / "manifest.json",
+            )
+
+        def _save_latest(epoch: int, status: str = "training") -> None:
+            if not checkpoint_enabled or latest_path is None:
+                return
+            payload = {
+                **_base_payload(epoch),
+                "model_state": self.model.state_dict(),
+                "optimizer_state": optimizer.state_dict(),
+                "status": status,
+            }
+            atomic_torch_save(payload, latest_path)
+            _save_manifest(status, epoch)
+
+        def _save_best(epoch: int) -> None:
+            if not checkpoint_enabled or best_path is None:
+                return
+            payload = {
+                **_base_payload(epoch),
+                "kind": "trainer_best",
+                "model_state": self.model.state_dict(),
+                "status": "best",
+            }
+            atomic_torch_save(payload, best_path)
+
+        if (
+            checkpoint_enabled
+            and checkpoint_resume
+            and not checkpoint_fresh
+            and latest_path is not None
+            and latest_path.exists()
+        ):
+            payload = torch_load(latest_path, map_location=self.device)
+            assert_compatible(payload, fit_hash, latest_path)
+            self.model.load_state_dict(payload["model_state"])
+            optimizer.load_state_dict(payload["optimizer_state"])
+            restore_rng_state(payload.get("rng_state"))
+            train_losses = list(payload.get("train_losses", []))
+            val_losses = list(payload.get("val_losses", []))
+            best_val = float(payload.get("best_val", best_val))
+            best_epoch = int(payload.get("best_epoch", 0))
+            patience_ctr = int(payload.get("patience_ctr", 0))
+            start_epoch = int(payload.get("epoch", 0)) + 1
+            print(
+                f"  Resuming from {latest_path} at epoch {start_epoch} "
+                f"(best val={best_val:.4f})"
+            )
+        elif checkpoint_enabled and checkpoint_fresh and ckpt_dir is not None:
+            _save_manifest("fresh_start", 0)
+
+        for epoch in range(start_epoch, epochs + 1):
             # --- Train ---
             self.model.train()
             train_loss = 0.0
@@ -431,18 +597,64 @@ class Trainer:
             # Early stopping
             if vl < best_val:
                 best_val   = vl
+                best_epoch = epoch
                 best_state = {k: v.clone() for k, v in self.model.state_dict().items()}
                 patience_ctr = 0
+                _save_best(epoch)
             else:
                 patience_ctr += 1
                 if patience_ctr >= patience:
                     print(f"  Early stopping at epoch {epoch} (best val={best_val:.4f})")
+                    stopped_early = True
+                    _save_latest(epoch, status="early_stopped")
                     break
 
+            if epoch % checkpoint_save_every == 0 or epoch == epochs:
+                _save_latest(epoch)
+
         # Restore best weights
-        if best_state is not None:
+        if checkpoint_enabled and best_path is not None and best_path.exists():
+            payload = torch_load(best_path, map_location=self.device)
+            assert_compatible(payload, fit_hash, best_path)
+            self.model.load_state_dict(payload["model_state"])
+        elif best_state is not None:
             self.model.load_state_dict(best_state)
 
+        epochs_trained = len(train_losses)
+        if checkpoint_enabled and final_path is not None:
+            final_payload = {
+                "version": 1,
+                "kind": "final_model",
+                "saved_at": checkpoint_timestamp(),
+                "compatibility_hash": fit_hash,
+                "metadata": fit_metadata,
+                "model_state": self.model.state_dict(),
+                "best_epoch": int(best_epoch),
+                "best_val": None if best_val == float("inf") else float(best_val),
+                "epochs_trained": int(epochs_trained),
+                "stopped_early": bool(stopped_early),
+                "train_losses": list(train_losses),
+                "val_losses": list(val_losses),
+                "train_indices": tr_idx,
+                "val_indices": va_idx,
+            }
+            atomic_torch_save(final_payload, final_path)
+            _save_manifest("trained", max(start_epoch - 1, epochs_trained))
+
+        self.last_fit_info = {
+            "compatibility_hash": fit_hash,
+            "metadata": fit_metadata,
+            "train_indices": tr_idx,
+            "val_indices": va_idx,
+            "best_epoch": int(best_epoch),
+            "best_val": None if best_val == float("inf") else float(best_val),
+            "epochs_trained": int(epochs_trained),
+            "checkpoint_dir": str(ckpt_dir) if ckpt_dir is not None else "",
+            "latest_checkpoint": str(latest_path) if latest_path is not None else "",
+            "best_checkpoint": str(best_path) if best_path is not None else "",
+            "final_model": str(final_path) if final_path is not None else "",
+            "resumed": bool(start_epoch > 1),
+        }
         return train_losses, val_losses
 
     def predict(

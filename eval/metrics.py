@@ -16,9 +16,11 @@ Metric suite
 - Normalised entropy      via ``eval/norm_entropy``
 - Credible set coverage   via ``eval/cred_cov_{p_int}`` for each p
 
-The "possible" filter (``lik_possible``) is applied *only* for ranking —
-impossible nodes are ranked last via ``-inf`` log-probability.  Brier and
-entropy metrics use the raw predicted probabilities.
+By default, ranking metrics follow the Sterchi et al. benchmark convention:
+the true source is ranked among feasible outbreak candidates, i.e. nodes that
+are non-susceptible in the observed snapshot. Set ``eval.rank_scope`` (or the
+backwards-compatible alias ``eval.ranking_scope``) to ``all_nodes`` to rank
+over every node without applying ``lik_possible``.
 """
 
 from __future__ import annotations
@@ -68,6 +70,36 @@ def _rng_from_eval_cfg(eval_cfg: dict) -> np.random.Generator:
     return np.random.default_rng(int(eval_cfg.get("seed", 0)))
 
 
+def _rank_scope(eval_cfg: dict) -> str:
+    """Return the configured rank scope normalised to an internal value."""
+    raw = str(eval_cfg.get("rank_scope", eval_cfg.get("ranking_scope", "candidate")))
+    scope = raw.lower().replace("-", "_")
+    aliases = {
+        "sterchi": "candidate",
+        "feasible": "candidate",
+        "possible": "candidate",
+        "infected": "candidate",
+        "infected_subgraph": "candidate",
+        "outbreak": "candidate",
+        "outbreak_subgraph": "candidate",
+        "all": "all_nodes",
+        "allnodes": "all_nodes",
+        "unbiased": "all_nodes",
+    }
+    scope = aliases.get(scope, scope)
+    if scope not in {"candidate", "all_nodes"}:
+        raise ValueError(
+            "eval.rank_scope must be one of 'candidate'/'sterchi' or "
+            f"'all_nodes', got {raw!r}"
+        )
+    return scope
+
+
+def _candidate_mask(lik_possible: np.ndarray) -> np.ndarray:
+    """Return True for nodes allowed by the feasible-source mask."""
+    return np.isfinite(lik_possible) & (lik_possible <= 0)
+
+
 def _shortest_path_distance_matrix(H_static, n_nodes: int) -> np.ndarray:
     """Return graph distances, penalising disconnected pairs explicitly."""
     import networkx as nx
@@ -107,8 +139,9 @@ def per_sample_arrays(
     probs : np.ndarray, shape (n_samples, n_nodes)
         Predicted probability distribution (non-negative, sums to 1).
     lik_possible : np.ndarray, shape (n_samples, n_nodes)
-        Masking array — ``0`` for possible source nodes, ``np.inf`` for
-        impossible ones.  Subtracted from log-probs before ranking.
+        Feasible-source log mask. With the default Sterchi-style rank scope,
+        nodes with ``+inf`` in this array are excluded from rank-based metrics.
+        Set ``eval.rank_scope: all_nodes`` to ignore it for ranking.
     truth_S_flat : np.ndarray, shape (n_samples, n_nodes), int8
         Susceptible-state matrix; row ``s * n_runs + r`` corresponds to
         source *s*, run *r*.
@@ -139,8 +172,11 @@ def per_sample_arrays(
 
     rng = _rng_from_eval_cfg(eval_cfg)
 
-    # Apply lik_possible masking before ranking (impossible nodes -> -inf)
-    log_probs = np.log(np.clip(probs, 1e-12, 1.0)) - lik_possible
+    log_probs = np.log(np.clip(probs, 1e-12, 1.0))
+    if _rank_scope(eval_cfg) == "candidate":
+        # Sterchi-style evaluation: exclude susceptible nodes from rank-based
+        # metrics while retaining the full probability vector for calibration.
+        log_probs = log_probs - lik_possible
     ranks = compute_ranks(log_probs, n_nodes=n_nodes, n_runs=n_runs, rng=rng)
 
     return {
@@ -173,9 +209,9 @@ def compute_all_metrics(
         Predicted probability distribution (not log-probs).  Values must be
         non-negative and sum to 1 over axis 1.
     lik_possible : np.ndarray, shape (n_samples, n_nodes)
-        Masking array — ``0`` for possible source nodes, ``np.inf`` for
-        impossible ones.  Used for ranking only; does not affect calibration
-        metrics (Brier, entropy).
+        Feasible-source log mask. By default it is applied to rank-based
+        metrics to reproduce Sterchi-style candidate-subgraph evaluation.
+        Set ``eval.rank_scope: all_nodes`` for strict all-node ranking.
     truth_S_flat : np.ndarray, shape (n_samples, n_nodes), int8
         Susceptible-state matrix from TSIR simulation.
     eval_cfg : dict
@@ -185,6 +221,7 @@ def compute_all_metrics(
         - ``top_k``                — list[int], k values for top-k accuracy
         - ``inverse_rank_offset``  — list[int], offsets for rank score
         - ``credible_p``           — list[float], optional, default [0.90]
+        - ``rank_scope``           — ``candidate`` (default) or ``all_nodes``
     n_nodes : int
         Number of nodes in the network.
     n_runs : int
@@ -264,6 +301,10 @@ def compute_all_metrics(
     metrics["eval/n_valid"] = n_valid
     metrics["eval/n_total"] = n_total
     metrics["eval/valid_frac"] = n_valid / n_total if n_total > 0 else float("nan")
+    candidate_counts = _candidate_mask(lik_possible).sum(axis=1)
+    metrics["eval/rank_scope_candidate"] = 1.0 if _rank_scope(eval_cfg) == "candidate" else 0.0
+    metrics["eval/mean_candidate_count"] = float(np.mean(candidate_counts[sel])) if np.any(sel) else float("nan")
+    metrics["eval/median_candidate_count"] = float(np.median(candidate_counts[sel])) if np.any(sel) else float("nan")
 
     if H_static is not None or graph_metric_context is not None:
         if graph_metric_context is None:

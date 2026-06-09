@@ -131,6 +131,10 @@ def _build_temporal_gnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torc
         hidden_channels  = model_cfg["hidden_channels"],
         out_channels     = 1,
         num_snapshots    = graph_data["num_snapshots"],
+        residual         = model_cfg.get("residual", True),
+        layer_norm       = model_cfg.get("layer_norm", True),
+        dropout_rate     = model_cfg.get("dropout_rate", 0.0),
+        readout          = model_cfg.get("readout", "jumping_mean"),
     )
 
 

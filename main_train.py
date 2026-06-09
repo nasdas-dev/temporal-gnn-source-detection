@@ -31,6 +31,9 @@ import argparse
 import csv
 import json
 import os
+from pathlib import Path
+import re
+import shutil
 
 # Prevent OpenMP/MKL deadlock when wandb spawns background threads alongside
 # PyTorch's multi-threaded CPU kernels (especially scatter_add_ and Linear).
@@ -47,7 +50,15 @@ import yaml
 from eval import compute_all_metrics, per_sample_arrays
 from gnn import MODEL_REGISTRY, get_model_spec
 from setup import setup_methods_run, load_tsir_data
-from training import LossGuardAbort, SIRDataset, Trainer
+from training import CheckpointError, LossGuardAbort, SIRDataset, Trainer, fit_compatibility_metadata
+from training.checkpointing import (
+    assert_compatible,
+    atomic_json_dump,
+    checkpoint_timestamp,
+    compatibility_hash,
+    load_json,
+    torch_load,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,6 +73,12 @@ def parse_args() -> argparse.Namespace:
                    help="Override config values, e.g. --override train.n_mc=100 train.reps=1")
     p.add_argument("--save-probs", action="store_true",
                    help="Save probs_rep*.pt tensors. Eval arrays and metrics are always saved.")
+    p.add_argument("--checkpoint-dir", default=None,
+                   help="Local checkpoint root. Defaults to data/checkpoints/<data>/<model>/<hash>.")
+    p.add_argument("--resume-from", default=None,
+                   help="Alias for --checkpoint-dir when resuming from an existing local checkpoint root.")
+    p.add_argument("--fresh", action="store_true",
+                   help="Start a fresh attempt and ignore existing local checkpoints.")
     return p.parse_args()
 
 
@@ -140,6 +157,92 @@ def _write_loss_history(path: str, train_losses: list[float], val_losses: list[f
             writer.writerow([epoch, tl, vl])
 
 
+def _safe_part(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_") or "unknown"
+
+
+def _checkpoint_settings(cfg_dict: dict, args: argparse.Namespace) -> dict:
+    raw = cfg_dict.get("checkpoint") or {}
+    resume_requested = bool(raw.get("resume", True)) or bool(args.resume_from)
+    return {
+        "enabled": bool(raw.get("enabled", True)),
+        "resume": resume_requested and not bool(args.fresh),
+        "save_every": int(raw.get("save_every", 1)),
+        "dir": raw.get("dir"),
+    }
+
+
+def _resolve_checkpoint_root(
+    *,
+    args: argparse.Namespace,
+    cfg_dict: dict,
+    output_cfg: dict,
+    checkpoint_cfg: dict,
+    model_name: str,
+    data_name: str,
+    n_nodes: int,
+) -> Path:
+    explicit = args.checkpoint_dir or args.resume_from or output_cfg.get("checkpoint_dir") or checkpoint_cfg.get("dir")
+    if explicit:
+        return Path(explicit)
+    key = compatibility_hash({
+        "model": model_name,
+        "data": data_name,
+        "cfg": cfg_dict,
+        "n_nodes": int(n_nodes),
+    })[:16]
+    return Path("data") / "checkpoints" / _safe_part(data_name) / _safe_part(model_name) / key
+
+
+def _mc_indices_by_rep(mc_runs: int, n_mc: int, reps: int, seed: int) -> list[np.ndarray]:
+    rng = np.random.RandomState(seed)
+    return [
+        np.asarray(rng.choice(mc_runs, n_mc, replace=False), dtype=np.int64)
+        for _ in range(reps)
+    ]
+
+
+def _copy_if_exists(src: Path, dest: Path) -> None:
+    if src.exists():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+
+
+def _write_rep_state(path: Path | None, payload: dict) -> None:
+    if path is None:
+        return
+    atomic_json_dump(
+        {
+            "updated_at": checkpoint_timestamp(),
+            **payload,
+        },
+        path,
+    )
+
+
+def _restore_rep_outputs(rep_dir: Path, run_dir: Path, rep: int, save_probs: bool) -> dict | None:
+    metrics_src = rep_dir / f"metrics_rep{rep}.json"
+    arrays_src = rep_dir / f"eval_arrays_rep{rep}.npz"
+    if not metrics_src.exists() or not arrays_src.exists():
+        return None
+    _copy_if_exists(rep_dir / f"loss_history_rep{rep}.csv", run_dir / f"loss_history_rep{rep}.csv")
+    _copy_if_exists(metrics_src, run_dir / f"metrics_rep{rep}.json")
+    _copy_if_exists(arrays_src, run_dir / f"eval_arrays_rep{rep}.npz")
+    if save_probs:
+        _copy_if_exists(rep_dir / f"probs_rep{rep}.pt", run_dir / f"probs_rep{rep}.pt")
+    with open(metrics_src) as f:
+        return json.load(f).get("metrics")
+
+
+def _compact_fit_info(info: dict) -> dict:
+    """Drop large split arrays from state JSON; they remain in .pt checkpoints."""
+    return {
+        key: value
+        for key, value in info.items()
+        if key not in {"train_indices", "val_indices"}
+    }
+
+
 def _truth_indices_for_rep(
     eval_cfg: dict,
     rep: int,
@@ -180,6 +283,7 @@ def main() -> None:
     model_cfg  = cfg_dict[model_name]     # model-specific section
     output_cfg = cfg_dict.get("output", {})
     save_probs = bool(args.save_probs or output_cfg.get("save_probs", False))
+    checkpoint_cfg = _checkpoint_settings(cfg_dict, args)
 
     if model_name not in MODEL_REGISTRY:
         raise ValueError(
@@ -258,6 +362,34 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\n  Device  : {device}")
+    checkpoint_root = _resolve_checkpoint_root(
+        args=args,
+        cfg_dict=cfg_dict,
+        output_cfg=output_cfg,
+        checkpoint_cfg=checkpoint_cfg,
+        model_name=model_name,
+        data_name=args.data,
+        n_nodes=n_nodes,
+    )
+    if checkpoint_cfg["enabled"]:
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        atomic_json_dump(
+            {
+                "status": "active",
+                "model": model_name,
+                "data": args.data,
+                "run_id": wandb.run.id,
+                "checkpoint_root": str(checkpoint_root),
+                "resume": checkpoint_cfg["resume"],
+                "fresh": bool(args.fresh),
+                "updated_at": checkpoint_timestamp(),
+            },
+            checkpoint_root / "manifest.json",
+        )
+        wandb.summary["checkpoint/root"] = str(checkpoint_root)
+        print(f"  Checkpoints: {checkpoint_root}")
+        if args.fresh:
+            print("  Fresh run: existing checkpoints will be ignored")
 
     # ---------------------------------------------------------------
     # 5. Training repetitions
@@ -273,6 +405,13 @@ def main() -> None:
 
     torch.manual_seed(train_cfg["seed"])
     np.random.seed(train_cfg["seed"])
+    mc_selects = _mc_indices_by_rep(
+        mc_runs=data.mc_runs,
+        n_mc=int(train_cfg["n_mc"]),
+        reps=int(reps),
+        seed=int(train_cfg["seed"]),
+    )
+    n_params = 0
 
     for rep in range(reps):
         print("\n" + "=" * 60)
@@ -280,58 +419,175 @@ def main() -> None:
         print("=" * 60)
 
         # --- Sample MC runs ---
-        n_mc   = train_cfg["n_mc"]
-        select = np.random.choice(data.mc_runs, n_mc, replace=False)
+        select = mc_selects[rep]
         dataset = SIRDataset(
             data.mc_S[:, select, :],
             data.mc_I[:, select, :],
             data.mc_R[:, select, :],
         )
+        rep_dir = checkpoint_root / f"rep{rep}" if checkpoint_cfg["enabled"] else None
+        state_path = rep_dir / "state.json" if rep_dir is not None else None
+        final_model_path = rep_dir / f"final_model_rep{rep}.pt" if rep_dir is not None else None
+        rep_metadata = {
+            "model": model_name,
+            "data": args.data,
+            "rep": int(rep),
+            "cfg": cfg_dict,
+            "n_nodes": int(n_nodes),
+            "graph_builder_kwargs": bkw,
+            "selected_mc_indices": select.tolist(),
+            "truth_start": truth_start,
+        }
+        fit_metadata, _, _, fit_hash = fit_compatibility_metadata(
+            dataset=dataset,
+            batch_size=int(train_cfg["batch_size"]),
+            epochs=int(train_cfg["epochs"]),
+            patience=int(train_cfg["patience"]),
+            lr=float(train_cfg["lr"]),
+            weight_decay=float(train_cfg["weight_decay"]),
+            test_size=float(train_cfg["test_size"]),
+            seed=int(train_cfg["seed"]) + rep,
+            checkpoint_metadata=rep_metadata,
+        )
+
+        rep_state = load_json(state_path) if state_path is not None else None
+        if (
+            rep_state is not None
+            and rep_state.get("compatibility_hash") != fit_hash
+            and checkpoint_cfg["resume"]
+        ):
+            raise CheckpointError(
+                f"Incompatible repetition state {state_path}: expected {fit_hash}, "
+                f"found {rep_state.get('compatibility_hash')}. Use --fresh to start over."
+            )
+
+        if (
+            rep_dir is not None
+            and checkpoint_cfg["resume"]
+            and not args.fresh
+            and rep_state is not None
+            and rep_state.get("status") == "evaluated"
+        ):
+            restored_metrics = _restore_rep_outputs(rep_dir, Path(run_dir), rep, save_probs)
+            if restored_metrics is not None:
+                print(f"  Restored evaluated repetition from {rep_dir}")
+                n_params = int(rep_state.get("n_params", n_params))
+                wandb.log({f"{k}_rep{rep}": v for k, v in restored_metrics.items()})
+                for metric_key, val in restored_metrics.items():
+                    if metric_key != "eval/n_valid":
+                        rep_metric_lists.setdefault(metric_key, []).append(float(val))
+                continue
 
         # --- Build fresh model ---
+        torch.manual_seed(int(train_cfg["seed"]) + rep)
         model = spec.build_fn(model_cfg, n_nodes, graph_data)
         n_params = sum(p.numel() for p in model.parameters())
         print(f"  Parameters: {n_params:,}")
 
-        # --- Train ---
+        # --- Train or restore final model ---
         trainer = Trainer(model, spec.forward_fn, graph_data, device)
-        try:
-            train_losses, val_losses = trainer.fit(
-                dataset       = dataset,
-                batch_size    = train_cfg["batch_size"],
-                epochs        = train_cfg["epochs"],
-                patience      = train_cfg["patience"],
-                lr            = train_cfg["lr"],
-                weight_decay  = train_cfg["weight_decay"],
-                test_size     = train_cfg["test_size"],
-                seed          = train_cfg["seed"] + rep,
-                wandb_run     = wandb.run,
-                rep           = rep,
-                loss_guard    = train_cfg.get("loss_guard"),
-            )
-        except LossGuardAbort as exc:
-            print(f"LOSS_GUARD_ABORT: {exc.reason} at epoch {exc.epoch}")
-            wandb.summary["run/status"] = "loss_guard_aborted"
-            wandb.summary["run/abort_reason"] = exc.reason
-            wandb.summary["run/abort_epoch"] = exc.epoch
-            _write_json(
-                f"{run_dir}/abort.json",
-                {
-                    "status": "loss_guard_aborted",
-                    "reason": exc.reason,
-                    "epoch": exc.epoch,
-                    "train_loss": exc.train_loss,
-                    "val_loss": exc.val_loss,
-                    "model": model_name,
-                    "data": args.data,
-                },
-            )
-            wandb.finish(exit_code=88)
-            raise SystemExit(88)
+        final_loaded = False
+        if (
+            final_model_path is not None
+            and checkpoint_cfg["resume"]
+            and not args.fresh
+            and final_model_path.exists()
+        ):
+            payload = torch_load(final_model_path, map_location=device)
+            assert_compatible(payload, fit_hash, final_model_path)
+            trainer.model.load_state_dict(payload["model_state"])
+            train_losses = list(payload.get("train_losses", []))
+            val_losses = list(payload.get("val_losses", []))
+            trainer.last_fit_info = {
+                "compatibility_hash": fit_hash,
+                "metadata": fit_metadata,
+                "best_epoch": payload.get("best_epoch"),
+                "best_val": payload.get("best_val"),
+                "epochs_trained": payload.get("epochs_trained", len(train_losses)),
+                "checkpoint_dir": str(rep_dir),
+                "final_model": str(final_model_path),
+                "resumed": True,
+            }
+            final_loaded = True
+            print(f"  Restored trained model from {final_model_path}")
+        else:
+            try:
+                train_losses, val_losses = trainer.fit(
+                    dataset       = dataset,
+                    batch_size    = train_cfg["batch_size"],
+                    epochs        = train_cfg["epochs"],
+                    patience      = train_cfg["patience"],
+                    lr            = train_cfg["lr"],
+                    weight_decay  = train_cfg["weight_decay"],
+                    test_size     = train_cfg["test_size"],
+                    seed          = train_cfg["seed"] + rep,
+                    wandb_run     = wandb.run,
+                    rep           = rep,
+                    loss_guard    = train_cfg.get("loss_guard"),
+                    checkpoint_dir = rep_dir,
+                    checkpoint_metadata = rep_metadata,
+                    checkpoint_enabled = checkpoint_cfg["enabled"],
+                    checkpoint_resume = checkpoint_cfg["resume"],
+                    checkpoint_fresh = bool(args.fresh),
+                    checkpoint_save_every = checkpoint_cfg["save_every"],
+                    final_model_path = final_model_path,
+                )
+            except LossGuardAbort as exc:
+                print(f"LOSS_GUARD_ABORT: {exc.reason} at epoch {exc.epoch}")
+                wandb.summary["run/status"] = "loss_guard_aborted"
+                wandb.summary["run/abort_reason"] = exc.reason
+                wandb.summary["run/abort_epoch"] = exc.epoch
+                if state_path is not None:
+                    _write_rep_state(
+                        state_path,
+                        {
+                            "status": "loss_guard_aborted",
+                            "compatibility_hash": fit_hash,
+                            "reason": exc.reason,
+                            "epoch": exc.epoch,
+                            "train_loss": exc.train_loss,
+                            "val_loss": exc.val_loss,
+                            "n_params": n_params,
+                        },
+                    )
+                _write_json(
+                    f"{run_dir}/abort.json",
+                    {
+                        "status": "loss_guard_aborted",
+                        "reason": exc.reason,
+                        "epoch": exc.epoch,
+                        "train_loss": exc.train_loss,
+                        "val_loss": exc.val_loss,
+                        "model": model_name,
+                        "data": args.data,
+                    },
+                )
+                wandb.finish(exit_code=88)
+                raise SystemExit(88)
 
         _write_loss_history(
             f"{run_dir}/loss_history_rep{rep}.csv", train_losses, val_losses
         )
+        if rep_dir is not None:
+            _write_loss_history(
+                str(rep_dir / f"loss_history_rep{rep}.csv"), train_losses, val_losses
+            )
+            _write_rep_state(
+                state_path,
+                {
+                    "status": "trained",
+                    "compatibility_hash": fit_hash,
+                    "model": model_name,
+                    "data": args.data,
+                    "rep": rep,
+                    "n_params": n_params,
+                    "final_model": str(final_model_path),
+                    "fit_info": _compact_fit_info(trainer.last_fit_info),
+                    "final_loaded": final_loaded,
+                },
+            )
+            wandb.summary[f"checkpoint/rep{rep}_dir"] = str(rep_dir)
+            wandb.summary[f"model/final_rep{rep}_path"] = str(final_model_path)
 
         # --- Inference on ground truth ---
         print("\n  Running inference on ground truth…")
@@ -380,6 +636,11 @@ def main() -> None:
                 torch.tensor(probs),
                 f"{run_dir}/probs_rep{rep}.pt",
             )
+            if rep_dir is not None:
+                torch.save(
+                    torch.tensor(probs),
+                    rep_dir / f"probs_rep{rep}.pt",
+                )
         arrays = per_sample_arrays(
             probs        = probs,
             lik_possible = lik_possible,
@@ -392,15 +653,35 @@ def main() -> None:
             f"{run_dir}/eval_arrays_rep{rep}.npz",
             **arrays,
         )
-        _write_json(
-            f"{run_dir}/metrics_rep{rep}.json",
-            {
-                "rep": rep,
-                "model": model_name,
-                "data": args.data,
-                "metrics": rep_metrics,
-            },
-        )
+        if rep_dir is not None:
+            np.savez_compressed(
+                rep_dir / f"eval_arrays_rep{rep}.npz",
+                **arrays,
+            )
+        metrics_payload = {
+            "rep": rep,
+            "model": model_name,
+            "data": args.data,
+            "metrics": rep_metrics,
+        }
+        _write_json(f"{run_dir}/metrics_rep{rep}.json", metrics_payload)
+        if rep_dir is not None:
+            _write_json(str(rep_dir / f"metrics_rep{rep}.json"), metrics_payload)
+            _write_rep_state(
+                state_path,
+                {
+                    "status": "evaluated",
+                    "compatibility_hash": fit_hash,
+                    "model": model_name,
+                    "data": args.data,
+                    "rep": rep,
+                    "n_params": n_params,
+                    "final_model": str(final_model_path),
+                    "metrics_path": str(rep_dir / f"metrics_rep{rep}.json"),
+                    "eval_arrays_path": str(rep_dir / f"eval_arrays_rep{rep}.npz"),
+                    "fit_info": _compact_fit_info(trainer.last_fit_info),
+                },
+            )
 
     # ---------------------------------------------------------------
     # 6. Summary (averaged over reps)
@@ -440,6 +721,20 @@ def main() -> None:
         },
     }
     _write_json(f"{run_dir}/metrics_summary.json", summary_payload)
+    if checkpoint_cfg["enabled"]:
+        atomic_json_dump(
+            {
+                "status": "success",
+                "model": model_name,
+                "data": args.data,
+                "run_id": wandb.run.id,
+                "checkpoint_root": str(checkpoint_root),
+                "n_params": n_params,
+                "summary": summary_payload,
+                "updated_at": checkpoint_timestamp(),
+            },
+            checkpoint_root / "manifest.json",
+        )
 
     with open(f"{run_dir}/metrics_summary.csv", "w", newline="") as f:
         writer = csv.writer(f)

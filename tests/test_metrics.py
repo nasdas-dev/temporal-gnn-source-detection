@@ -149,6 +149,9 @@ class TestComputeAllMetrics:
             "eval/cred_cov_80", "eval/cred_cov_90",
             "eval/cred_set_size_80", "eval/cred_set_size_90",
             "eval/n_valid", "eval/n_total", "eval/valid_frac",
+            "eval/rank_scope_candidate",
+            "eval/mean_candidate_count",
+            "eval/median_candidate_count",
         }
         assert expected_keys.issubset(result.keys()), (
             f"Missing keys: {expected_keys - result.keys()}"
@@ -214,8 +217,8 @@ class TestComputeAllMetrics:
         result = compute_all_metrics(probs, lik_possible, truth_S_flat, cfg, n_nodes=20, n_runs=50)
         assert result["eval/cred_cov_80"] <= result["eval/cred_cov_90"] + 1e-9
 
-    def test_lik_possible_masking(self):
-        """Masking impossible nodes should not increase MRR vs. no masking."""
+    def test_lik_possible_is_ignored_for_all_node_ranking(self):
+        """All-node ranking must not condition on the feasible-source mask."""
         n_nodes, n_runs = 15, 30
         rng = np.random.default_rng(7)
         n_samples = n_nodes * n_runs
@@ -229,6 +232,7 @@ class TestComputeAllMetrics:
             truth_S_flat[i, rng.choice(others, 2, replace=False)] = 0
 
         cfg = make_eval_cfg(top_k=[1, 5])
+        cfg["rank_scope"] = "all_nodes"
 
         # No masking
         lik_none = np.zeros((n_samples, n_nodes), dtype=np.float64)
@@ -239,9 +243,34 @@ class TestComputeAllMetrics:
         lik_strict[np.arange(n_samples), true_sources] = 0.0
         result_strict = compute_all_metrics(probs, lik_strict, truth_S_flat, cfg, n_nodes, n_runs)
 
-        assert abs(result_strict["eval/top_1"] - 1.0) < 1e-6, (
-            "Masking all but true source should give top-1 = 1.0"
-        )
+        assert result_strict["eval/mrr"] == pytest.approx(result_none["eval/mrr"])
+        assert result_strict["eval/top_1"] == pytest.approx(result_none["eval/top_1"])
+        assert result_strict["eval/top_5"] == pytest.approx(result_none["eval/top_5"])
+
+    def test_candidate_rank_scope_applies_feasible_mask(self):
+        """Default Sterchi-style ranking should rank within feasible candidates."""
+        n_nodes, n_runs = 15, 30
+        rng = np.random.default_rng(8)
+        n_samples = n_nodes * n_runs
+        probs = rng.dirichlet(np.ones(n_nodes), size=n_samples).astype(np.float32)
+
+        truth_S_flat = np.ones((n_samples, n_nodes), dtype=np.int8)
+        true_sources = np.repeat(np.arange(n_nodes), n_runs)
+        for i, s in enumerate(true_sources):
+            truth_S_flat[i, s] = 0
+            others = [j for j in range(n_nodes) if j != s]
+            truth_S_flat[i, rng.choice(others, 2, replace=False)] = 0
+
+        lik_strict = np.full((n_samples, n_nodes), np.inf, dtype=np.float64)
+        lik_strict[np.arange(n_samples), true_sources] = 0.0
+        cfg = make_eval_cfg(top_k=[1, 5])
+
+        result = compute_all_metrics(probs, lik_strict, truth_S_flat, cfg, n_nodes, n_runs)
+
+        assert result["eval/rank_scope_candidate"] == pytest.approx(1.0)
+        assert result["eval/top_1"] == pytest.approx(1.0)
+        assert result["eval/mrr"] == pytest.approx(1.0)
+        assert result["eval/mean_candidate_count"] == pytest.approx(1.0)
 
     def test_no_credible_p_defaults(self):
         """If credible_p is absent, only cred_cov_90 should appear."""

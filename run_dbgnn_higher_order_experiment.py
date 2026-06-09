@@ -157,6 +157,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--hpo-pruner", choices=["hyperband", "median", "none"], default="hyperband")
     p.add_argument("--skip-tsir", action="store_true")
     p.add_argument("--skip-train", action="store_true")
+    p.add_argument("--reduction", choices=["safe_1h", "none"], default="safe_1h",
+                   help="Network reduction policy for TSIR artifacts. Default: safe_1h")
+    p.add_argument("--no-reduction", dest="reduction", action="store_const", const="none",
+                   help="Disable default network reduction.")
+    p.add_argument("--target-runtime-seconds", dest="timeout_seconds", type=int,
+                   help="Alias for --timeout-seconds.")
+    p.add_argument("--reduction-seed", dest="seed", type=int,
+                   help="Alias for --seed used by reduction.")
+    p.add_argument("--time-window-steps", default="auto",
+                   help="Temporal window length for safe_1h, or auto.")
+    p.add_argument("--reduction-reps", type=int, default=1)
+    p.add_argument("--use-full-betas", action="store_true",
+                   help="Use static BETAS instead of reduced-graph calibration.")
     p.add_argument("--no-sampling", action="store_true", help="Disable large-network sampling")
     p.add_argument("--sample-method", default="balanced_activity_snowball",
                    choices=["balanced_activity_snowball", "activity_snowball"])
@@ -316,7 +329,7 @@ def sampling_cfg_for_network(
     budget: int,
     args: argparse.Namespace,
 ) -> dict[str, Any] | None:
-    if args.no_sampling:
+    if args.no_sampling or getattr(args, "reduction", "safe_1h") == "none":
         return None
     st = stats[network]
     if st.n_nodes <= int(args.sample_node_threshold):
@@ -351,8 +364,9 @@ def optuna_variant_name(order: int) -> str:
 
 def higher_order_controls(order: int, args: argparse.Namespace | None = None) -> dict[str, Any]:
     """Return resource controls for the requested DBGNN order."""
+    safe_1h = args is not None and getattr(args, "reduction", "safe_1h") != "none"
     controls: dict[str, Any] = {
-        "time_bin_size": 1,
+        "time_bin_size": 4 if safe_1h else 1,
         "delta": None,
         "batch_size_cap": int(getattr(args, "base_batch_size", 16)),
     }
@@ -375,6 +389,7 @@ def build_tsir_config(
     r0_label: str,
     preset: Preset,
     sample_cfg: dict[str, Any] | None,
+    args: argparse.Namespace | None = None,
 ) -> dict[str, Any]:
     meta = read_network_meta(network)
     sc = scenario(network, r0_label)
@@ -385,17 +400,45 @@ def build_tsir_config(
         "directed": meta["directed"],
     }
     if sample_cfg is not None:
-        nwk_cfg["sample"] = sample_cfg
+        reduction_cfg: dict[str, Any] = {
+            "enabled": "auto",
+            "preset": "safe_1h",
+            "runtime_target_s": int(getattr(args, "timeout_seconds", 3600) or 3600),
+            "node": sample_cfg,
+        }
+        if int(meta["t_max"]) > 1000:
+            time_cfg: dict[str, Any] = {
+                "method": "representative_window",
+                "apply_if_time_steps_gt": 1000,
+                "max_steps_days": 365,
+                "reindex_to_zero": True,
+            }
+            window_steps = str(getattr(args, "time_window_steps", "auto"))
+            if window_steps != "auto":
+                time_cfg["max_steps"] = int(window_steps)
+            reduction_cfg["time"] = time_cfg
+        nwk_cfg["reduction"] = reduction_cfg
+    sir_cfg: dict[str, Any] = {
+        "beta": sc["beta"],
+        "mu": sc["mu"],
+        "start_t": 0,
+        "end_t": meta["t_max"],
+        "n_runs": preset.n_runs,
+        "mc_runs": preset.mc_runs,
+    }
+    if sample_cfg is not None and not bool(getattr(args, "use_full_betas", False)):
+        sir_cfg["calibration"] = {
+            "enabled": True,
+            "target_r0": sc["r0"],
+            "output_dir": "results/calibration",
+            "n_probe": 1,
+            "max_iter": 8,
+            "tolerance": 0.05,
+            "seed": int(getattr(args, "seed", 42)),
+        }
     return {
         "nwk": nwk_cfg,
-        "sir": {
-            "beta": sc["beta"],
-            "mu": sc["mu"],
-            "start_t": 0,
-            "end_t": meta["t_max"],
-            "n_runs": preset.n_runs,
-            "mc_runs": preset.mc_runs,
-        },
+        "sir": sir_cfg,
         "experiment": {
             "name": "dbgnn_higher_order",
             "network": network,
@@ -516,6 +559,14 @@ def write_manifest(
         "betas": {n: BETAS[n] for n in networks if n in BETAS},
         "mus": {n: MUS[n] for n in networks if n in MUS},
         "sample_budget_node_edge": sample_budget,
+        "reduction": {
+            "policy": getattr(args, "reduction", "safe_1h"),
+            "target_runtime_seconds": getattr(args, "timeout_seconds", None),
+            "time_window_steps": getattr(args, "time_window_steps", None),
+            "seed": getattr(args, "seed", None),
+            "reps": getattr(args, "reduction_reps", None),
+            "use_full_betas": bool(getattr(args, "use_full_betas", False)),
+        },
         "sample_method": args.sample_method,
         "sample_node_threshold": args.sample_node_threshold,
         "sample_target_nodes": args.sample_target_nodes,
@@ -713,7 +764,7 @@ def stage_tsir(
         return artifact
 
     cfg_path = run_dir / "configs" / network / r0_label / "tsir.yml"
-    write_yaml(cfg_path, build_tsir_config(network, r0_label, PRESETS[args.preset], sample_cfg))
+    write_yaml(cfg_path, build_tsir_config(network, r0_label, PRESETS[args.preset], sample_cfg, args))
     log_path = run_dir / network / r0_label / "logs" / "tsir.log"
     cmd = [sys.executable, "main_tsir.py", "--cfg", str(cfg_path), "--data", artifact]
     rc, stdout = run_command(cmd, log_path, args.dry_run, args.timeout_seconds)
@@ -784,6 +835,8 @@ def stage_hpo(
     ]
     if args.hpo_timeout is not None:
         cmd.extend(["--timeout", str(args.hpo_timeout)])
+    if args.force:
+        cmd.append("--fresh")
     rc, stdout = run_command(cmd, log_path, args.dry_run, args.timeout_seconds)
     best_cfg = run_dir / "hpo" / study_name / "best_config.yml"
     status = (
@@ -918,9 +971,21 @@ def stage_train(
         cfg_path = run_dir / "configs" / network / r0_label / f"{variant}.yml"
         write_yaml(cfg_path, build_dbgnn_config(network, r0_label, order, PRESETS[args.preset], args.save_probs, args))
     log_path = run_dir / network / r0_label / "logs" / f"train_{variant}.log"
-    cmd = [sys.executable, "main_train.py", "--cfg", str(cfg_path), "--data", f"{artifact}:latest"]
+    checkpoint_dir = run_dir / "checkpoints" / network / r0_label / variant
+    cmd = [
+        sys.executable,
+        "main_train.py",
+        "--cfg",
+        str(cfg_path),
+        "--data",
+        f"{artifact}:latest",
+        "--checkpoint-dir",
+        str(checkpoint_dir),
+    ]
     if args.save_probs:
         cmd.append("--save-probs")
+    if args.force:
+        cmd.append("--fresh")
     rc, stdout = run_command(cmd, log_path, args.dry_run, args.timeout_seconds)
     run_id = extract_run_id(stdout) or ("dryrun00" if args.dry_run else "")
     status = (

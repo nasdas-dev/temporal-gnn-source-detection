@@ -34,6 +34,7 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -53,11 +54,12 @@ from viz.rank_vs_outbreak import load_eval_arrays
 from viz.style import MODEL_COLORS, MODEL_LABELS, apply_style, finish_fig, model_style
 from scripts.publication_bundle import sync_publication_result
 from hpo import apply_trial_params
+from setup.reduction import NetworkStats, read_full_network_stats
 
 
 WANDB_PROJECT = "source-detection"
 
-NETWORKS = ["lyon_ward", "malawi", "france_office", "students", "biasca", "olten"]
+NETWORKS = ["lyon_ward", "malawi", "france_office", "students", "biasca", "olten", "escort", "pig_data"]
 MODELS = ["static_gnn", "temporal_gnn", "backtracking", "dbgnn_k2", "dbgnn_k3"]
 MODEL_ALIASES = {
     "dbgnn": ["dbgnn_k2", "dbgnn_k3"],
@@ -94,6 +96,8 @@ BETAS = {
     "students":     {"r0_08": 0.034, "r0_10": 0.045, "r0_11": 0.051, "r0_15": 0.078, "r0_20": 0.124, "r0_25": 0.187},
     "biasca":       {"r0_08": 0.016, "r0_10": 0.031, "r0_11": 0.041, "r0_15": 0.113, "r0_20": 0.274, "r0_25": 0.480},
     "olten":        {"r0_08": 0.025, "r0_10": 0.039, "r0_11": 0.047, "r0_15": 0.096, "r0_20": 0.195, "r0_25": 0.343},
+    "escort":       {"r0_08": 0.016, "r0_10": 0.020, "r0_11": 0.022, "r0_15": 0.030, "r0_20": 0.040, "r0_25": 0.050},
+    "pig_data":     {"r0_08": 0.032, "r0_10": 0.040, "r0_11": 0.044, "r0_15": 0.060, "r0_20": 0.080, "r0_25": 0.100},
 }
 
 MUS = {
@@ -103,6 +107,8 @@ MUS = {
     "students": 0.01,
     "biasca": 0.001,
     "olten": 0.001,
+    "escort": 0.02,
+    "pig_data": 0.01,
 }
 
 TEMPORAL_GROUP_BY_TIME = {
@@ -184,6 +190,22 @@ def parse_args() -> argparse.Namespace:
                    help="Cap final train.patience for generated configs; set 0 to keep template values")
     p.add_argument("--hpo-sampler", choices=["tpe", "random"], default="tpe")
     p.add_argument("--hpo-pruner", choices=["hyperband", "median", "none"], default="hyperband")
+    p.add_argument("--reduction", choices=["safe_1h", "none"], default="safe_1h",
+                   help="Network reduction policy for TSIR artifacts. Default: safe_1h")
+    p.add_argument("--no-reduction", dest="reduction", action="store_const", const="none",
+                   help="Disable default network reduction.")
+    p.add_argument("--target-runtime-seconds", type=int, default=3600,
+                   help="Timeout target for TSIR/HPO/train/eval subprocesses.")
+    p.add_argument("--sample-target-nodes", type=int, default=300,
+                   help="Target nodes for safe_1h node sampling.")
+    p.add_argument("--time-window-steps", default="auto",
+                   help="Temporal window length for safe_1h, or auto.")
+    p.add_argument("--reduction-seed", type=int, default=42,
+                   help="Seed for deterministic representative reduction.")
+    p.add_argument("--reduction-reps", type=int, default=1,
+                   help="Number of reduction seeds to record for robustness runs.")
+    p.add_argument("--use-full-betas", action="store_true",
+                   help="Use the static BETAS table instead of reduced-graph calibration.")
     p.add_argument("--skip-tsir", action="store_true")
     p.add_argument("--skip-train", action="store_true")
     p.add_argument("--skip-eval", action="store_true")
@@ -360,23 +382,98 @@ def artifact_name(network: str, r0_label: str) -> str:
     return f"thesis_final_{network}_{r0_label}"
 
 
-def build_tsir_config(network: str, r0_label: str, preset: Preset) -> dict[str, Any]:
+def reduction_is_enabled(args: argparse.Namespace | None) -> bool:
+    return bool(args is not None and getattr(args, "reduction", "none") != "none")
+
+
+def reduction_config_for_network(
+    network: str,
+    args: argparse.Namespace | None,
+    stats: NetworkStats | None = None,
+) -> dict[str, Any] | None:
+    """Return the default safe_1h reduction config for networks that need it."""
+    if not reduction_is_enabled(args):
+        return None
+    meta = read_network_meta(network)
+    if stats is None:
+        stats = read_full_network_stats(network)
+
+    needs_node = stats.n_nodes > 300
+    needs_time = int(meta["t_max"]) > 1000
+    if not needs_node and not needs_time:
+        return None
+
+    node_cfg = {
+        "method": "balanced_activity_snowball",
+        "apply_if_nodes_gt": 300,
+        "target_nodes": int(getattr(args, "sample_target_nodes", 300)),
+        "max_node_edge_cost": "auto_students_div72",
+        "stratification_bins": 4,
+        "seed": int(getattr(args, "reduction_seed", 42)),
+        "min_nodes": 8,
+    }
+    time_cfg = {
+        "method": "representative_window",
+        "apply_if_time_steps_gt": 1000,
+        "max_steps_days": 365,
+        "reindex_to_zero": True,
+    }
+    window_steps = str(getattr(args, "time_window_steps", "auto"))
+    if window_steps != "auto":
+        time_cfg["max_steps"] = int(window_steps)
+
+    return {
+        "enabled": "auto",
+        "preset": "safe_1h",
+        "runtime_target_s": int(getattr(args, "target_runtime_seconds", 3600)),
+        "node": node_cfg,
+        "time": time_cfg,
+    }
+
+
+def build_tsir_config(
+    network: str,
+    r0_label: str,
+    preset: Preset,
+    args: argparse.Namespace | None = None,
+    stats: NetworkStats | None = None,
+) -> dict[str, Any]:
     meta = read_network_meta(network)
     sc = scenario(network, r0_label)
+    reduction_cfg = reduction_config_for_network(network, args, stats)
+    nwk_cfg = {
+        "type": "empirical",
+        "name": network,
+        "t_max": meta["t_max"],
+        "directed": meta["directed"],
+    }
+    if reduction_cfg is not None:
+        nwk_cfg["reduction"] = reduction_cfg
+    sir_cfg: dict[str, Any] = {
+        "beta": sc["beta"],
+        "mu": sc["mu"],
+        "start_t": 0,
+        "end_t": meta["t_max"],
+        "n_runs": preset.n_runs,
+        "mc_runs": preset.mc_runs,
+    }
+    if reduction_cfg is not None and not bool(getattr(args, "use_full_betas", False)):
+        sir_cfg["calibration"] = {
+            "enabled": True,
+            "target_r0": sc["r0"],
+            "output_dir": "results/calibration",
+            "n_probe": 1,
+            "max_iter": 8,
+            "tolerance": 0.05,
+            "seed": int(getattr(args, "reduction_seed", 42)),
+        }
     return {
-        "nwk": {
-            "type": "empirical",
-            "name": network,
-            "t_max": meta["t_max"],
-            "directed": meta["directed"],
-        },
-        "sir": {
-            "beta": sc["beta"],
-            "mu": sc["mu"],
-            "start_t": 0,
-            "end_t": meta["t_max"],
-            "n_runs": preset.n_runs,
-            "mc_runs": preset.mc_runs,
+        "nwk": nwk_cfg,
+        "sir": sir_cfg,
+        "experiment": {
+            "network": network,
+            "r0_label": r0_label,
+            **sc,
         },
     }
 
@@ -420,14 +517,30 @@ def build_model_config(
     }
     cfg.setdefault("output", {})["save_probs"] = save_probs
     if base_model == "temporal_gnn":
-        cfg.setdefault("temporal_gnn", {})["group_by_time"] = TEMPORAL_GROUP_BY_TIME.get(network, 12)
+        temporal_cfg = cfg.setdefault("temporal_gnn", {})
+        temporal_cfg["group_by_time"] = TEMPORAL_GROUP_BY_TIME.get(network, 12)
+        temporal_cfg.setdefault("residual", True)
+        temporal_cfg.setdefault("layer_norm", True)
+        temporal_cfg.setdefault("dropout_rate", 0.0)
+        temporal_cfg.setdefault("readout", "jumping_mean")
     if base_model == "dbgnn":
         db_cfg = cfg.setdefault("dbgnn", {})
         order = dbgnn_order_from_key(model)
+        safe_1h = reduction_is_enabled(args)
         db_cfg["order"] = order
         db_cfg["delta"] = db_cfg.get("delta", 24)
+        if safe_1h:
+            db_cfg["time_bin_size"] = int(db_cfg.get("time_bin_size") or 4)
+            db_cfg["max_temporal_states"] = int(db_cfg.get("max_temporal_states") or 2_000_000)
+            db_cfg["max_db_nodes"] = int(db_cfg.get("max_db_nodes") or 500_000)
+            db_cfg["max_db_edges"] = int(db_cfg.get("max_db_edges") or 2_000_000)
         db_cfg["bipartite_agg"] = db_cfg.get("bipartite_agg", "sum")
         db_cfg["directed"] = read_network_meta(network)["directed"]
+        hpo_cfg = cfg.setdefault("hpo", {})
+        locked_params = list(hpo_cfg.get("locked_params") or [])
+        if "dbgnn.order" not in locked_params:
+            locked_params.append("dbgnn.order")
+        hpo_cfg["locked_params"] = locked_params
         batch_cap = 8 if order >= 3 else 16
         cfg["train"]["batch_size"] = min(int(cfg["train"].get("batch_size", batch_cap)), batch_cap)
     apply_final_train_caps(cfg, args)
@@ -463,15 +576,9 @@ def build_eval_config(network: str, r0_label: str, preset: Preset) -> dict[str, 
             "betweenness": {"normalized": True},
             "mc_mean_field": {"eps": 1e-6, "batch_size": 4096},
             "soft_margin": {
-                "beta": sc["beta"],
-                "mu": sc["mu"],
-                "n_steps": meta["t_max"],
                 "n_mc": min(100, preset.mc_runs),
             },
             "mcs_mean_field": {
-                "beta": sc["beta"],
-                "mu": sc["mu"],
-                "n_steps": meta["t_max"],
                 "n_mc": min(100, preset.mc_runs),
             },
         },
@@ -503,6 +610,14 @@ def resolve_run_dir(args: argparse.Namespace) -> Path:
 
 def write_manifest(run_dir: Path, args: argparse.Namespace, networks: list[str], r0_labels: list[str]) -> None:
     preset = PRESETS[args.preset]
+    network_stats: dict[str, NetworkStats] = {}
+    reduction_policies: dict[str, dict[str, Any] | None] = {}
+    for network in networks:
+        try:
+            network_stats[network] = read_full_network_stats(network)
+            reduction_policies[network] = reduction_config_for_network(network, args, network_stats[network])
+        except Exception:
+            reduction_policies[network] = None
     manifest = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "preset": args.preset,
@@ -514,6 +629,17 @@ def write_manifest(run_dir: Path, args: argparse.Namespace, networks: list[str],
         "mus": {n: MUS[n] for n in networks if n in MUS},
         "baselines": BASELINES,
         "wandb_project": WANDB_PROJECT,
+        "reduction": {
+            "policy": getattr(args, "reduction", "none"),
+            "target_runtime_seconds": getattr(args, "target_runtime_seconds", None),
+            "sample_target_nodes": getattr(args, "sample_target_nodes", None),
+            "time_window_steps": getattr(args, "time_window_steps", None),
+            "seed": getattr(args, "reduction_seed", None),
+            "reps": getattr(args, "reduction_reps", None),
+            "use_full_betas": bool(getattr(args, "use_full_betas", False)),
+            "policies": reduction_policies,
+            "network_stats": {name: stats.__dict__ for name, stats in network_stats.items()},
+        },
         "hpo": {
             "enabled": bool(getattr(args, "with_hpo", False)),
             "trials": int(getattr(args, "hpo_trials", 0)),
@@ -538,7 +664,7 @@ STATUS_FIELDS = [
     "network", "r0_label", "stage", "model", "status", "run_id",
     "artifact", "returncode", "message", "log_path",
 ]
-TERMINAL_STATUSES = {"success", "loss_guard_aborted", "skipped"}
+TERMINAL_STATUSES = {"success", "loss_guard_aborted", "skipped", "timeout_skipped"}
 
 
 def read_status(path: Path) -> list[dict[str, str]]:
@@ -586,7 +712,31 @@ def should_skip(status_path: Path, args: argparse.Namespace, network: str, r0_la
     return False
 
 
-def run_command(cmd: list[str], log_path: Path, dry_run: bool = False) -> tuple[int, str]:
+def _terminate_process(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            proc.terminate()
+        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=10)
+    except Exception:
+        try:
+            if os.name == "nt":
+                proc.kill()
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            pass
+
+
+def run_command(
+    cmd: list[str],
+    log_path: Path,
+    dry_run: bool = False,
+    timeout_seconds: int | None = None,
+) -> tuple[int, str]:
     label = " ".join(cmd)
     if dry_run:
         print(f"  [DRY] {label}")
@@ -598,20 +748,41 @@ def run_command(cmd: list[str], log_path: Path, dry_run: bool = False) -> tuple[
     captured: list[str] = []
     with open(log_path, "a") as log_fh:
         log_fh.write(f"\n$ {label}\n")
+        if timeout_seconds is not None and timeout_seconds > 0:
+            log_fh.write(f"# timeout_seconds={timeout_seconds}\n")
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             env=env,
+            start_new_session=(os.name != "nt"),
         )
         assert proc.stdout is not None
-        for line in proc.stdout:
-            sys.stdout.write(line)
+        try:
+            stdout, _ = proc.communicate(
+                timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None
+            )
+            if stdout:
+                sys.stdout.write(stdout)
+                sys.stdout.flush()
+                log_fh.write(stdout)
+                captured.append(stdout)
+        except subprocess.TimeoutExpired as exc:
+            _terminate_process(proc)
+            stdout = exc.stdout or ""
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode(errors="replace")
+            timeout_msg = f"\nTIMEOUT_SKIP: command exceeded {timeout_seconds} seconds\n"
+            if stdout:
+                sys.stdout.write(stdout)
+                log_fh.write(stdout)
+                captured.append(stdout)
+            sys.stdout.write(timeout_msg)
             sys.stdout.flush()
-            log_fh.write(line)
-            captured.append(line)
-        proc.wait()
+            log_fh.write(timeout_msg)
+            captured.append(timeout_msg)
+            return 124, "".join(captured)
     return proc.returncode, "".join(captured)
 
 
@@ -636,11 +807,11 @@ def stage_tsir(args: argparse.Namespace, run_dir: Path, status_path: Path, netwo
         return art
 
     cfg_path = run_dir / "configs" / network / r0_label / "tsir.yml"
-    write_yaml(cfg_path, build_tsir_config(network, r0_label, PRESETS[args.preset]))
+    write_yaml(cfg_path, build_tsir_config(network, r0_label, PRESETS[args.preset], args))
     log_path = run_dir / network / r0_label / "logs" / "tsir.log"
     cmd = [sys.executable, "main_tsir.py", "--cfg", str(cfg_path), "--data", art]
-    rc, stdout = run_command(cmd, log_path, args.dry_run)
-    status = "success" if rc == 0 else "failed"
+    rc, stdout = run_command(cmd, log_path, args.dry_run, args.target_runtime_seconds)
+    status = "success" if rc == 0 else "timeout_skipped" if rc == 124 or "TIMEOUT_SKIP" in stdout else "failed"
     update_status(status_path, {
         "network": network, "r0_label": r0_label, "stage": "tsir",
         "status": status, "artifact": art, "returncode": rc,
@@ -694,16 +865,18 @@ def stage_hpo(
     ]
     if args.hpo_timeout is not None:
         cmd.extend(["--timeout", str(args.hpo_timeout)])
-    rc, stdout = run_command(cmd, log_path, args.dry_run)
+    if args.force:
+        cmd.append("--fresh")
+    rc, stdout = run_command(cmd, log_path, args.dry_run, args.target_runtime_seconds)
     best_cfg = run_dir / "hpo" / study_name / "best_config.yml"
-    status = "success" if rc == 0 else "failed"
+    status = "success" if rc == 0 else "timeout_skipped" if rc == 124 or "TIMEOUT_SKIP" in stdout else "failed"
     update_status(status_path, {
         "network": network, "r0_label": r0_label, "stage": "hpo", "model": tuned_model,
         "status": status, "artifact": art, "returncode": rc,
         "message": str(best_cfg) if status == "success" else status,
         "log_path": log_path,
     })
-    if rc != 0 and not args.dry_run:
+    if rc != 0 and status != "timeout_skipped" and not args.dry_run:
         raise RuntimeError(f"Optuna HPO failed for {network}/{r0_label}/{model}; see {log_path}")
     if args.dry_run:
         return best_cfg
@@ -749,7 +922,11 @@ def write_reused_optuna_config(
         with open(best_cfg_path) as f:
             best_cfg = yaml.safe_load(f)
         params = dict(best_cfg.get("hpo_result", {}).get("params") or {})
+        for locked in cfg.get("hpo", {}).get("locked_params", []):
+            params.pop(locked, None)
         apply_trial_params(cfg, params)
+        if base_model_key(model) == "dbgnn":
+            cfg.setdefault("dbgnn", {})["order"] = dbgnn_order_from_key(model)
         for key in ("truth_start", "n_truth"):
             if key in best_cfg.get("eval", {}):
                 cfg["eval"][key] = best_cfg["eval"][key]
@@ -793,12 +970,29 @@ def stage_train(
         cfg_path = run_dir / "configs" / network / r0_label / f"{model}.yml"
         write_yaml(cfg_path, build_model_config(network, model, r0_label, PRESETS[args.preset], args.save_probs, args))
     log_path = run_dir / network / r0_label / "logs" / f"train_{row_model}.log"
-    cmd = [sys.executable, "main_train.py", "--cfg", str(cfg_path), "--data", f"{art}:latest"]
+    checkpoint_dir = run_dir / "checkpoints" / network / r0_label / row_model
+    cmd = [
+        sys.executable,
+        "main_train.py",
+        "--cfg",
+        str(cfg_path),
+        "--data",
+        f"{art}:latest",
+        "--checkpoint-dir",
+        str(checkpoint_dir),
+    ]
     if args.save_probs:
         cmd.append("--save-probs")
-    rc, stdout = run_command(cmd, log_path, args.dry_run)
+    if args.force:
+        cmd.append("--fresh")
+    rc, stdout = run_command(cmd, log_path, args.dry_run, args.target_runtime_seconds)
     run_id = extract_run_id(stdout) or ("dryrun00" if args.dry_run else "")
-    status = "success" if rc == 0 else "loss_guard_aborted" if rc == 88 or "LOSS_GUARD_ABORT" in stdout else "failed"
+    status = (
+        "success" if rc == 0
+        else "timeout_skipped" if rc == 124 or "TIMEOUT_SKIP" in stdout
+        else "loss_guard_aborted" if rc == 88 or "LOSS_GUARD_ABORT" in stdout
+        else "failed"
+    )
     update_status(status_path, {
         "network": network, "r0_label": r0_label, "stage": "train", "model": row_model,
         "status": status, "run_id": run_id, "artifact": art, "returncode": rc,
@@ -819,9 +1013,9 @@ def stage_eval(args: argparse.Namespace, run_dir: Path, status_path: Path, netwo
     write_yaml(cfg_path, build_eval_config(network, r0_label, PRESETS[args.preset]))
     log_path = run_dir / network / r0_label / "logs" / "eval.log"
     cmd = [sys.executable, "main_eval.py", "--cfg", str(cfg_path), "--data", f"{art}:latest"]
-    rc, stdout = run_command(cmd, log_path, args.dry_run)
+    rc, stdout = run_command(cmd, log_path, args.dry_run, args.target_runtime_seconds)
     run_id = extract_run_id(stdout) or ("dryrun00" if args.dry_run else "")
-    status = "success" if rc == 0 else "failed"
+    status = "success" if rc == 0 else "timeout_skipped" if rc == 124 or "TIMEOUT_SKIP" in stdout else "failed"
     update_status(status_path, {
         "network": network, "r0_label": r0_label, "stage": "eval",
         "status": status, "run_id": run_id, "artifact": art, "returncode": rc,
@@ -1453,6 +1647,16 @@ def main() -> None:
         f"epochs={_positive_cap(args.max_train_epochs)}, "
         f"patience={_positive_cap(args.max_train_patience)}"
     )
+    print(
+        "Reduction: "
+        + (
+            f"{args.reduction}, timeout={args.target_runtime_seconds}s, "
+            f"target_nodes={args.sample_target_nodes}, "
+            f"time_window={args.time_window_steps}, seed={args.reduction_seed}, "
+            f"calibration={'off' if args.use_full_betas else 'on'}"
+            if reduction_is_enabled(args) else "disabled"
+        )
+    )
     if args.dry_run:
         print("DRY RUN: commands will be printed, not executed")
 
@@ -1479,18 +1683,29 @@ def main() -> None:
                     untuned_cfg = write_untuned_paired_config(args, run_dir, network, r0_label, model, best_cfg)
                     stage_train(args, run_dir, status_path, network, r0_label, model, art, untuned_cfg)
                     refresh_result_bundle(run_dir, status_path)
-                    stage_train(
-                        args,
-                        run_dir,
-                        status_path,
-                        network,
-                        r0_label,
-                        model,
-                        art,
-                        best_cfg,
-                        status_model=optuna_variant_key(model),
-                    )
-                    refresh_result_bundle(run_dir, status_path)
+                    if best_cfg is not None or args.dry_run:
+                        stage_train(
+                            args,
+                            run_dir,
+                            status_path,
+                            network,
+                            r0_label,
+                            model,
+                            art,
+                            best_cfg,
+                            status_model=optuna_variant_key(model),
+                        )
+                        refresh_result_bundle(run_dir, status_path)
+                    else:
+                        update_status(status_path, {
+                            "network": network,
+                            "r0_label": r0_label,
+                            "stage": "train",
+                            "model": optuna_variant_key(model),
+                            "status": "skipped",
+                            "artifact": art,
+                            "message": "missing_hpo_config",
+                        })
                 else:
                     stage_train(args, run_dir, status_path, network, r0_label, model, art)
                     refresh_result_bundle(run_dir, status_path)
@@ -1501,18 +1716,29 @@ def main() -> None:
                     untuned_cfg = write_untuned_paired_config(args, run_dir, network, r0_label, baseline, best_cfg)
                     stage_train(args, run_dir, status_path, network, r0_label, baseline, art, untuned_cfg)
                     refresh_result_bundle(run_dir, status_path)
-                    stage_train(
-                        args,
-                        run_dir,
-                        status_path,
-                        network,
-                        r0_label,
-                        baseline,
-                        art,
-                        best_cfg,
-                        status_model=optuna_variant_key(baseline),
-                    )
-                    refresh_result_bundle(run_dir, status_path)
+                    if best_cfg is not None or args.dry_run:
+                        stage_train(
+                            args,
+                            run_dir,
+                            status_path,
+                            network,
+                            r0_label,
+                            baseline,
+                            art,
+                            best_cfg,
+                            status_model=optuna_variant_key(baseline),
+                        )
+                        refresh_result_bundle(run_dir, status_path)
+                    else:
+                        update_status(status_path, {
+                            "network": network,
+                            "r0_label": r0_label,
+                            "stage": "train",
+                            "model": optuna_variant_key(baseline),
+                            "status": "skipped",
+                            "artifact": art,
+                            "message": "missing_hpo_config",
+                        })
                 else:
                     stage_train(args, run_dir, status_path, network, r0_label, baseline, art)
                     refresh_result_bundle(run_dir, status_path)
