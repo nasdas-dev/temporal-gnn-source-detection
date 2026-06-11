@@ -37,7 +37,7 @@ import re
 import signal
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -156,6 +156,12 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--preset", choices=sorted(PRESETS), default="paper_24h",
                    help="Runtime/quality preset. Use max_quality for the full expensive grid.")
+    p.add_argument("--n-runs", type=int, default=None,
+                   help="Override the preset's ground-truth simulation count (TSIR n_runs). "
+                        "Raise together with --n-truth for tighter metric estimates.")
+    p.add_argument("--n-truth", type=int, default=None,
+                   help="Override the preset's evaluation sample count. Must be <= --n-runs; "
+                        "cheap (inference + metrics only, no extra training).")
     p.add_argument("--networks", nargs="+", default=NETWORKS)
     p.add_argument("--reverse-networks", action="store_true",
                    help="Run selected networks in reverse order, useful for splitting work across machines.")
@@ -1565,6 +1571,17 @@ def main() -> None:
     args.models = normalize_model_keys(args.models)
     HEURISTIC_BASELINES = normalize_baseline_keys(args.baselines)
     BASELINES = TRAINABLE_BASELINES + HEURISTIC_BASELINES
+
+    # Optional n_runs / n_truth overrides for tighter metric estimates without
+    # touching the (expensive) training-side budgets. Mutate the preset entry in
+    # place so every PRESETS[args.preset] read downstream picks up the values.
+    if args.n_runs is not None or args.n_truth is not None:
+        base = PRESETS[args.preset]
+        n_runs = int(args.n_runs) if args.n_runs is not None else base.n_runs
+        n_truth = int(args.n_truth) if args.n_truth is not None else base.n_truth
+        if n_truth > n_runs:
+            raise ValueError(f"--n-truth ({n_truth}) cannot exceed --n-runs ({n_runs})")
+        PRESETS[args.preset] = replace(base, n_runs=n_runs, n_truth=n_truth)
     preset = PRESETS[args.preset]
     run_dir = resolve_run_dir(args)
     run_dir.mkdir(parents=True, exist_ok=True)
