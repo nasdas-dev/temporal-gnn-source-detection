@@ -375,6 +375,7 @@ class Trainer:
         weight_decay: float = 5e-4,
         test_size:  float   = 0.30,
         seed:       int     = 42,
+        grad_clip_norm: float | None = None,
         wandb_run=None,
         rep: int = 0,
         loss_guard: dict | None = None,
@@ -559,6 +560,8 @@ class Trainer:
                 out  = self._forward(x_batch)
                 loss = F.nll_loss(out, y_batch, reduction="mean")
                 loss.backward()
+                if grad_clip_norm is not None and grad_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip_norm)
                 optimizer.step()
                 train_loss += loss.item() * y_batch.size(0)
 

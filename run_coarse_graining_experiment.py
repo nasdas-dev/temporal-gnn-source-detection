@@ -104,6 +104,11 @@ from viz.style import apply_style, finish_fig
 WANDB_PROJECT = "source-detection"
 OPTUNA_SUFFIX = "_optuna"
 
+# Gradient-clipping norm applied uniformly to every model so the Δt comparison
+# is fair. Tames BacktrackingNetwork's unstable/oscillating loss while barely
+# touching the well-behaved GNNs (their grad norms rarely exceed this).
+GRAD_CLIP_NORM = 1.0
+
 DEFAULT_NETWORKS = ["lyon_ward", "malawi", "students", "escort"]
 DEFAULT_R0 = "r0_20"
 
@@ -348,6 +353,7 @@ def build_model_config(
         "n_mc": preset.n_mc,
         "reps": preset.reps,
         "loss_guard": LOSS_GUARD,
+        "grad_clip_norm": GRAD_CLIP_NORM,
     }
     cfg.setdefault("output", {})["save_probs"] = save_probs
 

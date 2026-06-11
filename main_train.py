@@ -596,6 +596,7 @@ def main() -> None:
                     weight_decay  = train_cfg["weight_decay"],
                     test_size     = train_cfg["test_size"],
                     seed          = train_cfg["seed"] + rep,
+                    grad_clip_norm = train_cfg.get("grad_clip_norm"),
                     wandb_run     = wandb.run,
                     rep           = rep,
                     loss_guard    = train_cfg.get("loss_guard"),
