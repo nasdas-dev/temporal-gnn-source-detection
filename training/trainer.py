@@ -117,7 +117,15 @@ def check_loss_guard(
 
     uniform_loss = math.log(max(n_nodes, 2))
     if val_loss > cfg.divergence_factor * uniform_loss:
-        return "divergent_validation_loss"
+        # Above the uniform-baseline threshold is only a problem if the model is
+        # ALSO no longer improving. Slow-converging models whose NLL starts
+        # orders of magnitude high (e.g. BacktrackingNetwork) sit above this
+        # threshold for many epochs while still descending steeply — they are
+        # converging, not diverging, so do not abort them mid-descent.
+        window = max(2, cfg.warmup_epochs // 2)
+        recent = val_losses[-window:]
+        if len(recent) < window or (recent[0] - min(recent)) < cfg.min_improvement:
+            return "divergent_validation_loss"
 
     if len(val_losses) >= cfg.uniform_window:
         recent = val_losses[-cfg.uniform_window:]
