@@ -146,6 +146,11 @@ LOSS_GUARD = {
     "min_improvement": 0.01,
 }
 
+# Gradient-clipping norm applied to every trained model. Tames
+# BacktrackingNetwork's unstable/oscillating loss while barely touching the
+# well-behaved GNNs (their grad norms rarely exceed this).
+GRAD_CLIP_NORM = 1.0
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -515,6 +520,7 @@ def build_model_config(
         "n_mc": preset.n_mc,
         "reps": preset.reps,
         "loss_guard": LOSS_GUARD,
+        "grad_clip_norm": GRAD_CLIP_NORM,
     }
     cfg.setdefault("output", {})["save_probs"] = save_probs
     if base_model == "temporal_gnn":

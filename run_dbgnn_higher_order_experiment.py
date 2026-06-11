@@ -49,6 +49,7 @@ import matplotlib.pyplot as plt
 
 from run_all_experiments import (
     BETAS,
+    GRAD_CLIP_NORM,
     LOSS_GUARD,
     MIN_OUTBREAK,
     MUS,
@@ -486,6 +487,7 @@ def build_dbgnn_config(
         "n_mc": preset.n_mc,
         "reps": preset.reps,
         "loss_guard": LOSS_GUARD,
+        "grad_clip_norm": GRAD_CLIP_NORM,
     }
     controls = higher_order_controls(order, args)
     batch_cap = controls.get("batch_size_cap")

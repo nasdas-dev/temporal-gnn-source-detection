@@ -72,6 +72,7 @@ import matplotlib.pyplot as plt
 
 from run_all_experiments import (
     BETAS,
+    GRAD_CLIP_NORM,
     LOSS_GUARD,
     MIN_OUTBREAK,
     MUS,
@@ -103,11 +104,8 @@ from viz.style import apply_style, finish_fig
 
 WANDB_PROJECT = "source-detection"
 OPTUNA_SUFFIX = "_optuna"
-
-# Gradient-clipping norm applied uniformly to every model so the Δt comparison
-# is fair. Tames BacktrackingNetwork's unstable/oscillating loss while barely
-# touching the well-behaved GNNs (their grad norms rarely exceed this).
-GRAD_CLIP_NORM = 1.0
+# GRAD_CLIP_NORM is imported from run_all_experiments so all runners share one
+# value; applied uniformly to every model here so the Δt comparison stays fair.
 
 DEFAULT_NETWORKS = ["lyon_ward", "malawi", "students", "escort"]
 DEFAULT_R0 = "r0_20"
