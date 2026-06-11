@@ -58,7 +58,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -180,6 +180,12 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--preset", choices=sorted(PRESETS), default="paper_24h",
                    help="Runtime/quality preset. Use max_quality for the full grid.")
+    p.add_argument("--n-runs", type=int, default=None,
+                   help="Override the preset's ground-truth simulation count (TSIR n_runs). "
+                        "Raise this together with --n-truth for tighter metric estimates.")
+    p.add_argument("--n-truth", type=int, default=None,
+                   help="Override the preset's evaluation sample count (final truth window). "
+                        "Must be <= --n-runs; cheap (inference + metrics only, no extra training).")
     p.add_argument("--networks", nargs="+", default=DEFAULT_NETWORKS, help="Network names")
     p.add_argument("--r0", default=DEFAULT_R0, help="Single R0 label/number for the Δt sweep (default r0_20=2.0)")
     p.add_argument("--temporal-models", nargs="+", default=TEMPORAL_MODELS,
@@ -1065,6 +1071,17 @@ def main() -> None:
     networks = list(dict.fromkeys(args.networks))
     r0_label = normalize_r0_labels([args.r0])[0]
     temporal_models = [m for m in args.temporal_models if m in TEMPORAL_MODELS]
+
+    # Optional n_runs / n_truth overrides for tighter metric estimates without
+    # touching the (expensive) training-side budgets. Mutate the preset entry in
+    # place so every PRESETS[args.preset] read downstream picks up the values.
+    if args.n_runs is not None or args.n_truth is not None:
+        base = PRESETS[args.preset]
+        n_runs = int(args.n_runs) if args.n_runs is not None else base.n_runs
+        n_truth = int(args.n_truth) if args.n_truth is not None else base.n_truth
+        if n_truth > n_runs:
+            raise ValueError(f"--n-truth ({n_truth}) cannot exceed --n-runs ({n_runs})")
+        PRESETS[args.preset] = replace(base, n_runs=n_runs, n_truth=n_truth)
     preset = PRESETS[args.preset]
 
     for network in networks:
