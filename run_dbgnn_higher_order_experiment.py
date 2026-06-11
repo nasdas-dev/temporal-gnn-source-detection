@@ -162,7 +162,7 @@ def parse_args() -> argparse.Namespace:
                    help="Network reduction policy for TSIR artifacts. Default: safe_1h")
     p.add_argument("--no-reduction", dest="reduction", action="store_const", const="none",
                    help="Disable default network reduction.")
-    p.add_argument("--target-runtime-seconds", dest="timeout_seconds", type=int, default=3600,
+    p.add_argument("--target-runtime-seconds", dest="timeout_seconds", type=int, default=7200,
                    help="Alias for --timeout-seconds.")
     p.add_argument("--reduction-seed", dest="seed", type=int, default=42,
                    help="Alias for --seed used by reduction.")
@@ -183,8 +183,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-sample-nodes", type=int, default=8)
     p.add_argument("--stratification-bins", type=int, default=4,
                    help="Activity/degree quantile bins for balanced sampling")
-    p.add_argument("--timeout-seconds", type=int, default=3600,
-                   help="Skip any TSIR/train command that runs longer than this")
+    p.add_argument("--timeout-seconds", type=int, default=7200,
+                   help="Skip any TSIR/train command that runs longer than this. Default 2h.")
     p.add_argument("--base-batch-size", type=int, default=16,
                    help="Maximum train.batch_size for DBGNN k=2")
     p.add_argument("--order3-batch-size", type=int, default=8,

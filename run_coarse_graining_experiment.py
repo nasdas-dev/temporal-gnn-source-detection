@@ -237,8 +237,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--reduction-reps", type=int, default=1)
     p.add_argument("--use-full-betas", action="store_true",
                    help="Use static BETAS instead of per-artifact beta calibration.")
-    p.add_argument("--timeout-seconds", dest="timeout_seconds", type=int, default=3600,
-                   help="Skip any TSIR/train/eval command that runs longer than this")
+    p.add_argument("--timeout-seconds", dest="timeout_seconds", type=int, default=7200,
+                   help="Skip any TSIR/train/eval command that runs longer than this. Default 2h.")
     p.add_argument("--target-runtime-seconds", dest="timeout_seconds", type=int,
                    help="Alias for --timeout-seconds")
     p.add_argument("--seed", type=int, default=42)

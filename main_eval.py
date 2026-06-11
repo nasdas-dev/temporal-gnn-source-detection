@@ -98,6 +98,30 @@ def _write_json(path: str, payload: dict) -> None:
         json.dump(_jsonable(payload), f, indent=2, sort_keys=True)
 
 
+def _write_baseline_csv(run_dir: str, summary_rows: list[dict]) -> None:
+    """Write baseline_metrics.csv from the baselines completed so far.
+
+    Called after every baseline (not just at the end) so that a later timeout
+    or kill of the eval process never discards the baselines that already
+    finished — the runner harvests this CSV.
+    """
+    if not summary_rows:
+        return
+    all_metric_keys: list[str] = []
+    for key in PREFERRED_METRIC_KEYS:
+        if any(key in row for row in summary_rows):
+            all_metric_keys.append(key)
+    for row in summary_rows:
+        for key in sorted(k for k in row if k.startswith("eval/")):
+            if key not in all_metric_keys:
+                all_metric_keys.append(key)
+    with open(f"{run_dir}/baseline_metrics.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["model"] + all_metric_keys)
+        writer.writeheader()
+        for row in summary_rows:
+            writer.writerow({key: row.get(key, "") for key in ["model"] + all_metric_keys})
+
+
 def _baseline_param_map(cfg_dict: dict, data_config: dict) -> dict[str, dict]:
     """Return merged per-baseline parameters from config and TSIR metadata."""
     raw = cfg_dict.get("baseline_params", {}) or {}
@@ -653,8 +677,9 @@ def main() -> None:
     # 4. Evaluate each baseline
     # -----------------------------------------------------------------------
     summary_rows: list[dict] = []
+    failed_baselines: list[str] = []
 
-    for baseline_idx, baseline in enumerate(baselines):
+    def _evaluate_baseline(baseline_idx, baseline):
         print("=" * 60)
         print(f"Baseline: {baseline}")
         print("=" * 60)
@@ -741,6 +766,22 @@ def main() -> None:
             if metric_key not in ("model", "eval/n_valid"):
                 wandb.summary[f"{baseline}/{metric_key}"] = val
 
+    for baseline_idx, baseline in enumerate(baselines):
+        try:
+            _evaluate_baseline(baseline_idx, baseline)
+        except Exception as exc:  # one bad baseline must not lose the others
+            import traceback
+            traceback.print_exc()
+            print(f"  ERROR: baseline '{baseline}' failed, skipping: {exc}")
+            failed_baselines.append(baseline)
+            continue
+        # Persist after every baseline so a later timeout/kill of the process
+        # cannot discard the baselines that already finished.
+        _write_baseline_csv(run_dir, summary_rows)
+
+    if failed_baselines:
+        print(f"\nWARNING: {len(failed_baselines)} baseline(s) failed and were skipped: {failed_baselines}")
+
     # -----------------------------------------------------------------------
     # 5. Summary table
     # -----------------------------------------------------------------------
@@ -796,22 +837,15 @@ def main() -> None:
     }
     wandb.summary["n_valid_outbreaks"] = int(sel.sum())
     wandb.summary["n_total"] = len(sel)
-    wandb.summary["run/status"] = "success"
-
-    all_metric_keys = []
-    for key in PREFERRED_METRIC_KEYS:
-        if any(key in row for row in summary_rows):
-            all_metric_keys.append(key)
-    for row in summary_rows:
-        for key in sorted(k for k in row if k.startswith("eval/")):
-            if key not in all_metric_keys:
-                all_metric_keys.append(key)
+    wandb.summary["baseline/failed"] = failed_baselines
+    wandb.summary["run/status"] = "success" if not failed_baselines else "partial"
 
     _write_json(
         f"{run_dir}/baseline_metrics.json",
         {
-            "status": "success",
+            "status": "success" if not failed_baselines else "partial",
             "data": args.data,
+            "failed_baselines": failed_baselines,
             "truth_start": int(eval_cfg.get("truth_start", 0)),
             "truth_stop": int(select_truth[-1]) + 1 if len(select_truth) else int(eval_cfg.get("truth_start", 0)),
             "baseline_method_notes": {
@@ -820,11 +854,7 @@ def main() -> None:
             "baselines": summary_rows,
         },
     )
-    with open(f"{run_dir}/baseline_metrics.csv", "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["model"] + all_metric_keys)
-        writer.writeheader()
-        for row in summary_rows:
-            writer.writerow({key: row.get(key, "") for key in ["model"] + all_metric_keys})
+    _write_baseline_csv(run_dir, summary_rows)
 
     wandb.finish()
     print("\nDone.")

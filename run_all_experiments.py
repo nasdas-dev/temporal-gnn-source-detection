@@ -205,8 +205,8 @@ def parse_args() -> argparse.Namespace:
                    help="Network reduction policy for TSIR artifacts. Default: safe_1h")
     p.add_argument("--no-reduction", dest="reduction", action="store_const", const="none",
                    help="Disable default network reduction.")
-    p.add_argument("--target-runtime-seconds", type=int, default=3600,
-                   help="Timeout target for TSIR/HPO/train/eval subprocesses.")
+    p.add_argument("--target-runtime-seconds", type=int, default=7200,
+                   help="Timeout (s) for each TSIR/HPO/train/eval subprocess. Default 2h.")
     p.add_argument("--sample-target-nodes", type=int, default=300,
                    help="Target nodes for safe_1h node sampling.")
     p.add_argument("--time-window-steps", default="auto",
