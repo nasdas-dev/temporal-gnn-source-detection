@@ -91,7 +91,13 @@ def test_de_bruijn_builder_matches_slow_reference():
 def test_loss_guard_detects_non_finite_divergence_and_uniform_stall():
     cfg = LossGuardConfig(warmup_epochs=2, uniform_window=4, min_improvement=0.01)
     assert check_loss_guard([1.0], [float("nan")], 1, 20, cfg) == "non_finite_loss"
-    assert check_loss_guard([1.0, 1.0], [1.0, 10.0], 2, 20, cfg) == "divergent_validation_loss"
+    # Genuine divergence: the best val never drops below the uniform baseline and
+    # is no longer improving.
+    assert check_loss_guard([1.0, 1.0], [10.0, 12.0], 2, 20, cfg) == "divergent_validation_loss"
+    # A transient spike with a good best epoch is NOT a failure: the trainer
+    # restores best-val weights, so noisy/oscillating losses (e.g.
+    # BacktrackingNetwork) must not be aborted once they have hit a good minimum.
+    assert check_loss_guard([1.0, 1.0], [1.0, 10.0], 2, 20, cfg) is None
 
     uniform = math.log(20)
     train = [uniform] * 4

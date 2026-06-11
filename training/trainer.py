@@ -116,12 +116,15 @@ def check_loss_guard(
         return None
 
     uniform_loss = math.log(max(n_nodes, 2))
-    if val_loss > cfg.divergence_factor * uniform_loss:
-        # Above the uniform-baseline threshold is only a problem if the model is
-        # ALSO no longer improving. Slow-converging models whose NLL starts
-        # orders of magnitude high (e.g. BacktrackingNetwork) sit above this
-        # threshold for many epochs while still descending steeply — they are
-        # converging, not diverging, so do not abort them mid-descent.
+    # Judge the run by its BEST validation epoch, not the latest one: the trainer
+    # restores best-val weights before inference, so a transient spike in a noisy
+    # loss is not a failed run. Models like BacktrackingNetwork have an unstable /
+    # oscillating loss but still hit good minima that get checkpointed; slow
+    # starters sit high for many epochs while still descending. Abort only when
+    # even the best val stays above the uniform baseline AND is no longer
+    # improving — i.e. the model never actually learned.
+    best_val = min(val_losses)
+    if best_val > cfg.divergence_factor * uniform_loss:
         window = max(2, cfg.warmup_epochs // 2)
         recent = val_losses[-window:]
         if len(recent) < window or (recent[0] - min(recent)) < cfg.min_improvement:
