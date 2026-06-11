@@ -657,42 +657,6 @@ class Trainer:
         }
         return train_losses, val_losses
 
-    def predict(
-        self,
-        X_truth: np.ndarray,    # [n_nodes, n_runs, n_nodes] int8
-        batch_size: int = 256,
-    ) -> np.ndarray:
-        """Run inference on ground-truth snapshots.
-
-        Parameters
-        ----------
-        X_truth:
-            SIR state array of shape ``[n_nodes, n_runs, n_nodes]`` (int8).
-            ``X_truth[s, r, v]`` is the one-hot SIR index for node *v* in run
-            *r* started from source *s*.  Typically built from stacking
-            ``truth_S``, ``truth_I``, ``truth_R``.
-
-        Returns
-        -------
-        probs : ndarray of shape ``[n_nodes * n_runs, n_nodes]``
-            Predicted **probabilities** (not log-probs) over candidate source
-            nodes.  Row order: all runs of source 0, then source 1, etc.
-        """
-        n_nodes, n_runs, _ = X_truth.shape
-        n_total = n_nodes * n_runs
-
-        # Build one-hot tensor [n_total, n_nodes, 3]
-        X_flat = X_truth.reshape(n_total, n_nodes)  # int8 state index
-        # X_truth entries are already 0/1 per-state channel — stack S/I/R
-        # (this function receives the stacked one-hot directly as a [n,r,v] array
-        # where each value is already the channel indicator — see calling convention)
-        # We expect X_truth to be passed as stacked [n_total, n_nodes, 3] float.
-
-        raise RuntimeError(
-            "predict() must receive X_truth as [n_total, n_nodes, 3] float tensor. "
-            "Use predict_from_tensor() instead."
-        )
-
     def predict_from_tensor(
         self,
         truth_S: np.ndarray,    # [n_nodes, n_runs, n_nodes] int8

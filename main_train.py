@@ -33,7 +33,10 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import shutil
+import sys
+import time
 
 # Prevent OpenMP/MKL deadlock when wandb spawns background threads alongside
 # PyTorch's multi-threaded CPU kernels (especially scatter_add_ and Linear).
@@ -49,6 +52,7 @@ import yaml
 
 from eval import compute_all_metrics, per_sample_arrays
 from gnn import MODEL_REGISTRY, get_model_spec
+from gnn.graph_builder import coarsen_temporal_network
 from setup import setup_methods_run, load_tsir_data
 from training import CheckpointError, LossGuardAbort, SIRDataset, Trainer, fit_compatibility_metadata
 from training.checkpointing import (
@@ -129,6 +133,41 @@ def _builder_kwargs(model_name: str, model_cfg: dict) -> dict:
             "dense_edge_attr": model_cfg.get("dense_edge_attr", False),
         }
     return {}
+
+
+def _graph_structure_stats(model_name: str, graph_data: dict, H_static: nx.Graph) -> dict:
+    """Collect model-specific structural counts for the H2 cost analysis."""
+    stats: dict[str, float] = {"n_edges_static": int(H_static.number_of_edges())}
+    if model_name == "temporal_gnn":
+        edge_indeces = graph_data.get("edge_indeces", {}) or {}
+        per_snapshot = [int(t.size(1)) for t in edge_indeces.values()]
+        stats["num_snapshots"] = int(graph_data.get("num_snapshots", len(per_snapshot)))
+        stats["edges_total"] = int(sum(per_snapshot))
+        stats["edges_per_snapshot_mean"] = float(np.mean(per_snapshot)) if per_snapshot else 0.0
+    elif model_name == "backtracking":
+        eti = graph_data.get("edge_time_index")
+        stats["edge_texture_length"] = int(graph_data.get("T", 0))
+        stats["edge_texture_nnz"] = int(eti.numel()) if eti is not None else 0
+        stats["n_edges"] = int(graph_data.get("n_edges", 0))
+    elif model_name == "dbgnn":
+        db_stats = graph_data.get("db_stats", {}) or {}
+        db_edge_index = graph_data.get("db_edge_index")
+        static_edge_index = graph_data.get("static_edge_index")
+        stats["n_db_nodes"] = int(graph_data.get("n_db_nodes", db_stats.get("n_db_nodes", 0)) or 0)
+        stats["n_db_edges"] = int(db_edge_index.size(1)) if db_edge_index is not None else 0
+        stats["n_static_edges"] = int(static_edge_index.size(1)) if static_edge_index is not None else 0
+    elif model_name in ("static_gnn", "static_mlp"):
+        edge_index = graph_data.get("edge_index")
+        stats["n_edges"] = int(edge_index.size(1)) if edge_index is not None else 0
+    return stats
+
+
+def _peak_rss_mb() -> float:
+    """Peak resident set size in MiB (ru_maxrss is bytes on macOS, KiB on Linux)."""
+    ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if sys.platform == "darwin":
+        return float(ru) / (1024.0 * 1024.0)
+    return float(ru) / 1024.0
 
 
 def _jsonable(value):
@@ -315,6 +354,25 @@ def main() -> None:
     print("=" * 60)
     H, data = load_tsir_data(args.data)
     n_nodes = data.n_nodes
+
+    # ---------------------------------------------------------------
+    # 3b. Unified temporal coarse-graining (H2): bin the shared contact
+    #     network once, BEFORE any model-specific graph construction, so every
+    #     temporal representation is derived from the same coarse-grained graph.
+    # ---------------------------------------------------------------
+    coarsen_cfg = cfg_dict.get("coarsen", {}) or {}
+    delta_t = int(coarsen_cfg.get("delta_t", 1))
+    coarsen_stats: dict | None = None
+    if delta_t > 1:
+        H, coarsen_stats = coarsen_temporal_network(H, delta_t)
+        print(
+            f"  Coarsen  : delta_t={delta_t}  "
+            f"t_max {coarsen_stats['t_max_before']}->{coarsen_stats['t_max_after']}, "
+            f"contacts {coarsen_stats['contacts_before']}->{coarsen_stats['contacts_after']}"
+        )
+        for key, value in coarsen_stats.items():
+            wandb.summary[f"coarsen/{key}"] = value
+
     H_static = nx.Graph()
     H_static.add_nodes_from(range(n_nodes))
     for u, v in H.edges():
@@ -342,8 +400,23 @@ def main() -> None:
     print("=" * 60)
     spec = get_model_spec(model_name)
     bkw  = _builder_kwargs(model_name, model_cfg)
+    if delta_t > 1:
+        # The shared coarsening already binned the network; disable any
+        # per-model native binning so time is not coarsened twice.
+        if "group_by_time" in bkw:
+            bkw["group_by_time"] = 1
+        if "time_bin_size" in bkw:
+            bkw["time_bin_size"] = 1
+    _build_t0 = time.perf_counter()
     graph_data = spec.builder_fn(H, **bkw)
+    construction_seconds = time.perf_counter() - _build_t0
     graph_data["n_nodes"] = n_nodes   # ensure key present for forward fns
+    wandb.summary["graph/construction_seconds"] = construction_seconds
+    print(f"  Graph construction: {construction_seconds:.3f}s")
+
+    structure_stats = _graph_structure_stats(model_name, graph_data, H_static)
+    for key, value in structure_stats.items():
+        wandb.summary[f"graph/{key}"] = value
 
     for k, v in graph_data.items():
         if hasattr(v, "shape"):
@@ -412,6 +485,7 @@ def main() -> None:
         seed=int(train_cfg["seed"]),
     )
     n_params = 0
+    fit_seconds_total = 0.0
 
     for rep in range(reps):
         print("\n" + "=" * 60)
@@ -512,6 +586,7 @@ def main() -> None:
             print(f"  Restored trained model from {final_model_path}")
         else:
             try:
+                _fit_t0 = time.perf_counter()
                 train_losses, val_losses = trainer.fit(
                     dataset       = dataset,
                     batch_size    = train_cfg["batch_size"],
@@ -532,6 +607,7 @@ def main() -> None:
                     checkpoint_save_every = checkpoint_cfg["save_every"],
                     final_model_path = final_model_path,
                 )
+                fit_seconds_total += time.perf_counter() - _fit_t0
             except LossGuardAbort as exc:
                 print(f"LOSS_GUARD_ABORT: {exc.reason} at epoch {exc.epoch}")
                 wandb.summary["run/status"] = "loss_guard_aborted"
@@ -705,6 +781,21 @@ def main() -> None:
     wandb.summary["data/name"]      = args.data
     wandb.summary["run/status"]     = "success"
 
+    # --- Cost + structure metrics for the H2 coarse-graining analysis ---
+    cost_stats: dict[str, float] = {
+        "graph/construction_seconds": float(construction_seconds),
+        "train/fit_seconds": float(fit_seconds_total),
+        "resources/peak_rss_mb": _peak_rss_mb(),
+    }
+    if torch.cuda.is_available():
+        cost_stats["resources/peak_gpu_mb"] = float(torch.cuda.max_memory_allocated()) / 1e6
+    cost_stats.update({f"graph/{k}": v for k, v in structure_stats.items()})
+    if coarsen_stats is not None:
+        cost_stats.update({f"coarsen/{k}": v for k, v in coarsen_stats.items()})
+    cost_stats["coarsen/delta_t"] = float(delta_t)
+    for key, value in cost_stats.items():
+        wandb.summary[key] = value
+
     summary_payload = {
         "status": "success",
         "model": model_name,
@@ -718,6 +809,8 @@ def main() -> None:
         } | {
             f"{metric_key}_std": float(np.std(vals))
             for metric_key, vals in sorted(rep_metric_lists.items())
+        } | {
+            key: value for key, value in cost_stats.items()
         },
     }
     _write_json(f"{run_dir}/metrics_summary.json", summary_payload)

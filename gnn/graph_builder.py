@@ -61,6 +61,83 @@ def normalize_gcn_edges(
 
 
 # ---------------------------------------------------------------------------
+# Unified temporal coarse-graining  (shared across all temporal models)
+# ---------------------------------------------------------------------------
+
+def coarsen_temporal_network(H: nx.Graph, delta_t: int) -> tuple[nx.Graph, dict]:
+    """Coarse-grain a temporal contact network in time.
+
+    Bins every edge's contact times into non-overlapping windows of width
+    ``delta_t`` (``binned = (t - t_min) // delta_t``) and returns a *new*
+    temporal graph carrying the binned, de-duplicated ``'times'`` lists.
+
+    This is applied **once, before any model-specific graph construction**, so
+    that the TemporalGNN snapshots, the BacktrackingNetwork edge textures, and
+    the DBGNN De Bruijn graph are all derived from the *same* coarse-grained
+    network.  ``delta_t <= 1`` returns the input graph unchanged.
+
+    Parameters
+    ----------
+    H:
+        Temporal NetworkX graph. Edges carry a ``'times'`` list attribute.
+    delta_t:
+        Temporal bin width in original time steps (``>= 1``).
+
+    Returns
+    -------
+    (H_coarse, stats)
+        ``H_coarse`` is a graph of the same directed/undirected type with binned
+        ``'times'``.  ``stats`` records before/after sizes:
+        ``delta_t``, ``t_min``, ``t_max_before``, ``t_max_after``,
+        ``contacts_before``, ``contacts_after``, ``n_edges_before``,
+        ``n_edges_after``.
+    """
+    if delta_t < 1:
+        raise ValueError(f"delta_t must be >= 1, got {delta_t}")
+
+    all_times = [int(t) for _, _, data in H.edges(data=True) for t in data.get("times", [])]
+    contacts_before = len(all_times)
+    n_edges_before = H.number_of_edges()
+    t_min = min(all_times) if all_times else 0
+    t_max_before = max(all_times) if all_times else 0
+
+    if delta_t <= 1:
+        return H, {
+            "delta_t": 1,
+            "t_min": int(t_min),
+            "t_max_before": int(t_max_before),
+            "t_max_after": int(t_max_before),
+            "contacts_before": int(contacts_before),
+            "contacts_after": int(contacts_before),
+            "n_edges_before": int(n_edges_before),
+            "n_edges_after": int(n_edges_before),
+        }
+
+    H_coarse = H.__class__()  # preserve directed/undirected type
+    H_coarse.add_nodes_from(H.nodes())
+    contacts_after = 0
+    for u, v, data in H.edges(data=True):
+        binned = sorted({(int(t) - t_min) // delta_t for t in data.get("times", [])})
+        if not binned:
+            continue
+        H_coarse.add_edge(u, v, times=binned)
+        contacts_after += len(binned)
+
+    t_max_after = (t_max_before - t_min) // delta_t
+    stats = {
+        "delta_t": int(delta_t),
+        "t_min": int(t_min),
+        "t_max_before": int(t_max_before),
+        "t_max_after": int(t_max_after),
+        "contacts_before": int(contacts_before),
+        "contacts_after": int(contacts_after),
+        "n_edges_before": int(n_edges_before),
+        "n_edges_after": int(H_coarse.number_of_edges()),
+    }
+    return H_coarse, stats
+
+
+# ---------------------------------------------------------------------------
 # Static projection  (StaticGNN)
 # ---------------------------------------------------------------------------
 

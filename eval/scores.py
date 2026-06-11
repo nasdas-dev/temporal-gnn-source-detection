@@ -13,13 +13,6 @@ def top_k_score(ranks, sel, k=5):
         return float("nan")
     return np.mean(ranks[sel] <= k)
 
-def normalized_brier_score(states, probs, n_nodes, sel):
-    if not np.any(sel):
-        return float("nan")
-    brier_scores = np.mean((states - probs) ** 2, axis=1)
-    normalized_score = brier_scores / (2 / n_nodes)
-    return np.mean(normalized_score[sel])
-
 def normalized_entropy(probs, n_nodes, sel):
     if not np.any(sel):
         return float("nan")
@@ -37,6 +30,11 @@ def credible_set(probs, sel, p, n_nodes, n_runs):
     sorted_probs = np.take_along_axis(probs, sorted_indices, axis=1)
     cumulative_probs = np.cumsum(sorted_probs, axis=1)
     credible_set_sizes = np.argmax(cumulative_probs >= p, axis=1) + 1
+    # ``argmax`` returns 0 (→ size 1) when floating-point rounding leaves the
+    # final cumulative sum just below ``p``; treat such rows as needing the
+    # full vector instead of silently reporting the smallest possible set.
+    reached = cumulative_probs[:, -1] >= p
+    credible_set_sizes = np.where(reached, credible_set_sizes, probs.shape[1])
     true_source_indeces = np.repeat(np.arange(n_nodes), n_runs)
     positions = (sorted_indices == true_source_indeces[:, None]).argmax(axis=1)
     return np.mean((positions < credible_set_sizes)[sel])
@@ -47,7 +45,11 @@ def credible_set_size_mean(probs: np.ndarray, sel: np.ndarray, p: float) -> floa
     if not np.any(sel):
         return float("nan")
     sorted_probs = -np.sort(-probs, axis=1)   # descending
-    sizes = np.argmax(np.cumsum(sorted_probs, axis=1) >= p, axis=1) + 1
+    cumulative = np.cumsum(sorted_probs, axis=1)
+    sizes = np.argmax(cumulative >= p, axis=1) + 1
+    # Guard against rounding leaving the final cumulative sum just below ``p``.
+    reached = cumulative[:, -1] >= p
+    sizes = np.where(reached, sizes, probs.shape[1])
     return float(np.mean(sizes[sel]))
 
 

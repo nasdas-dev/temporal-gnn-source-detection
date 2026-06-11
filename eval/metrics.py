@@ -16,11 +16,14 @@ Metric suite
 - Normalised entropy      via ``eval/norm_entropy``
 - Credible set coverage   via ``eval/cred_cov_{p_int}`` for each p
 
-By default, ranking metrics follow the Sterchi et al. benchmark convention:
-the true source is ranked among feasible outbreak candidates, i.e. nodes that
-are non-susceptible in the observed snapshot. Set ``eval.rank_scope`` (or the
-backwards-compatible alias ``eval.ranking_scope``) to ``all_nodes`` to rank
-over every node without applying ``lik_possible``.
+By default, every metric follows the Sterchi et al. benchmark convention:
+each method is scored on the infected subgraph, i.e. its probability vector is
+restricted to feasible (non-susceptible) candidates and renormalised before
+both ranking and calibration metrics are computed. This makes models that mask
+susceptible nodes internally (e.g. BacktrackingNetwork, DBGNN) and those that
+do not (StaticGNN, TemporalGNN) directly comparable. Set ``eval.rank_scope``
+(or the backwards-compatible alias ``eval.ranking_scope``) to ``all_nodes`` to
+score over every node without applying ``lik_possible``.
 """
 
 from __future__ import annotations
@@ -100,6 +103,60 @@ def _candidate_mask(lik_possible: np.ndarray) -> np.ndarray:
     return np.isfinite(lik_possible) & (lik_possible <= 0)
 
 
+def _restrict_and_renormalize(
+    probs: np.ndarray, candidate_mask: np.ndarray
+) -> np.ndarray:
+    """Project each probability row onto the feasible candidate set.
+
+    Non-candidate (susceptible) nodes are zeroed and every row is renormalised
+    to sum to one, so that all methods are scored on the infected subgraph
+    exactly as in Sterchi et al. Rows with no probability mass on candidates
+    fall back to a uniform distribution over their candidates; rows with no
+    candidates at all (degenerate) fall back to uniform over all nodes.
+    """
+    probs_eval = probs.astype(np.float64, copy=True)
+    probs_eval[~candidate_mask] = 0.0
+
+    totals = probs_eval.sum(axis=1, keepdims=True)
+    positive = totals[:, 0] > 0
+    probs_eval[positive] /= totals[positive]
+
+    zero_mass = ~positive
+    if np.any(zero_mass):
+        cand_counts = candidate_mask.sum(axis=1, keepdims=True)
+        has_cand = zero_mass & (cand_counts[:, 0] > 0)
+        if np.any(has_cand):
+            probs_eval[has_cand] = (
+                candidate_mask[has_cand].astype(np.float64)
+                / cand_counts[has_cand]
+            )
+        no_cand = zero_mass & (cand_counts[:, 0] == 0)
+        if np.any(no_cand):
+            probs_eval[no_cand] = 1.0 / probs.shape[1]
+    return probs_eval
+
+
+def _prepare_eval_distribution(
+    probs: np.ndarray, lik_possible: np.ndarray, eval_cfg: dict
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return ``(probs_eval, rank_values)`` for the configured rank scope.
+
+    With the default Sterchi-style ``candidate`` scope, ``probs_eval`` is the
+    probability vector restricted to the infected subgraph and renormalised;
+    it is used for *every* metric so masking models and non-masking models are
+    compared on identical footing. ``rank_values`` carries ``-inf`` on
+    non-candidate nodes so they always rank below feasible candidates. With
+    ``all_nodes`` scope both arrays are the raw probabilities.
+    """
+    if _rank_scope(eval_cfg) == "candidate":
+        cand = _candidate_mask(lik_possible)
+        probs_eval = _restrict_and_renormalize(probs, cand)
+        rank_values = np.where(cand, probs_eval, -np.inf)
+        return probs_eval, rank_values
+    probs_eval = probs.astype(np.float64, copy=False)
+    return probs_eval, probs_eval
+
+
 def _shortest_path_distance_matrix(H_static, n_nodes: int) -> np.ndarray:
     """Return graph distances, penalising disconnected pairs explicitly."""
     import networkx as nx
@@ -172,12 +229,10 @@ def per_sample_arrays(
 
     rng = _rng_from_eval_cfg(eval_cfg)
 
-    log_probs = np.log(np.clip(probs, 1e-12, 1.0))
-    if _rank_scope(eval_cfg) == "candidate":
-        # Sterchi-style evaluation: exclude susceptible nodes from rank-based
-        # metrics while retaining the full probability vector for calibration.
-        log_probs = log_probs - lik_possible
-    ranks = compute_ranks(log_probs, n_nodes=n_nodes, n_runs=n_runs, rng=rng)
+    # Sterchi-style evaluation: every method is scored on the infected subgraph.
+    # ``rank_values`` ranks the true source among feasible candidates only.
+    _, rank_values = _prepare_eval_distribution(probs, lik_possible, eval_cfg)
+    ranks = compute_ranks(rank_values, n_nodes=n_nodes, n_runs=n_runs, rng=rng)
 
     return {
         "ranks":          ranks,
@@ -209,9 +264,10 @@ def compute_all_metrics(
         Predicted probability distribution (not log-probs).  Values must be
         non-negative and sum to 1 over axis 1.
     lik_possible : np.ndarray, shape (n_samples, n_nodes)
-        Feasible-source log mask. By default it is applied to rank-based
-        metrics to reproduce Sterchi-style candidate-subgraph evaluation.
-        Set ``eval.rank_scope: all_nodes`` for strict all-node ranking.
+        Feasible-source log mask. By default it restricts every metric to the
+        infected subgraph (Sterchi-style candidate evaluation): probabilities
+        are renormalised over feasible candidates before scoring.
+        Set ``eval.rank_scope: all_nodes`` for strict all-node evaluation.
     truth_S_flat : np.ndarray, shape (n_samples, n_nodes), int8
         Susceptible-state matrix from TSIR simulation.
     eval_cfg : dict
@@ -248,6 +304,13 @@ def compute_all_metrics(
     sel          = arrays["sel"]
     true_sources = arrays["true_sources"]
 
+    # Score every method on the same distribution the ranks use: with the
+    # default candidate scope this restricts probabilities to the infected
+    # subgraph and renormalises, so calibration metrics (Brier, entropy,
+    # credible set, resistance, log-score) are comparable across models that
+    # mask susceptible nodes internally and those that do not.
+    probs_eval, _ = _prepare_eval_distribution(probs, lik_possible, eval_cfg)
+
     top_k_vals  = eval_cfg["top_k"]
     offsets     = eval_cfg["inverse_rank_offset"]
     credible_ps = eval_cfg.get("credible_p", [0.90])
@@ -266,36 +329,36 @@ def compute_all_metrics(
         metrics[f"eval/rank_score_off{o}"] = float(rank_score(ranks, sel, o))
 
     # --- Calibration: Brier score ---
-    brier_raw = float(proper_brier_score(probs, true_sources, n_nodes, sel))
+    brier_raw = float(proper_brier_score(probs_eval, true_sources, n_nodes, sel))
     metrics["eval/brier"] = brier_raw
     # Normalise: uniform predictor baseline = (n_nodes - 1) / n_nodes
     brier_uniform = (n_nodes - 1) / n_nodes
     metrics["eval/norm_brier"] = brier_raw / brier_uniform if brier_uniform > 0 else float("nan")
 
-    log_raw = float(logarithmic_score(probs, true_sources, sel))
+    log_raw = float(logarithmic_score(probs_eval, true_sources, sel))
     metrics["eval/log_score"] = log_raw
     metrics["eval/norm_log_score"] = log_raw / np.log(n_nodes) if n_nodes > 1 else float("nan")
 
     if np.any(sel):
         idx = np.arange(len(true_sources))
-        true_probs = probs[idx, true_sources.astype(int)]
+        true_probs = probs_eval[idx, true_sources.astype(int)]
         metrics["eval/mean_true_prob"] = float(np.mean(true_probs[sel]))
-        metrics["eval/map_confidence"] = float(np.mean(np.max(probs[sel], axis=1)))
+        metrics["eval/map_confidence"] = float(np.mean(np.max(probs_eval[sel], axis=1)))
     else:
         metrics["eval/mean_true_prob"] = float("nan")
         metrics["eval/map_confidence"] = float("nan")
 
     # --- Calibration: entropy ---
-    metrics["eval/norm_entropy"] = float(normalized_entropy(probs, n_nodes, sel))
+    metrics["eval/norm_entropy"] = float(normalized_entropy(probs_eval, n_nodes, sel))
 
     # --- Credible set coverage ---
     for p in credible_ps:
         p_int = int(round(p * 100))
         metrics[f"eval/cred_cov_{p_int}"] = float(
-            credible_set(probs, sel, p, n_nodes, n_runs)
+            credible_set(probs_eval, sel, p, n_nodes, n_runs)
         )
         metrics[f"eval/cred_set_size_{p_int}"] = float(
-            credible_set_size_mean(probs, sel, p)
+            credible_set_size_mean(probs_eval, sel, p)
         )
 
     metrics["eval/n_valid"] = n_valid
@@ -313,12 +376,12 @@ def compute_all_metrics(
         # Error distance (MAP prediction vs true source)
         dist_matrix = graph_metric_context["dist_matrix"]
         metrics["eval/error_dist"] = float(
-            error_distance(probs, true_sources, dist_matrix, sel, rng=_rng_from_eval_cfg(eval_cfg))
+            error_distance(probs_eval, true_sources, dist_matrix, sel, rng=_rng_from_eval_cfg(eval_cfg))
         )
 
         # Resistance distance scoring rule: S(p,i) = (Ω@p)[i] - 0.5 p^T Ω p
         Omega = graph_metric_context["omega"]
-        probs_valid = probs[sel].astype(np.float64)
+        probs_valid = probs_eval[sel].astype(np.float64)
         true_src_valid = true_sources[sel].astype(int)
         n_valid_int = len(probs_valid)
         if n_valid_int:
