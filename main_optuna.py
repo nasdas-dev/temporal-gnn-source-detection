@@ -33,7 +33,12 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 import numpy as np
 import yaml
 
-from hpo import apply_trial_params, describe_search_space, suggest_hyperparameters
+from hpo import (
+    apply_trial_params,
+    default_trial_params,
+    describe_search_space,
+    suggest_hyperparameters,
+)
 
 
 DEFAULT_HPO = {
@@ -43,6 +48,7 @@ DEFAULT_HPO = {
     "direction": "maximize",
     "sampler": "tpe",
     "pruner": "hyperband",
+    "enqueue_default": True,
     "reps": 1,
     "n_truth": None,
     "truth_start": 0,
@@ -97,6 +103,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--direction", choices=["maximize", "minimize"], default=None)
     p.add_argument("--sampler", choices=["tpe", "random"], default=None)
     p.add_argument("--pruner", choices=["hyperband", "median", "none"], default=None)
+    p.add_argument("--enqueue-default", dest="enqueue_default", action="store_true", default=None,
+                   help="Evaluate the base config as an explicit first trial so the tuned "
+                        "result can never be selected worse than the default (default on).")
+    p.add_argument("--no-enqueue-default", dest="enqueue_default", action="store_false",
+                   help="Disable enrolling the base config as a protected candidate trial.")
     p.add_argument("--trial-epochs", type=int, default=None,
                    help="Optional epoch cap used only inside Optuna trials")
     p.add_argument("--trial-patience", type=int, default=None,
@@ -231,6 +242,7 @@ def _hpo_settings(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, An
         ("direction", "direction"),
         ("sampler", "sampler"),
         ("pruner", "pruner"),
+        ("enqueue_default", "enqueue_default"),
         ("trial_epochs", "trial_epochs"),
         ("trial_patience", "trial_patience"),
         ("trial_n_mc", "trial_n_mc"),
@@ -802,6 +814,19 @@ def main() -> None:
         pruner=pruner,
         load_if_exists=bool(hpo_cfg.get("load_if_exists", True)),
     )
+
+    # Protect the strong hand-tuned default: enqueue it as an explicit trial so
+    # the selected best can never be worse than the default on the validation
+    # window. ``skip_if_exists`` keeps this idempotent across resumes.
+    if bool(hpo_cfg.get("enqueue_default", True)):
+        default_params = default_trial_params(cfg, model_name)
+        if default_params:
+            study.enqueue_trial(
+                default_params,
+                user_attrs={"is_default_config": True},
+                skip_if_exists=True,
+            )
+            print(f"Enqueued default-config trial as a protected candidate: {default_params}")
 
     max_batch_size = data.n_nodes * min(int(cfg["train"]["n_mc"]), data.mc_runs)
 

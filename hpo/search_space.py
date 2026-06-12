@@ -8,6 +8,7 @@ for each architecture.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any, Protocol
 
@@ -258,6 +259,72 @@ def suggest_hyperparameters(
     locked = set((cfg.get("hpo") or {}).get("locked_params", []))
     for key in locked:
         params.pop(key, None)
+    return params
+
+
+_MISSING = object()
+
+
+def _get_dotted(cfg: Mapping[str, Any], dotted_key: str) -> Any:
+    node: Any = cfg
+    for part in dotted_key.split("."):
+        if not isinstance(node, Mapping) or part not in node:
+            return _MISSING
+        node = node[part]
+    return node
+
+
+def _snap_categorical(value: Any, choices: list[Any]) -> Any:
+    """Return ``value`` if it is a valid choice, else the nearest numeric choice."""
+    for choice in choices:
+        # Exact match (and exact type for bools, since True == 1 in Python).
+        if value is choice or (value == choice and isinstance(value, bool) == isinstance(choice, bool)):
+            return choice
+    numeric = [c for c in choices if isinstance(c, (int, float)) and not isinstance(c, bool)]
+    if numeric and isinstance(value, (int, float)) and not isinstance(value, bool):
+        return min(numeric, key=lambda c: abs(c - value))
+    return _MISSING
+
+
+def default_trial_params(cfg: Mapping[str, Any], model_name: str) -> dict[str, Any]:
+    """Extract the base config's values for every tunable parameter.
+
+    The returned dict is suitable for ``optuna.Study.enqueue_trial`` so that the
+    strong hand-tuned default configuration is evaluated as an explicit trial and
+    therefore protected as a candidate: the selected best trial can never score
+    worse (on the validation window) than the default. Values are snapped into
+    each parameter's search distribution — clipped for int/float ranges, matched
+    or rounded to the nearest numeric choice for categoricals — so the enqueued
+    trial is always valid. Parameters absent from the config or locked via
+    ``hpo.locked_params`` are skipped (Optuna samples them normally).
+    """
+    spec = describe_search_space(model_name)
+    locked = set((cfg.get("hpo") or {}).get("locked_params", []))
+    params: dict[str, Any] = {}
+    for key, dist in spec.items():
+        if key in locked:
+            continue
+        value = _get_dotted(cfg, key)
+        if value is _MISSING or value is None:
+            continue
+        if isinstance(dist, list):
+            snapped = _snap_categorical(value, dist)
+            if snapped is not _MISSING:
+                params[key] = snapped
+            continue
+        match = re.fullmatch(
+            r"(int|loguniform|uniform)\[\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*\]",
+            str(dist),
+        )
+        if not match:
+            continue
+        kind, low, high = match.group(1), float(match.group(2)), float(match.group(3))
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            continue
+        numeric = max(low, min(high, numeric))
+        params[key] = int(round(numeric)) if kind == "int" else numeric
     return params
 
 

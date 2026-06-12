@@ -39,6 +39,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, replace
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -135,6 +136,11 @@ PRESETS = {
     "balanced": Preset(n_runs=500, mc_runs=300, n_mc=300, reps=1, n_truth=300),
     "max_quality": Preset(n_runs=1000, mc_runs=500, n_mc=500, reps=1, n_truth=1000),
     "fast": Preset(n_runs=120, mc_runs=80, n_mc=80, reps=1, n_truth=40),
+    # Multi-seed protocol for the in-depth Optuna tuner experiment
+    # (run_tuner_experiment.py). reps=3 mirrors Sterchi et al.: the final model
+    # is trained and evaluated three times and averaged. n_runs leaves room for
+    # a disjoint HPO-validation window + the 3*250 held-out final-test window.
+    "tuner": Preset(n_runs=1200, mc_runs=500, n_mc=500, reps=3, n_truth=250),
 }
 
 LOSS_GUARD = {
@@ -152,7 +158,7 @@ LOSS_GUARD = {
 GRAD_CLIP_NORM = 1.0
 
 
-def parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--preset", choices=sorted(PRESETS), default="paper_24h",
                    help="Runtime/quality preset. Use max_quality for the full expensive grid.")
@@ -170,6 +176,8 @@ def parse_args() -> argparse.Namespace:
                    help="Heuristic baseline keys or presets: fast, paper, all. Default: paper")
     p.add_argument("--r0", nargs="+", default=["all"], help="R0 labels: r0_08 ... r0_25, numeric values, or all")
     p.add_argument("--output", default="results/thesis_final", help="Root results directory")
+    p.add_argument("--experiment-name", default="thesis_final",
+                   help="Logical experiment name recorded in the publication bundle and LaTeX inputs.")
     p.add_argument("--run-name", default=None, help="Run directory name. Defaults to timestamp.")
     p.add_argument("--resume", action="store_true", help="Resume an existing run directory and skip terminal stages")
     p.add_argument("--force", action="store_true", help="Rerun stages even when a terminal status exists")
@@ -201,6 +209,11 @@ def parse_args() -> argparse.Namespace:
                    help="Cap final train.patience for generated configs; set 0 to keep template values")
     p.add_argument("--hpo-sampler", choices=["tpe", "random"], default="tpe")
     p.add_argument("--hpo-pruner", choices=["hyperband", "median", "none"], default="hyperband")
+    p.add_argument("--hpo-enqueue-default", dest="hpo_enqueue_default", action="store_true", default=True,
+                   help="Evaluate the base config as a protected first Optuna trial so the tuned "
+                        "model can never be selected worse than the default (default on).")
+    p.add_argument("--no-hpo-enqueue-default", dest="hpo_enqueue_default", action="store_false",
+                   help="Disable enrolling the base config as a protected candidate trial.")
     p.add_argument("--reduction", choices=["safe_1h", "none"], default="safe_1h",
                    help="Network reduction policy for TSIR artifacts. Default: safe_1h")
     p.add_argument("--no-reduction", dest="reduction", action="store_const", const="none",
@@ -223,7 +236,26 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--skip-viz", action="store_true")
     p.add_argument("--skip-tables", action="store_true")
     p.set_defaults(with_hpo=True)
-    return p.parse_args()
+    return p
+
+
+def parse_args(
+    argv: list[str] | None = None,
+    default_overrides: dict[str, Any] | None = None,
+) -> argparse.Namespace:
+    """Parse CLI args, optionally injecting alternative defaults.
+
+    ``default_overrides`` lets sibling runners (e.g. run_tuner_experiment.py)
+    reuse this pipeline with a different default protocol while still allowing
+    every value to be overridden on the command line.
+    """
+    parser = build_parser()
+    if default_overrides:
+        unknown = set(default_overrides) - {action.dest for action in parser._actions}
+        if unknown:
+            raise ValueError(f"Unknown default_overrides keys: {sorted(unknown)}")
+        parser.set_defaults(**default_overrides)
+    return parser.parse_args(argv)
 
 
 def _positive_cap(value: int | None) -> int | None:
@@ -661,6 +693,7 @@ def write_manifest(run_dir: Path, args: argparse.Namespace, networks: list[str],
             "reference_r0": resolve_hpo_reference_r0(getattr(args, "hpo_reference_r0", "r0_10"), r0_labels),
             "sampler": getattr(args, "hpo_sampler", None),
             "pruner": getattr(args, "hpo_pruner", None),
+            "enqueue_default": bool(getattr(args, "hpo_enqueue_default", True)),
             "n_truth": effective_hpo_n_truth(args, preset),
             "trial_n_mc": effective_hpo_n_mc(args, preset),
             "trial_epochs": _positive_cap(getattr(args, "hpo_epochs", None)),
@@ -876,6 +909,7 @@ def stage_hpo(
         args.hpo_sampler,
         "--pruner",
         args.hpo_pruner,
+        "--enqueue-default" if getattr(args, "hpo_enqueue_default", True) else "--no-enqueue-default",
     ]
     if args.hpo_timeout is not None:
         cmd.extend(["--timeout", str(args.hpo_timeout)])
@@ -1552,18 +1586,30 @@ def run_network_stats_table(args: argparse.Namespace, run_dir: Path, networks: l
     run_command(cmd, run_dir / "logs" / "network_stats.log", args.dry_run)
 
 
-def refresh_result_bundle(run_dir: Path, status_path: Path) -> Path:
+def _refresh_result_bundle(
+    run_dir: Path,
+    status_path: Path,
+    experiment_name: str = "thesis_final",
+) -> Path:
     """Refresh the publication-facing result bundle."""
     return sync_publication_result(
         run_dir=run_dir,
         status_rows=read_status(status_path),
-        experiment_name="thesis_final",
+        experiment_name=experiment_name,
     )
 
 
-def main() -> None:
-    args = parse_args()
+def main(
+    argv: list[str] | None = None,
+    default_overrides: dict[str, Any] | None = None,
+) -> None:
+    args = parse_args(argv, default_overrides)
     global HEURISTIC_BASELINES, BASELINES
+    # Bind the experiment name into every bundle refresh in this run. Shadows the
+    # module-level helper for the body of main() and its nested closures only.
+    refresh_result_bundle = partial(
+        _refresh_result_bundle, experiment_name=args.experiment_name
+    )
     networks = list(args.networks)
     if args.reverse_networks:
         networks.reverse()
@@ -1661,6 +1707,7 @@ def main() -> None:
             f"enabled, paired untuned/+Optuna finals, trials={args.hpo_trials}, "
             f"sampler={args.hpo_sampler}, pruner={args.hpo_pruner}, "
             f"scope={args.hpo_scope}, reference_r0={hpo_reference_r0}, "
+            f"enqueue_default={bool(getattr(args, 'hpo_enqueue_default', True))}, "
             f"trial_epochs={_positive_cap(args.hpo_epochs)}, "
             f"trial_n_truth={effective_hpo_n_truth(args, preset)}, "
             f"trial_n_mc={effective_hpo_n_mc(args, preset)}"
