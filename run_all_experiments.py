@@ -68,11 +68,25 @@ MODEL_ALIASES = {
 }
 TRAINABLE_BASELINES = ["static_mlp"]
 HEURISTIC_BASELINES_FAST = ["uniform", "random", "degree", "closeness", "betweenness", "jordan_center"]
-HEURISTIC_BASELINES_PAPER = HEURISTIC_BASELINES_FAST + ["mc_mean_field"]
-HEURISTIC_BASELINES_EXPENSIVE = ["soft_margin", "mcs_mean_field"]
+# Sterchi et al.'s full baseline set: Random, Jordan, Betweenness, SME, MCMF.
+# soft_margin (SME) now runs on the stored MC pool (artifact SME), so it is
+# affordable at n_mc=500 and belongs in the default comparison.
+HEURISTIC_BASELINES_PAPER = HEURISTIC_BASELINES_FAST + ["mc_mean_field", "soft_margin"]
+HEURISTIC_BASELINES_EXPENSIVE = ["mcs_mean_field"]
 HEURISTIC_BASELINES = HEURISTIC_BASELINES_PAPER
+# Per-observation baselines: betweenness/jordan_center are computed on the
+# *infected subgraph* of every outbreak (Sterchi-faithful, but ~100x slower than
+# a static prior) and soft_margin (SME) compares every observation to the stored
+# MC pool. On the large reduced networks (≈300 nodes × n_truth observations)
+# these can take hours per network. ``--no-expensive-baselines`` drops them while
+# keeping the cheap, fully-vectorised baselines (incl. the MCMF probabilistic
+# baseline). The cheap subset alone is a complete, fast comparison; add the
+# expensive set back for the definitive Sterchi-parity table.
+EXPENSIVE_BASELINES = {"betweenness", "jordan_center", "soft_margin"}
+HEURISTIC_BASELINES_CHEAP = [b for b in HEURISTIC_BASELINES_PAPER if b not in EXPENSIVE_BASELINES]
 BASELINE_ALIASES = {
     "fast": HEURISTIC_BASELINES_FAST,
+    "cheap": HEURISTIC_BASELINES_CHEAP,
     "paper": HEURISTIC_BASELINES_PAPER,
     "all": HEURISTIC_BASELINES_PAPER + HEURISTIC_BASELINES_EXPENSIVE,
 }
@@ -101,16 +115,18 @@ BETAS = {
     "pig_data":     {"r0_08": 0.032, "r0_10": 0.040, "r0_11": 0.044, "r0_15": 0.060, "r0_20": 0.080, "r0_25": 0.100},
 }
 
-MUS = {
-    "lyon_ward": 0.01,
-    "malawi": 0.01,
-    "france_office": 0.01,
-    "students": 0.01,
-    "biasca": 0.001,
-    "olten": 0.001,
-    "escort": 0.02,
-    "pig_data": 0.01,
-}
+# Recovery rate. Standardised across the whole test suite so every network
+# shares the same SIR dynamical regime (Sterchi et al. fix mu WLOG; the C
+# simulator requires mu < 1, so we use a single small value rather than 1).
+# Networks whose mu changes here have their beta re-calibrated automatically at
+# run time (the beta cache is mu-aware), and end_t is calibrated to the 40%
+# infected-snapshot target — so all three knobs stay self-consistent.
+STANDARD_MU = 0.01
+MUS = {network: STANDARD_MU for network in NETWORKS}
+
+# Target fraction of nodes infected at the observed snapshot. end_t is
+# calibrated per network/R0 to hit this (Sterchi et al. use ≈ 0.40).
+TARGET_INFECTED = 0.40
 
 TEMPORAL_GROUP_BY_TIME = {
     "lyon_ward": 6,
@@ -157,6 +173,23 @@ LOSS_GUARD = {
 # well-behaved GNNs (their grad norms rarely exceed this).
 GRAD_CLIP_NORM = 1.0
 
+# Frozen, Sterchi-aligned training hyperparameters (Table 4): the optimiser
+# setup is fixed and only the architecture is tuned. batch_size applies to the
+# static models; temporal models keep memory-appropriate batches (see
+# build_model_config).
+STERCHI_TRAIN = {
+    "lr": 0.001,
+    "weight_decay": 0.0005,
+    "batch_size": 128,
+    "test_size": 0.30,
+    # Train up to 500 epochs and let early-stopping (patience 20) decide when to
+    # stop, exactly as Sterchi et al. — never a hard cap that bites before
+    # convergence. Early stopping means real epoch counts stay modest
+    # (Sterchi's networks stopped at 23–68 epochs), so this is GPU-affordable.
+    "epochs": 500,
+    "patience": 20,
+}
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -165,15 +198,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--n-runs", type=int, default=None,
                    help="Override the preset's ground-truth simulation count (TSIR n_runs). "
                         "Raise together with --n-truth for tighter metric estimates.")
+    p.add_argument("--mc-runs", type=int, default=None,
+                   help="Override the preset's Monte Carlo simulation count stored per source.")
+    p.add_argument("--n-mc", type=int, default=None,
+                   help="Override the per-repetition number of MC simulations used for training.")
+    p.add_argument("--reps", type=int, default=None,
+                   help="Override the number of independent train/eval repetitions.")
     p.add_argument("--n-truth", type=int, default=None,
                    help="Override the preset's evaluation sample count. Must be <= --n-runs; "
                         "cheap (inference + metrics only, no extra training).")
+    p.add_argument("--target-infected", type=float, default=TARGET_INFECTED,
+                   help="Target fraction of nodes infected at the observed snapshot. "
+                        "end_t is calibrated per network/R0 to hit this (Sterchi ≈ 0.40).")
+    p.add_argument("--target-infected-n-probe", type=int, default=64,
+                   help="Number of probe outbreaks per end_t bisection step when "
+                        "calibrating the infected-snapshot fraction.")
     p.add_argument("--networks", nargs="+", default=NETWORKS)
     p.add_argument("--reverse-networks", action="store_true",
                    help="Run selected networks in reverse order, useful for splitting work across machines.")
     p.add_argument("--models", nargs="+", default=MODELS)
     p.add_argument("--baselines", nargs="+", default=["paper"],
-                   help="Heuristic baseline keys or presets: fast, paper, all. Default: paper")
+                   help="Heuristic baseline keys or presets: fast, cheap, paper, all. Default: paper")
+    p.add_argument("--no-expensive-baselines", dest="exclude_expensive_baselines",
+                   action="store_true",
+                   help="Drop the per-observation baselines (subgraph betweenness/jordan_center "
+                        "and the SME soft_margin), which can take hours on the large reduced "
+                        "networks. Keeps the cheap vectorised baselines incl. MCMF.")
     p.add_argument("--r0", nargs="+", default=["all"], help="R0 labels: r0_08 ... r0_25, numeric values, or all")
     p.add_argument("--output", default="results/thesis_final", help="Root results directory")
     p.add_argument("--experiment-name", default="thesis_final",
@@ -187,8 +237,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Run paired untuned and Optuna-tuned final evaluations (default)")
     p.add_argument("--no-hpo", dest="with_hpo", action="store_false",
                    help="Disable Optuna and run only the untuned configs")
-    p.add_argument("--hpo-trials", type=int, default=5,
-                   help="Optuna trials per network/R0/model when --with-hpo is enabled")
+    p.add_argument("--hpo-trials", type=int, default=12,
+                   help="Optuna trials per network/R0/model when --with-hpo is enabled. "
+                        "12 suffices now that only architecture is tuned and selection "
+                        "uses smoothed validation loss; raise to ~30 for an exhaustive sweep.")
     p.add_argument("--hpo-timeout", type=int, default=None,
                    help="Optional Optuna timeout in seconds per study")
     p.add_argument("--hpo-scope", choices=["network", "scenario"], default="network",
@@ -203,8 +255,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Epoch cap used inside HPO trials only")
     p.add_argument("--hpo-patience", type=int, default=12,
                    help="Early-stopping patience cap used inside HPO trials only")
-    p.add_argument("--max-train-epochs", type=int, default=250,
-                   help="Cap final train.epochs for generated configs; set 0 to keep template values")
+    p.add_argument("--max-train-epochs", type=int, default=500,
+                   help="Cap final train.epochs for generated configs; set 0 to keep template values. "
+                        "Default 500 matches Sterchi (rely on early-stopping, not the cap, to converge).")
     p.add_argument("--max-train-patience", type=int, default=20,
                    help="Cap final train.patience for generated configs; set 0 to keep template values")
     p.add_argument("--hpo-sampler", choices=["tpe", "random"], default="tpe")
@@ -296,6 +349,40 @@ def attach_hpo_budget(cfg: dict[str, Any], args: argparse.Namespace, preset: Pre
     hpo_cfg["trial_epochs"] = _positive_cap(getattr(args, "hpo_epochs", None))
     hpo_cfg["trial_patience"] = _positive_cap(getattr(args, "hpo_patience", None))
     hpo_cfg["trial_n_mc"] = effective_hpo_n_mc(args, preset)
+    # Select models on the smoothed validation NLL (mean of the last
+    # `val_loss_window` validation losses), as in Sterchi et al., instead of the
+    # noisy truth-window MRR. The validation split is large and i.i.d. with
+    # training, so this signal is stable even at a few trials; the truth-window
+    # metrics are still logged for monitoring but no longer drive selection.
+    hpo_cfg["metric"] = "eval/val_nll"
+    hpo_cfg["direction"] = "minimize"
+    hpo_cfg["val_loss_window"] = 5
+
+
+def final_eval_window(args: argparse.Namespace, preset: Preset) -> tuple[int, int]:
+    """Held-out truth window used by the HPO-paired GNN finals.
+
+    Mirrors ``main_optuna.resolve_truth_budget`` for the runner protocol
+    (``hpo.truth_start = 0``, ``hpo.reps = 1`` — ``attach_hpo_budget`` never
+    overrides these), so the heuristic/probabilistic baselines can be scored on
+    the *identical* window as the GNN finals instead of the default ``[0,
+    n_truth)``. Sterchi's benchmark requires every method on one data substrate;
+    without this the GNN window (shifted past the HPO-validation runs) and the
+    baseline window only partially overlap.
+
+    With ``--no-hpo`` there is no shift and the finals use ``[0, n_truth)``.
+
+    Returns ``(truth_start, n_truth)``. Assumes the artifact was generated with
+    ``preset.n_runs`` ground-truth runs (true for a fresh TSIR stage), so this
+    equals the window ``main_optuna`` wrote into ``best_config.yml``.
+    """
+    if not bool(getattr(args, "with_hpo", False)):
+        return 0, preset.n_truth
+    # hpo_truth_start(0) + hpo_reps(1) * hpo_n_truth
+    final_truth_start = effective_hpo_n_truth(args, preset)
+    final_remaining = preset.n_runs - final_truth_start
+    final_n_truth = min(preset.n_truth, max(1, final_remaining // max(1, preset.reps)))
+    return final_truth_start, final_n_truth
 
 
 def normalize_r0_labels(raw: list[str]) -> list[str]:
@@ -338,7 +425,7 @@ def normalize_model_keys(raw: list[str]) -> list[str]:
     return out
 
 
-def normalize_baseline_keys(raw: list[str]) -> list[str]:
+def normalize_baseline_keys(raw: list[str], exclude_expensive: bool = False) -> list[str]:
     out: list[str] = []
     for item in raw:
         expanded = BASELINE_ALIASES.get(item, [item])
@@ -352,6 +439,11 @@ def normalize_baseline_keys(raw: list[str]) -> list[str]:
             f"Unknown baseline(s): {unknown}. Known presets/keys: "
             f"{sorted(known | set(BASELINE_ALIASES))}"
         )
+    if exclude_expensive:
+        dropped = [b for b in out if b in EXPENSIVE_BASELINES]
+        out = [b for b in out if b not in EXPENSIVE_BASELINES]
+        if dropped:
+            print(f"  --no-expensive-baselines: dropping {dropped} (subgraph centrality + SME)")
     return out
 
 
@@ -502,9 +594,15 @@ def build_tsir_config(
         "mc_runs": preset.mc_runs,
     }
     if args is not None and not bool(getattr(args, "use_full_betas", False)):
+        # end_t is initialised to the full contact window (t_max above) and acts
+        # as the upper bound for the target-infected calibration, which shrinks
+        # it to the Sterchi-style ≈40%-infected snapshot.
         sir_cfg["calibration"] = {
             "enabled": True,
             "target_r0": sc["r0"],
+            "target_infected": float(getattr(args, "target_infected", TARGET_INFECTED)),
+            "target_infected_n_probe": int(getattr(args, "target_infected_n_probe", 64)),
+            "target_infected_tolerance": 0.02,
             "output_dir": "results/calibration",
             "n_probe": 1,
             "max_iter": 8,
@@ -552,14 +650,34 @@ def build_model_config(
         "credible_p": [0.80, 0.90],
         "inverse_rank_offset": [0],
         "n_truth": preset.n_truth,
+        # Sterchi-exact: all reps are scored on the SAME held-out test window, so
+        # the reported 95% CIs reflect training/initialisation noise (not test-set
+        # sampling). Only needs n_truth runs, so n_truth can be large and cheap.
+        "shared_eval_window": True,
     }
     cfg["train"] = {
         **cfg.get("train", {}),
+        # Sterchi-aligned, FROZEN training hyperparameters. These are no longer
+        # tuned by Optuna (see hpo/search_space.py); pinning them here makes the
+        # untuned headline config and every HPO trial share the same optimiser
+        # setup, so tuning can only change architecture. lr/weight_decay/test_size
+        # were the knobs whose search degraded the strong models last run.
+        "lr": STERCHI_TRAIN["lr"],
+        "weight_decay": STERCHI_TRAIN["weight_decay"],
+        "test_size": STERCHI_TRAIN["test_size"],
+        "epochs": STERCHI_TRAIN["epochs"],
+        "patience": STERCHI_TRAIN["patience"],
         "n_mc": preset.n_mc,
         "reps": preset.reps,
         "loss_guard": LOSS_GUARD,
         "grad_clip_norm": GRAD_CLIP_NORM,
     }
+    # Batch size is frozen at Sterchi's 128 for the static models (small graphs);
+    # the temporal models (backtracking/temporal_gnn/dbgnn) keep their
+    # memory-appropriate template/cap values since 128 would OOM on full-network
+    # samples. It is removed from the HPO search either way.
+    if base_model in ("static_gnn", "static_mlp"):
+        cfg["train"]["batch_size"] = STERCHI_TRAIN["batch_size"]
     cfg.setdefault("output", {})["save_probs"] = save_probs
     if base_model == "temporal_gnn":
         temporal_cfg = cfg.setdefault("temporal_gnn", {})
@@ -602,26 +720,45 @@ def build_model_config(
     return cfg
 
 
-def build_eval_config(network: str, r0_label: str, preset: Preset) -> dict[str, Any]:
-    meta = read_network_meta(network)
+def build_eval_config(
+    network: str,
+    r0_label: str,
+    preset: Preset,
+    truth_start: int = 0,
+    n_truth: int | None = None,
+) -> dict[str, Any]:
     sc = scenario(network, r0_label)
+    eval_n_truth = int(n_truth) if n_truth is not None else preset.n_truth
     return {
         "eval": {
             "min_outbreak": MIN_OUTBREAK,
             "top_k": [1, 3, 5, 10],
             "credible_p": [0.80, 0.90],
             "inverse_rank_offset": [0],
-            "n_truth": preset.n_truth,
-            "reps": preset.reps,
+            "n_truth": eval_n_truth,
+            # Score baselines on the SAME held-out window as the HPO-paired GNN
+            # finals (main_optuna shifts truth_start past the HPO-validation
+            # runs). reps=1: the baselines are deterministic given the outbreak,
+            # so a single pass over the aligned window is exact and there is no
+            # run-to-run variance to average.
+            "truth_start": int(truth_start),
+            "reps": 1,
             "seed": 0,
         },
         "baselines": HEURISTIC_BASELINES,
         "baseline_params": {
             "default": {"chunk_size": 8192},
             "betweenness": {"normalized": True},
-            "mc_mean_field": {"eps": 1e-6, "batch_size": 4096},
+            "mc_mean_field": {
+                "eps": 1e-6,
+                "batch_size": 4096,
+                "n_mc": preset.n_mc,
+                "seed": 42,
+            },
             "soft_margin": {
-                "n_mc": min(100, preset.mc_runs),
+                # Artifact SME: use the same number of stored simulations the GNN
+                # trains on (Sterchi: SME/MCMF share the GNN's outbreak substrate).
+                "n_mc": min(preset.n_mc, preset.mc_runs),
             },
             "mcs_mean_field": {
                 "n_mc": min(100, preset.mc_runs),
@@ -924,10 +1061,19 @@ def stage_hpo(
         "message": str(best_cfg) if status == "success" else status,
         "log_path": log_path,
     })
-    if rc != 0 and status != "timeout_skipped" and not args.dry_run:
-        raise RuntimeError(f"Optuna HPO failed for {network}/{r0_label}/{model}; see {log_path}")
     if args.dry_run:
         return best_cfg
+    # Fail-soft + freshness: a non-timeout HPO crash on one scenario must not
+    # abort the whole suite (it is recoverable via --resume), and we must never
+    # silently reuse a stale best_config.yml from a previous run. Only return a
+    # config the study (re)produced successfully this invocation; otherwise skip
+    # this model's Optuna variant — the untuned final still runs.
+    if status != "success":
+        print(
+            f"  WARNING: Optuna HPO {status} for {network}/{r0_label}/{model}; "
+            f"skipping its Optuna variant (untuned final still runs). See {log_path}"
+        )
+        return None
     return best_cfg if best_cfg.exists() else None
 
 
@@ -947,6 +1093,14 @@ def write_untuned_paired_config(
         for key in ("truth_start", "n_truth"):
             if key in best_cfg.get("eval", {}):
                 cfg["eval"][key] = best_cfg["eval"][key]
+    elif bool(getattr(args, "with_hpo", False)):
+        # HPO produced no config for this model (failed/skipped) but we are still
+        # in the paired protocol: place the untuned final on the same shifted
+        # held-out window the baselines use, so every method stays on one
+        # substrate even in the degraded case.
+        ts, nt = final_eval_window(args, PRESETS[args.preset])
+        cfg["eval"]["truth_start"] = ts
+        cfg["eval"]["n_truth"] = nt
     cfg.setdefault("experiment", {})["hpo_condition"] = "none"
     cfg["experiment"]["paired_optuna_variant"] = optuna_variant_key(model)
     cfg_path = run_dir / "configs" / network / r0_label / f"{model}.untuned.yml"
@@ -1057,8 +1211,9 @@ def stage_eval(args: argparse.Namespace, run_dir: Path, status_path: Path, netwo
         rows = read_status(status_path)
         return next((r.get("run_id") for r in rows if r.get("network") == network and r.get("r0_label") == r0_label and r.get("stage") == "eval"), None)
 
+    truth_start, n_truth = final_eval_window(args, PRESETS[args.preset])
     cfg_path = run_dir / "configs" / network / r0_label / "eval.yml"
-    write_yaml(cfg_path, build_eval_config(network, r0_label, PRESETS[args.preset]))
+    write_yaml(cfg_path, build_eval_config(network, r0_label, PRESETS[args.preset], truth_start, n_truth))
     log_path = run_dir / network / r0_label / "logs" / "eval.log"
     cmd = [sys.executable, "main_eval.py", "--cfg", str(cfg_path), "--data", f"{art}:latest"]
     rc, stdout = run_command(cmd, log_path, args.dry_run, args.target_runtime_seconds)
@@ -1319,7 +1474,8 @@ def metric_rows_from_status(status_rows: list[dict[str, str]]) -> tuple[list[dic
                     summary = {**base, "method": method, "kind": "baseline", "status": row["status"]}
                     for k, v in rec.items():
                         if k != "model" and v != "":
-                            summary[f"{k}_mean"] = float(v)
+                            out_key = k if k.endswith(("_mean", "_std")) else f"{k}_mean"
+                            summary[out_key] = float(v)
                     summary_rows.append(summary)
                     for k, v in rec.items():
                         if k != "model" and v != "":
@@ -1615,19 +1771,37 @@ def main(
         networks.reverse()
     r0_labels = normalize_r0_labels(args.r0)
     args.models = normalize_model_keys(args.models)
-    HEURISTIC_BASELINES = normalize_baseline_keys(args.baselines)
+    HEURISTIC_BASELINES = normalize_baseline_keys(
+        args.baselines,
+        exclude_expensive=bool(getattr(args, "exclude_expensive_baselines", False)),
+    )
     BASELINES = TRAINABLE_BASELINES + HEURISTIC_BASELINES
 
     # Optional n_runs / n_truth overrides for tighter metric estimates without
     # touching the (expensive) training-side budgets. Mutate the preset entry in
     # place so every PRESETS[args.preset] read downstream picks up the values.
-    if args.n_runs is not None or args.n_truth is not None:
+    if any(v is not None for v in (args.n_runs, args.mc_runs, args.n_mc, args.reps, args.n_truth)):
         base = PRESETS[args.preset]
         n_runs = int(args.n_runs) if args.n_runs is not None else base.n_runs
+        mc_runs = int(args.mc_runs) if args.mc_runs is not None else base.mc_runs
+        n_mc = int(args.n_mc) if args.n_mc is not None else base.n_mc
+        reps = int(args.reps) if args.reps is not None else base.reps
         n_truth = int(args.n_truth) if args.n_truth is not None else base.n_truth
-        if n_truth > n_runs:
-            raise ValueError(f"--n-truth ({n_truth}) cannot exceed --n-runs ({n_runs})")
-        PRESETS[args.preset] = replace(base, n_runs=n_runs, n_truth=n_truth)
+        if n_mc > mc_runs:
+            raise ValueError(f"--n-mc ({n_mc}) cannot exceed --mc-runs ({mc_runs})")
+        if reps * n_truth > n_runs:
+            raise ValueError(
+                f"--reps * --n-truth ({reps} * {n_truth} = {reps * n_truth}) "
+                f"cannot exceed --n-runs ({n_runs})"
+            )
+        PRESETS[args.preset] = replace(
+            base,
+            n_runs=n_runs,
+            mc_runs=mc_runs,
+            n_mc=n_mc,
+            reps=reps,
+            n_truth=n_truth,
+        )
     preset = PRESETS[args.preset]
     run_dir = resolve_run_dir(args)
     run_dir.mkdir(parents=True, exist_ok=True)

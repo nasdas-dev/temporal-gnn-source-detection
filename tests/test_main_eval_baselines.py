@@ -104,7 +104,9 @@ def test_static_centrality_baseline_masks_to_feasible_candidates():
     assert np.all(probs[possible.reshape(-1, 4) == 0] == 0.0)
 
 
-def test_jordan_center_prefers_static_distance_center():
+def test_jordan_center_uses_infected_subgraph():
+    # Sterchi-faithful: jordan_center is computed on the per-outbreak *infected
+    # subgraph*, not the full static graph (see compute_baseline_probs G_sub path).
     H = nx.path_graph(3)
     possible = np.array([[[1, 1, 1], [1, 0, 1]]] * 3, dtype=np.int8)
     truth_S, truth_I, truth_R = _sir_from_possible(possible)
@@ -122,9 +124,17 @@ def test_jordan_center_prefers_static_distance_center():
         rng=np.random.default_rng(0),
     )
 
+    # Obs 0: the infected subgraph is the connected path {0,1,2} -> centre node 1.
     assert probs[0, 1] > probs[0, 0]
     assert probs[0, 1] > probs[0, 2]
-    np.testing.assert_allclose(probs[1], np.array([0.5, 0.0, 0.5], dtype=np.float32))
+    # Obs 1: node 1 is susceptible, so the infected subgraph {0,2} is two isolated
+    # nodes. Jordan center is only defined on a connected graph, so the
+    # implementation restricts to the largest connected component (ties broken by
+    # iteration order), concentrating all mass on a single component centre.
+    # The uninfected node 1 gets zero probability.
+    assert probs[1, 1] == 0.0
+    assert np.isclose(probs[1].sum(), 1.0)
+    assert np.isclose(probs[1].max(), 1.0)
 
 
 def test_eval_truth_indices_respect_truth_start():

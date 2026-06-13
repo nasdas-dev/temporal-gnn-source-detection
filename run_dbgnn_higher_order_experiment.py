@@ -55,6 +55,7 @@ from run_all_experiments import (
     MUS,
     NETWORKS,
     R0_VALUES,
+    TARGET_INFECTED,
     extract_run_id,
     normalize_r0_labels,
     read_network_meta,
@@ -258,6 +259,12 @@ def attach_hpo_budget(cfg: dict[str, Any], args: argparse.Namespace, preset: Pre
     hpo_cfg["trial_epochs"] = _positive_cap(getattr(args, "hpo_epochs", None))
     hpo_cfg["trial_patience"] = _positive_cap(getattr(args, "hpo_patience", None))
     hpo_cfg["trial_n_mc"] = effective_hpo_n_mc(args, preset)
+    # Select on smoothed validation NLL (Sterchi-style), not the noisy truth-MRR
+    # — kept identical to run_all_experiments.attach_hpo_budget. This is the copy
+    # the H2 coarse-graining runner imports, so it must carry the same fix.
+    hpo_cfg["metric"] = "eval/val_nll"
+    hpo_cfg["direction"] = "minimize"
+    hpo_cfg["val_loss_window"] = 5
 
 
 def resolve_hpo_reference_r0(raw: str, r0_labels: list[str]) -> str:
@@ -432,6 +439,9 @@ def build_tsir_config(
         sir_cfg["calibration"] = {
             "enabled": True,
             "target_r0": sc["r0"],
+            "target_infected": float(getattr(args, "target_infected", TARGET_INFECTED)),
+            "target_infected_n_probe": int(getattr(args, "target_infected_n_probe", 64)),
+            "target_infected_tolerance": 0.02,
             "output_dir": "results/calibration",
             "n_probe": 1,
             "max_iter": 8,

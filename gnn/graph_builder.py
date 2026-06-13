@@ -483,9 +483,19 @@ def build_de_bruijn_graph(
         max_db_edges=max_db_edges,
     )
     db_stats = {**db_stats, **bin_stats}
-    n_db_nodes  = len(node_list)
+    raw_n_db_nodes = len(node_list)
 
-    if n_db_nodes > 0:
+    # A De Bruijn graph with no causal walk completions (no edges) carries no
+    # higher-order information beyond the self-loops that would be added below.
+    # This is exactly the fully time-collapsed Δt in the H2 sweep: a single time
+    # bin admits no strictly-increasing causal walk. There, order k>=3 already
+    # yields zero nodes, while k=2 yields the single-contact nodes with no edges.
+    # We drop the higher-order branch in BOTH cases so the model falls back to the
+    # first-order static branch IDENTICALLY for every order — the collapse
+    # endpoint reduces to the same pure static GCN regardless of k, instead of
+    # letting k=2 keep self-loop-only nodes blended into the readout. This makes
+    # the H2 k2-vs-k3 collapse points order-invariant by construction.
+    if raw_n_db_nodes > 0 and edge_triples:
         # DB node -> original-node mapping
         db_node_to_original = torch.tensor(
             [[int(v) for v in node] for node in node_list], dtype=torch.long
@@ -493,24 +503,28 @@ def build_de_bruijn_graph(
         db_node_last = db_node_to_original[:, -1]
 
         # DB edges with raw count weights
-        db_edge_count = len(edge_triples)
-        if edge_triples:
-            db_src = torch.tensor([e[0] for e in edge_triples], dtype=torch.long)
-            db_dst = torch.tensor([e[1] for e in edge_triples], dtype=torch.long)
-            raw_w  = torch.tensor([e[2] for e in edge_triples], dtype=torch.float32)
-            db_edge_index_raw = torch.stack([db_src, db_dst], dim=0)  # [2, E_db]
-        else:
-            db_edge_index_raw = torch.zeros(2, 0, dtype=torch.long)
-            raw_w = torch.zeros(0, dtype=torch.float32)
+        db_src = torch.tensor([e[0] for e in edge_triples], dtype=torch.long)
+        db_dst = torch.tensor([e[1] for e in edge_triples], dtype=torch.long)
+        raw_w  = torch.tensor([e[2] for e in edge_triples], dtype=torch.float32)
+        db_edge_index_raw = torch.stack([db_src, db_dst], dim=0)  # [2, E_db]
         db_edge_index, db_edge_weight = normalize_gcn_edges(
-            db_edge_index_raw, raw_w, n_db_nodes, add_self_loops=True
+            db_edge_index_raw, raw_w, raw_n_db_nodes, add_self_loops=True
         )
+        n_db_nodes = raw_n_db_nodes
+        db_edge_count = len(edge_triples)
     else:
+        # No causal structure -> empty De Bruijn graph for every order.
+        n_db_nodes = 0
+        db_edge_count = 0
         db_node_to_original = torch.zeros(0, order, dtype=torch.long)
         db_node_last = torch.zeros(0, dtype=torch.long)
-        db_edge_count = 0
         db_edge_index = torch.zeros(2, 0, dtype=torch.long)
         db_edge_weight = torch.zeros(0, dtype=torch.float32)
+        if raw_n_db_nodes > 0:
+            # Record the dropped higher-order nodes for transparency in the cost
+            # diagnostics (e.g. k=2 builds contact nodes that carry no causal info).
+            db_stats = {**db_stats, "dropped_no_causal_edges": True,
+                        "raw_n_db_nodes": int(raw_n_db_nodes)}
 
     # ----------------------------------------------------------------
     # Static time-aggregated graph G^(1)  (for first-order GCN branch)

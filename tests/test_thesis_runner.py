@@ -14,6 +14,7 @@ import torch
 import yaml
 
 import run_all_experiments as runner
+import run_coarse_graining_experiment as h2_runner
 import run_dbgnn_higher_order_experiment as ho_runner
 from scripts.publication_bundle import sync_publication_result
 from training.trainer import LossGuardConfig, check_loss_guard, static_mlp_forward
@@ -181,12 +182,14 @@ def test_added_network_parameters_match_final_grid():
     biasca = runner.build_tsir_config("biasca", "r0_20", preset)
     olten = runner.build_tsir_config("olten", "r0_25", preset)
 
+    # mu is standardised to STANDARD_MU (0.01) across every network so they share
+    # one SIR regime; beta is re-calibrated per (network, R0, mu) at run time.
     assert students["sir"]["beta"] == 0.187
     assert students["sir"]["mu"] == 0.01
     assert biasca["sir"]["beta"] == 0.274
-    assert biasca["sir"]["mu"] == 0.001
+    assert biasca["sir"]["mu"] == 0.01
     assert olten["sir"]["beta"] == 0.343
-    assert olten["sir"]["mu"] == 0.001
+    assert olten["sir"]["mu"] == 0.01
 
 
 def test_dry_run_expands_full_thesis_matrix(tmp_path):
@@ -260,6 +263,46 @@ def test_reused_optuna_config_preserves_named_dbgnn_order(tmp_path):
     assert cfg["dbgnn"]["order"] == 3
     assert cfg["dbgnn"]["time_bin_size"] == 4
     assert cfg["experiment"]["model_variant"] == "dbgnn_k3_optuna"
+
+
+def test_h2_reused_dbgnn_config_preserves_scaled_causal_horizon(tmp_path):
+    args = SimpleNamespace(preset="paper_24h", save_probs=False, dry_run=False)
+    best_cfg_path = tmp_path / "best_config.yml"
+    best_cfg_path.write_text(
+        yaml.safe_dump(
+            {
+                "eval": {"truth_start": 100, "n_truth": 150},
+                "dbgnn": {"order": 3, "delta": 48, "time_bin_size": 1},
+                "hpo_result": {
+                    "params": {
+                        "dbgnn.order": 2,
+                        "dbgnn.delta": 48,
+                        "dbgnn.time_bin_size": 8,
+                        "dbgnn.hidden_channels": 128,
+                    }
+                },
+            }
+        )
+    )
+
+    cfg_path = h2_runner.write_reused_optuna_config(
+        args,
+        tmp_path,
+        "lyon_ward",
+        "r0_20",
+        "dbgnn_k3",
+        16,
+        best_cfg_path,
+    )
+    cfg = yaml.safe_load(cfg_path.read_text())
+
+    assert cfg["dbgnn"]["order"] == 3
+    assert cfg["dbgnn"]["delta"] == 3
+    assert cfg["dbgnn"]["time_bin_size"] == 1
+    assert cfg["dbgnn"]["hidden_channels"] == 128
+    assert cfg["coarsen"]["delta_t"] == 16
+    assert cfg["experiment"]["dbgnn_native_delta"] == 48
+    assert cfg["experiment"]["dbgnn_delta_floored"] is False
 
 
 def test_dbgnn_higher_order_dry_run_expands_orders_and_sampling(tmp_path):

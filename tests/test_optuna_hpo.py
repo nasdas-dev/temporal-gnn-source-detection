@@ -39,9 +39,13 @@ def test_search_spaces_cover_model_specific_parameters():
     }
     for model, key in expected.items():
         space = describe_search_space(model)
-        assert "train.lr" in space
-        assert "train.weight_decay" in space
         assert key in space
+        # Training hyperparameters are FROZEN (Sterchi et al.): only architecture
+        # is tuned. Lock this in so a regression that re-adds optimiser knobs to
+        # the search space is caught here.
+        for frozen in ("train.lr", "train.weight_decay", "train.batch_size",
+                       "train.test_size", "train.epochs", "train.patience"):
+            assert frozen not in space, f"{frozen} must not be tuned for {model}"
 
 
 def test_suggested_parameters_patch_nested_config():
@@ -58,8 +62,12 @@ def test_suggested_parameters_patch_nested_config():
     )
     apply_trial_params(cfg, params)
 
-    assert cfg["train"]["batch_size"] <= 64
-    assert cfg["train"]["lr"] == pytest.approx(1e-4)
+    # Frozen training knobs are passed through untouched (not suggested).
+    assert "train.lr" not in params
+    assert "train.batch_size" not in params
+    assert cfg["train"]["lr"] == pytest.approx(0.001)
+    assert cfg["train"]["batch_size"] == 128
+    # Architecture IS suggested (FirstChoiceTrial picks the first choice).
     assert cfg["static_gnn"]["use_edge_weights"] is False
     assert cfg["static_gnn"]["hidden_channels"] == 16
 
@@ -80,24 +88,27 @@ def test_default_trial_params_extracts_base_config_values():
         },
     }
     params = default_trial_params(cfg, "static_gnn")
-    assert params["train.lr"] == pytest.approx(0.001)
-    assert params["train.batch_size"] == 128
+    # Frozen training knobs are not part of the protected default trial.
+    assert "train.lr" not in params
+    assert "train.batch_size" not in params
+    # Architecture values are extracted from the base config.
     assert params["static_gnn.hidden_channels"] == 64
     assert params["static_gnn.num_conv_layers"] == 4
     assert params["static_gnn.batch_norm"] is True
 
 
 def test_default_trial_params_snaps_out_of_grid_values_into_the_search_space():
-    # patience=5 is not an offered choice ([10, 20, 30]); it must snap to the
-    # nearest valid choice so the enqueued trial is accepted by Optuna.
+    # Out-of-range architecture values must snap into the search distribution so
+    # the enqueued default trial is accepted by Optuna. Frozen training knobs are
+    # not tuned and so are never emitted (or snapped) at all.
     cfg = {
         "model": "static_gnn",
         "train": {"lr": 9e-3, "weight_decay": 5e-4, "batch_size": 128, "patience": 5},
         "static_gnn": {"num_conv_layers": 99, "hidden_channels": 64},
     }
     params = default_trial_params(cfg, "static_gnn")
-    assert params["train.patience"] == 10              # nearest categorical choice
-    assert params["train.lr"] == pytest.approx(5e-3)   # clipped into the float range
+    assert "train.patience" not in params              # frozen, not tuned
+    assert "train.lr" not in params                    # frozen, not tuned
     assert params["static_gnn.num_conv_layers"] == 5   # clipped into int[2, 5]
 
 

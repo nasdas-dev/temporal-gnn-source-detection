@@ -72,25 +72,21 @@ def _suggest_training_params(
     tune_n_mc: bool,
     max_n_mc: int | None,
 ) -> dict[str, Any]:
-    batch_choices = _filtered_choices(
-        TRAIN_BATCH_CHOICES.get(model_name, [32, 64, 128]),
-        max_batch_size,
-    )
-    params: dict[str, Any] = {
-        "train.lr": trial.suggest_float("train.lr", 1e-4, 5e-3, log=True),
-        "train.weight_decay": trial.suggest_float(
-            "train.weight_decay", 1e-6, 1e-2, log=True
-        ),
-        "train.batch_size": trial.suggest_categorical(
-            "train.batch_size", batch_choices
-        ),
-        "train.test_size": trial.suggest_categorical(
-            "train.test_size", [0.20, 0.25, 0.30]
-        ),
-        "train.patience": trial.suggest_categorical(
-            "train.patience", [10, 20, 30]
-        ),
-    }
+    """Training hyperparameters are *frozen*, not tuned, following Sterchi et al.
+
+    Sterchi et al. (Table 4) fix the optimiser/training knobs — learning rate,
+    weight decay, batch size, ADAM, epochs/early-stop, train/val split — and tune
+    only the architecture. Previously searching ``lr``/``weight_decay``/
+    ``batch_size``/``test_size``/``patience`` let TPE wander into under-fitting
+    corners (weight_decay up to 64×, lr down, parameters collapsed) that made the
+    tuned models score *worse* than the frozen defaults. We therefore no longer
+    suggest them; their (Sterchi-aligned) values come straight from the base
+    config and apply identically to every trial and to the final run.
+
+    Only ``train.n_mc`` (training-set size) remains optionally tunable, and only
+    when ``hpo.tune_n_mc`` is explicitly enabled.
+    """
+    params: dict[str, Any] = {}
     if tune_n_mc and max_n_mc is not None:
         n_mc_choices = _filtered_choices([50, 100, 200, 300, 500, 750, 1000], max_n_mc)
         params["train.n_mc"] = trial.suggest_categorical("train.n_mc", n_mc_choices)
@@ -114,7 +110,7 @@ def _suggest_static_gnn(trial: TrialLike) -> dict[str, Any]:
             "static_gnn.hidden_channels", [16, 32, 64, 128]
         ),
         "static_gnn.dropout_rate": trial.suggest_float(
-            "static_gnn.dropout_rate", 0.0, 0.50
+            "static_gnn.dropout_rate", 0.0, 0.30
         ),
         "static_gnn.batch_norm": trial.suggest_categorical(
             "static_gnn.batch_norm", [True, False]
@@ -147,7 +143,7 @@ def _suggest_static_mlp(trial: TrialLike) -> dict[str, Any]:
             "static_mlp.hidden_channels", [16, 32, 64, 128]
         ),
         "static_mlp.dropout_rate": trial.suggest_float(
-            "static_mlp.dropout_rate", 0.0, 0.50
+            "static_mlp.dropout_rate", 0.0, 0.30
         ),
         "static_mlp.batch_norm": trial.suggest_categorical(
             "static_mlp.batch_norm", [True, False]
@@ -193,7 +189,7 @@ def _suggest_dag_gnn(trial: TrialLike) -> dict[str, Any]:
         "dag_gnn.num_conv_layers": trial.suggest_int(
             "dag_gnn.num_conv_layers", 1, 4
         ),
-        "dag_gnn.dropout_rate": trial.suggest_float("dag_gnn.dropout_rate", 0.0, 0.50),
+        "dag_gnn.dropout_rate": trial.suggest_float("dag_gnn.dropout_rate", 0.0, 0.30),
         "dag_gnn.agg": trial.suggest_categorical("dag_gnn.agg", ["mean", "sum"]),
         "dag_gnn.delta_t": trial.suggest_categorical(
             "dag_gnn.delta_t", [None, 2, 4, 8, 12, 24, 48]
@@ -207,7 +203,7 @@ def _suggest_dbgnn(trial: TrialLike) -> dict[str, Any]:
             "dbgnn.hidden_channels", [32, 64, 128]
         ),
         "dbgnn.num_conv_layers": trial.suggest_int("dbgnn.num_conv_layers", 1, 4),
-        "dbgnn.dropout_rate": trial.suggest_float("dbgnn.dropout_rate", 0.0, 0.50),
+        "dbgnn.dropout_rate": trial.suggest_float("dbgnn.dropout_rate", 0.0, 0.30),
         "dbgnn.bipartite_agg": trial.suggest_categorical(
             "dbgnn.bipartite_agg", ["sum", "mean"]
         ),
@@ -334,13 +330,9 @@ def describe_search_space(model_name: str) -> dict[str, Any]:
         raise ValueError(
             f"Unknown model '{model_name}'. Supported: {sorted(MODEL_SUGGESTERS)}"
         )
-    general = {
-        "train.lr": "loguniform[1e-4, 5e-3]",
-        "train.weight_decay": "loguniform[1e-6, 1e-2]",
-        "train.batch_size": TRAIN_BATCH_CHOICES.get(model_name, [32, 64, 128]),
-        "train.test_size": [0.20, 0.25, 0.30],
-        "train.patience": [10, 20, 30],
-    }
+    # Training hyperparameters are frozen (see _suggest_training_params), so they
+    # are no longer part of the tuned search space; only architecture is tuned.
+    general: dict[str, Any] = {}
     model_spaces = {
         "static_gnn": {
             "static_gnn.num_preprocess_layers": "int[0, 2]",
@@ -349,7 +341,7 @@ def describe_search_space(model_name: str) -> dict[str, Any]:
             "static_gnn.num_conv_layers": "int[2, 5]",
             "static_gnn.aggr": ["sum", "mean", "max"],
             "static_gnn.hidden_channels": [16, 32, 64, 128],
-            "static_gnn.dropout_rate": "uniform[0.0, 0.5]",
+            "static_gnn.dropout_rate": "uniform[0.0, 0.3]",
             "static_gnn.batch_norm": [True, False],
             "static_gnn.skip": [True, False],
             "static_gnn.use_edge_weights": [False, True],
@@ -360,7 +352,7 @@ def describe_search_space(model_name: str) -> dict[str, Any]:
             "static_mlp.num_postprocess_layers": "int[0, 2]",
             "static_mlp.num_hidden_layers": "int[1, 5]",
             "static_mlp.hidden_channels": [16, 32, 64, 128],
-            "static_mlp.dropout_rate": "uniform[0.0, 0.5]",
+            "static_mlp.dropout_rate": "uniform[0.0, 0.3]",
             "static_mlp.batch_norm": [True, False],
             "static_mlp.skip": [True, False],
         },
@@ -375,14 +367,14 @@ def describe_search_space(model_name: str) -> dict[str, Any]:
         "dag_gnn": {
             "dag_gnn.hidden_channels": [16, 32, 64, 128],
             "dag_gnn.num_conv_layers": "int[1, 4]",
-            "dag_gnn.dropout_rate": "uniform[0.0, 0.5]",
+            "dag_gnn.dropout_rate": "uniform[0.0, 0.3]",
             "dag_gnn.agg": ["mean", "sum"],
             "dag_gnn.delta_t": [None, 2, 4, 8, 12, 24, 48],
         },
         "dbgnn": {
             "dbgnn.hidden_channels": [32, 64, 128],
             "dbgnn.num_conv_layers": "int[1, 4]",
-            "dbgnn.dropout_rate": "uniform[0.0, 0.5]",
+            "dbgnn.dropout_rate": "uniform[0.0, 0.3]",
             "dbgnn.bipartite_agg": ["sum", "mean"],
             "dbgnn.order": [2, 3],
             "dbgnn.delta": [None, 4, 8, 12, 24, 48],

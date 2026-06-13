@@ -417,7 +417,7 @@ def _aggregate_metrics(rep_metric_lists: dict[str, list[float]]) -> dict[str, fl
     out: dict[str, float] = {}
     for key, vals in sorted(rep_metric_lists.items()):
         out[f"{key}_mean"] = float(np.mean(vals))
-        out[f"{key}_std"] = float(np.std(vals))
+        out[f"{key}_std"] = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
     return out
 
 
@@ -527,6 +527,19 @@ def run_trial(
                 str(rep_checkpoint_dir / f"loss_history_rep{rep}.csv"),
                 train_losses,
                 val_losses,
+            )
+
+        # Smoothed validation NLL — the Sterchi-style model-selection signal:
+        # "performance is measured as the average of the last five validation
+        # losses". It is computed on the large held-out validation split of the
+        # MC training data, so it is far less noisy than the truth-window MRR on
+        # a small window (which previously caused TPE to select under-fitting
+        # configs). Selection uses this when hpo.metric = "eval/val_nll".
+        val_window = int((trial_cfg.get("hpo") or {}).get("val_loss_window", 5))
+        if val_losses:
+            k = max(1, min(val_window, len(val_losses)))
+            rep_metric_lists.setdefault("eval/val_nll", []).append(
+                float(np.mean(val_losses[-k:]))
             )
 
         select_truth = _truth_indices_for_rep(

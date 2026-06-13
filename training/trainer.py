@@ -601,7 +601,16 @@ class Trainer:
 
             if optuna_trial is not None:
                 optuna_trial.report(optuna_report_sign * vl, step=optuna_step_offset + epoch)
-                if optuna_trial.should_prune():
+                # The hand-tuned default config is enqueued as a protected trial
+                # (user_attr ``is_default_config``). Exempt it from pruning so it
+                # always runs to completion; otherwise Hyperband can prune the
+                # default early and ``study.best_trial`` may land on a tuned
+                # config that is genuinely worse than the default. We still report
+                # its intermediate values (above) for monitoring.
+                is_protected_default = bool(
+                    getattr(optuna_trial, "user_attrs", {}).get("is_default_config", False)
+                )
+                if not is_protected_default and optuna_trial.should_prune():
                     import optuna
 
                     raise optuna.TrialPruned(

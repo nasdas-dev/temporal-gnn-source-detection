@@ -32,7 +32,13 @@ The TSIR simulation and the StaticGNN / heuristic baselines are Δt-invariant
       Δt=1 per (network, model) and reused at coarser Δt).
 
 Δt is a per-network geometric span (1, 2, 4, 8, … up to a full-collapse bin), so
-each network spans native resolution → static.  Besides the usual metrics, every
+each network spans native resolution → static.  At the fully-collapsed Δt every
+DBGNN order reduces to the SAME pure first-order static GCN: a single time bin has
+no causal walk completions, so the higher-order De Bruijn branch is dropped for
+all orders (see ``gnn.graph_builder.build_de_bruijn_graph``).  The k2 and k3
+collapse points are therefore order-invariant by construction (any residual gap is
+just training/init noise, as between two StaticGNN seeds).  Besides the usual
+metrics, every
 training run also logs graph-construction time, training time, peak memory, edge
 counts, snapshot counts, edge-texture length, and De Bruijn node/edge counts (see
 ``main_train.py``), which answer the cost half of the practical question.
@@ -77,8 +83,11 @@ from run_all_experiments import (
     MIN_OUTBREAK,
     MUS,
     R0_VALUES,
+    STERCHI_TRAIN,
+    TARGET_INFECTED,
     build_eval_config,
     extract_run_id,
+    final_eval_window,
     normalize_r0_labels,
     read_network_meta,
     scenario,
@@ -152,6 +161,12 @@ PRESETS = {
     "balanced": Preset(n_runs=500, mc_runs=300, n_mc=300, reps=1, n_truth=300),
     "max_quality": Preset(n_runs=1000, mc_runs=500, n_mc=500, reps=1, n_truth=1000),
     "fast": Preset(n_runs=120, mc_runs=80, n_mc=80, reps=1, n_truth=40),
+    # Multi-seed publication preset mirroring run_all_experiments' tuner preset:
+    # the final model is trained/evaluated 3 times (reps=3) with a shared held-out
+    # test window, so each Δt point carries a Sterchi-style 95% CI over
+    # training/init noise. n_runs leaves room for a disjoint HPO-validation window
+    # plus the 3*250 held-out final-test window (final_stop=850 <= 1200).
+    "tuner": Preset(n_runs=1200, mc_runs=500, n_mc=500, reps=3, n_truth=250),
 }
 
 
@@ -183,6 +198,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--n-runs", type=int, default=None,
                    help="Override the preset's ground-truth simulation count (TSIR n_runs). "
                         "Raise this together with --n-truth for tighter metric estimates.")
+    p.add_argument("--mc-runs", type=int, default=None,
+                   help="Override the preset's Monte Carlo simulation count stored per source.")
+    p.add_argument("--n-mc", type=int, default=None,
+                   help="Override the per-repetition number of MC simulations used for training.")
+    p.add_argument("--reps", type=int, default=None,
+                   help="Override the number of independent train/eval repetitions.")
     p.add_argument("--n-truth", type=int, default=None,
                    help="Override the preset's evaluation sample count (final truth window). "
                         "Must be <= --n-runs; cheap (inference + metrics only, no extra training).")
@@ -200,6 +221,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--force", action="store_true", help="Rerun stages even when a terminal status exists")
     p.add_argument("--dry-run", action="store_true", help="Print commands without executing them")
     p.add_argument("--save-probs", action="store_true", help="Save probs_rep*.pt tensors from main_train.py")
+    p.add_argument("--no-expensive-baselines", dest="exclude_expensive_baselines",
+                   action="store_true",
+                   help="Drop the per-observation baselines (subgraph betweenness/jordan_center "
+                        "and the SME soft_margin). Cheap on lyon/malawi but available for parity.")
     # HPO
     p.add_argument("--with-hpo", dest="with_hpo", action="store_true",
                    help="Run paired untuned and Optuna-tuned finals (default)")
@@ -211,8 +236,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--hpo-n-mc", type=int, default=80, help="MC samples used inside HPO trials only")
     p.add_argument("--hpo-epochs", type=int, default=120, help="Epoch cap inside HPO trials only")
     p.add_argument("--hpo-patience", type=int, default=12, help="Patience cap inside HPO trials only")
-    p.add_argument("--max-train-epochs", type=int, default=250,
-                   help="Cap final train.epochs; set 0 to keep template values")
+    p.add_argument("--max-train-epochs", type=int, default=500,
+                   help="Cap final train.epochs; set 0 to keep template values. "
+                        "Default 500 matches Sterchi (rely on early-stopping to converge).")
     p.add_argument("--max-train-patience", type=int, default=20,
                    help="Cap final train.patience; set 0 to keep template values")
     p.add_argument("--hpo-sampler", choices=["tpe", "random"], default="tpe")
@@ -351,27 +377,53 @@ def build_model_config(
         "credible_p": [0.80, 0.90],
         "inverse_rank_offset": [0],
         "n_truth": preset.n_truth,
+        # Sterchi-exact: all reps scored on the same held-out window so the 95%
+        # CIs reflect training/init noise (mirrors run_all_experiments).
+        "shared_eval_window": True,
     }
     cfg["train"] = {
         **cfg.get("train", {}),
+        # Frozen, Sterchi-aligned training hyperparameters — identical to H1, so
+        # Optuna can only change architecture and the Δt curves are not confounded
+        # by per-cell optimiser drift. Train to 500 epochs with early-stopping.
+        "lr": STERCHI_TRAIN["lr"],
+        "weight_decay": STERCHI_TRAIN["weight_decay"],
+        "test_size": STERCHI_TRAIN["test_size"],
+        "epochs": STERCHI_TRAIN["epochs"],
+        "patience": STERCHI_TRAIN["patience"],
         "n_mc": preset.n_mc,
         "reps": preset.reps,
         "loss_guard": LOSS_GUARD,
         "grad_clip_norm": GRAD_CLIP_NORM,
     }
+    if MODEL_BASE[model_key] in ("static_gnn", "static_mlp"):
+        cfg["train"]["batch_size"] = STERCHI_TRAIN["batch_size"]
     cfg.setdefault("output", {})["save_probs"] = save_probs
 
     if model_key in TEMPORAL_MODELS:
         # Unified pre-construction coarsening shared by every temporal builder.
         cfg["coarsen"] = {"delta_t": int(delta_t)}
 
+    dbgnn_delta_floored = False
     if base == "dbgnn":
         order = 2 if model_key == "dbgnn_k2" else 3
         db = cfg.setdefault("dbgnn", {})
         db["order"] = int(order)
         delta_real = int(db.get("delta", 24) or 24)
-        # Keep the real-time causal window ~constant: delta scales with 1/Δt.
-        db["delta"] = max(1, round(delta_real / max(1, int(delta_t)))) if delta_t > 1 else delta_real
+        # Scale delta with 1/Δt to keep the real-time causal window ~constant.
+        # CAVEAT: delta is an integer number of (coarsened) bins with a floor of
+        # 1, so once Δt grows past ~delta_real the scaled value saturates at 1
+        # bin = Δt real steps and the horizon stops shrinking (it grows back with
+        # Δt). The "constant real-time horizon" therefore only holds for the
+        # finer half of the sweep; ``dbgnn_delta_floored`` is recorded in the
+        # experiment block (and manifest) so the coarse-Δt DBGNN points are
+        # transparently flagged as NOT the controlled comparison.
+        if delta_t > 1:
+            ideal = delta_real / int(delta_t)
+            db["delta"] = max(1, round(ideal))
+            dbgnn_delta_floored = ideal < 1.0
+        else:
+            db["delta"] = delta_real
         db["time_bin_size"] = 1  # binning handled centrally by coarsen.delta_t
         db["max_temporal_states"] = int(getattr(args, "max_temporal_states", 2_000_000))
         db["max_db_nodes"] = int(getattr(args, "max_db_nodes", 500_000))
@@ -393,6 +445,11 @@ def build_model_config(
         "variant": variant_name(model_key, delta_t),
         **sc,
     }
+    if base == "dbgnn":
+        cfg["experiment"]["dbgnn_delta"] = int(cfg["dbgnn"]["delta"])
+        # True when 1/Δt scaling would want delta < 1 bin: the real-time causal
+        # horizon is no longer held constant at this Δt (see build comment).
+        cfg["experiment"]["dbgnn_delta_floored"] = bool(dbgnn_delta_floored)
     if preset.n_runs < preset.reps * preset.n_truth:
         raise ValueError(
             f"Invalid preset: n_runs={preset.n_runs} < reps*n_truth={preset.reps * preset.n_truth}"
@@ -417,11 +474,25 @@ def write_untuned_paired_config(
         for key in ("truth_start", "n_truth"):
             if key in best_cfg.get("eval", {}):
                 cfg["eval"][key] = best_cfg["eval"][key]
+    elif bool(getattr(args, "with_hpo", False)):
+        # No Optuna config for this cell (failed/skipped): still place the
+        # untuned final on the shifted held-out window the baselines use.
+        ts, nt = final_eval_window(args, PRESETS[args.preset])
+        cfg["eval"]["truth_start"] = ts
+        cfg["eval"]["n_truth"] = nt
     cfg.setdefault("experiment", {})["hpo_condition"] = "none"
     cfg["experiment"]["paired_optuna_variant"] = optuna_variant_name(model_key, delta_t)
     cfg_path = run_dir / "configs" / network / f"{variant_name(model_key, delta_t)}.untuned.yml"
     write_yaml(cfg_path, cfg)
     return cfg_path
+
+
+def _scaled_dbgnn_delta(native_delta: Any, delta_t: int) -> tuple[int | None, bool]:
+    """Scale a native-resolution DBGNN causal horizon into coarsened bins."""
+    if native_delta is None:
+        return None, False
+    ideal = float(native_delta) / int(delta_t)
+    return max(1, round(ideal)), ideal < 1.0
 
 
 def write_reused_optuna_config(
@@ -439,10 +510,32 @@ def write_reused_optuna_config(
         with open(best_cfg_path) as f:
             best_cfg = yaml.safe_load(f)
         params = dict(best_cfg.get("hpo_result", {}).get("params") or {})
+        structural_params = {"coarsen.delta_t"}
+        if MODEL_BASE[model_key] == "dbgnn":
+            structural_params.update({
+                "dbgnn.order",
+                "dbgnn.delta",
+                "dbgnn.time_bin_size",
+            })
+        for key in structural_params:
+            params.pop(key, None)
         apply_trial_params(cfg, params)
         # Re-assert the structural variables that HPO must not change.
         if MODEL_BASE[model_key] == "dbgnn":
-            cfg.setdefault("dbgnn", {})["order"] = 2 if model_key == "dbgnn_k2" else 3
+            db = cfg.setdefault("dbgnn", {})
+            native_delta = (
+                best_cfg.get("dbgnn", {}).get(
+                    "delta",
+                    (best_cfg.get("hpo_result", {}).get("params") or {}).get("dbgnn.delta"),
+                )
+            )
+            scaled_delta, delta_floored = _scaled_dbgnn_delta(native_delta, delta_t)
+            db["order"] = 2 if model_key == "dbgnn_k2" else 3
+            db["delta"] = scaled_delta
+            db["time_bin_size"] = 1
+            cfg.setdefault("experiment", {})["dbgnn_delta"] = scaled_delta
+            cfg["experiment"]["dbgnn_delta_floored"] = bool(delta_floored)
+            cfg["experiment"]["dbgnn_native_delta"] = native_delta
         if model_key in TEMPORAL_MODELS:
             cfg["coarsen"] = {"delta_t": int(delta_t)}
         for key in ("truth_start", "n_truth"):
@@ -507,9 +600,16 @@ def build_tsir_config(
         "mc_runs": preset.mc_runs,
     }
     if not bool(getattr(args, "use_full_betas", False)):
+        # end_t is calibrated to the Sterchi-style ≈40%-infected snapshot. The
+        # SIR simulation is identical across Δt (Δt only changes the model's
+        # temporal binning), so one calibrated end_t per network/R0 is shared
+        # across the resolution sweep via the cache.
         sir_cfg["calibration"] = {
             "enabled": True,
             "target_r0": sc["r0"],
+            "target_infected": float(getattr(args, "target_infected", TARGET_INFECTED)),
+            "target_infected_n_probe": int(getattr(args, "target_infected_n_probe", 64)),
+            "target_infected_tolerance": 0.02,
             "output_dir": "results/calibration",
             "n_probe": 1,
             "max_iter": 8,
@@ -628,8 +728,9 @@ def stage_eval(args, run_dir, status_path, network, r0_label, artifact) -> None:
         return
     if should_skip(status_path, args, network, r0_label, "eval", model="baselines"):
         return
+    truth_start, n_truth = final_eval_window(args, PRESETS[args.preset])
     cfg_path = run_dir / "configs" / network / "eval.yml"
-    write_yaml(cfg_path, build_eval_config(network, r0_label, PRESETS[args.preset]))
+    write_yaml(cfg_path, build_eval_config(network, r0_label, PRESETS[args.preset], truth_start, n_truth))
     log_path = run_dir / network / "logs" / "eval.log"
     cmd = ["python", "main_eval.py", "--cfg", str(cfg_path), "--data", f"{artifact}:latest"]
     rc, stdout = run_command(cmd, log_path, args.dry_run, args.timeout_seconds)
@@ -657,7 +758,7 @@ def stage_hpo(args, run_dir, status_path, network, r0_label, model_key, artifact
     attach_hpo_budget(cfg, args, preset)
     locked: list[str] = []
     if MODEL_BASE[model_key] == "dbgnn":
-        locked.append("dbgnn.order")
+        locked.extend(["dbgnn.order", "dbgnn.time_bin_size"])
     if model_key in TEMPORAL_MODELS:
         locked.append("coarsen.delta_t")
     if locked:
@@ -682,6 +783,18 @@ def stage_hpo(args, run_dir, status_path, network, r0_label, model_key, artifact
     })
     if args.dry_run:
         return best_cfg
+    # Freshness guard: only reuse a best_config the study (re)produced
+    # successfully this invocation. Otherwise a --resume/--force rerun whose new
+    # study fails would silently train the Optuna variants from a stale config
+    # left by a previous run. On failure we skip the Optuna variants (the
+    # untuned Δt sweep still runs); the prior-success case is handled by the
+    # should_skip early return above.
+    if status != "success":
+        print(
+            f"      WARNING: Optuna HPO {status} for {network}/{model_key}; "
+            f"skipping its Optuna Δt variants (untuned sweep still runs). See {log_path}"
+        )
+        return None
     return best_cfg if best_cfg.exists() else None
 
 
@@ -1072,16 +1185,38 @@ def main() -> None:
     r0_label = normalize_r0_labels([args.r0])[0]
     temporal_models = [m for m in args.temporal_models if m in TEMPORAL_MODELS]
 
+    # build_eval_config reads run_all_experiments.HEURISTIC_BASELINES (the paper
+    # set). Honour --no-expensive-baselines by filtering that module global.
+    import run_all_experiments as _rae
+    _rae.HEURISTIC_BASELINES = _rae.normalize_baseline_keys(
+        ["paper"], exclude_expensive=bool(getattr(args, "exclude_expensive_baselines", False))
+    )
+
     # Optional n_runs / n_truth overrides for tighter metric estimates without
     # touching the (expensive) training-side budgets. Mutate the preset entry in
     # place so every PRESETS[args.preset] read downstream picks up the values.
-    if args.n_runs is not None or args.n_truth is not None:
+    if any(v is not None for v in (args.n_runs, args.mc_runs, args.n_mc, args.reps, args.n_truth)):
         base = PRESETS[args.preset]
         n_runs = int(args.n_runs) if args.n_runs is not None else base.n_runs
+        mc_runs = int(args.mc_runs) if args.mc_runs is not None else base.mc_runs
+        n_mc = int(args.n_mc) if args.n_mc is not None else base.n_mc
+        reps = int(args.reps) if args.reps is not None else base.reps
         n_truth = int(args.n_truth) if args.n_truth is not None else base.n_truth
-        if n_truth > n_runs:
-            raise ValueError(f"--n-truth ({n_truth}) cannot exceed --n-runs ({n_runs})")
-        PRESETS[args.preset] = replace(base, n_runs=n_runs, n_truth=n_truth)
+        if n_mc > mc_runs:
+            raise ValueError(f"--n-mc ({n_mc}) cannot exceed --mc-runs ({mc_runs})")
+        if reps * n_truth > n_runs:
+            raise ValueError(
+                f"--reps * --n-truth ({reps} * {n_truth} = {reps * n_truth}) "
+                f"cannot exceed --n-runs ({n_runs})"
+            )
+        PRESETS[args.preset] = replace(
+            base,
+            n_runs=n_runs,
+            mc_runs=mc_runs,
+            n_mc=n_mc,
+            reps=reps,
+            n_truth=n_truth,
+        )
     preset = PRESETS[args.preset]
 
     for network in networks:

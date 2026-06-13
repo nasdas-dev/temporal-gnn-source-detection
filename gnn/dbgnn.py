@@ -182,7 +182,14 @@ class DBGNN(torch.nn.Module):
             augmented = h_db + h_fo[:, dst, :]
             bipartite_agg, _ = self._aggregate_bipartite(augmented, dst, N)
         else:
-            bipartite_agg = torch.zeros(B, N, D, device=device)
+            # Empty De Bruijn graph (no causal walk completions; e.g. the fully
+            # time-collapsed Δt in the H2 coarse-graining sweep). Fall back to the
+            # first-order static branch so the model degrades to a genuine static
+            # GCN instead of a bias-only, ~uniform predictor. The graph builder
+            # drops the higher-order branch (n_db=0) whenever there are no causal
+            # edges, for EVERY order, so this fallback is reached identically by
+            # k=2 and k=3 at collapse — the collapse endpoint is order-invariant.
+            bipartite_agg = h_fo
 
         h_out = F.elu(self.bipartite_proj(bipartite_agg))
         scores = self.out(h_out).squeeze(-1)

@@ -252,6 +252,121 @@ def soft_margin(
     return (u / s if s > 0 else np.ones(n_nodes) / n_nodes).astype(np.float32)
 
 
+def soft_margin_artifact(
+    mc_S: np.ndarray,
+    truth_S: np.ndarray,
+    possible: np.ndarray,
+    n_mc: int | None = None,
+    a_sq_candidates: Optional[np.ndarray] = None,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """Soft-margin estimator (Antulov-Fantulin / SME) on the STORED MC pool.
+
+    This is the paper-faithful SME for the Sterchi et al. benchmark: it scores
+    each observed snapshot against the artifact's Monte-Carlo simulations
+    ``mc_S`` — the *same* outbreaks used to train the GNN — instead of re-running
+    a static SIR simulator per candidate (which is both off-substrate and
+    infeasible at ``n_mc=500``). For each candidate source ``v`` it forms the
+    Jaccard similarity between the observed infection mask and each stored
+    simulation from ``v``, applies the Gaussian soft-margin kernel, and selects
+    the bandwidth ``a^2`` by the convergence criterion of Antulov-Fantulin et al.
+    The ``a^2`` selection logic mirrors :func:`soft_margin` exactly.
+
+    Parameters
+    ----------
+    mc_S : np.ndarray, shape ``[n_nodes, mc_runs, n_nodes]``, int8
+        Stored MC susceptible indicators (1 = susceptible). Row ``v`` holds the
+        ``mc_runs`` simulated outbreaks seeded at source ``v``.
+    truth_S : np.ndarray, shape ``[n_nodes, n_truth, n_nodes]``, int8
+        Observed susceptible indicators per (source, run).
+    possible : np.ndarray, shape ``[n_nodes, n_truth, n_nodes]``, int8
+        Feasible-source mask per observation.
+    n_mc : int or None
+        Number of stored simulations per source to use (defaults to all).
+
+    Returns
+    -------
+    probs : np.ndarray, shape ``[n_nodes * n_truth, n_nodes]``, float32
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+    n_nodes, n_truth, _ = truth_S.shape
+    n_samples = n_nodes * n_truth
+    mc_runs = mc_S.shape[1]
+    if n_mc is not None and int(n_mc) < mc_runs:
+        select = rng.choice(mc_runs, int(n_mc), replace=False)
+        mc_S = mc_S[:, select, :]
+        mc_runs = int(n_mc)
+    if a_sq_candidates is None:
+        a_sq_candidates = np.logspace(-2, 1, 30)
+    a_sq = np.asarray(a_sq_candidates, dtype=np.float64)
+    n_a = a_sq.size
+
+    # Per-source simulated infection masks (non-susceptible) + sizes, computed
+    # once and reused for every observation (the whole point of the artifact SME).
+    sim_masks = (mc_S == 0).astype(np.float64)         # [n_nodes, mc_runs, n_nodes]
+    sim_sums = sim_masks.sum(axis=2)                    # [n_nodes, mc_runs]
+
+    truth_S_flat = truth_S.reshape(n_samples, n_nodes)
+    possible_flat = possible.reshape(n_samples, n_nodes).astype(bool)
+    probs = np.zeros((n_samples, n_nodes), dtype=np.float32)
+
+    # Fixed 2n resample for the convergence check (shared across observations).
+    idx_2n = rng.integers(0, mc_runs, size=2 * mc_runs)
+
+    for obs in range(n_samples):
+        obs_mask = (truth_S_flat[obs] == 0).astype(np.float64)
+        obs_sum = float(obs_mask.sum())
+        cand = np.flatnonzero(possible_flat[obs])
+        if cand.size == 0:
+            probs[obs] = np.ones(n_nodes, dtype=np.float32) / n_nodes
+            continue
+
+        m = sim_masks[cand]                            # [n_cand, mc_runs, n_nodes]
+        inter = m @ obs_mask                           # [n_cand, mc_runs]
+        union = sim_sums[cand] + obs_sum - inter
+        union = np.where(union > 0.0, union, 1.0)
+        jacc = inter / union                           # [n_cand, mc_runs]
+
+        kern = np.exp(-((jacc - 1.0) ** 2)[None] / a_sq[:, None, None])
+        output_n = kern.mean(axis=2)                   # [n_a, n_cand]
+        kern2 = np.exp(-((jacc[:, idx_2n] - 1.0) ** 2)[None] / a_sq[:, None, None])
+        output_2n = kern2.mean(axis=2)                 # [n_a, n_cand]
+
+        n_sum = output_n.sum(axis=1, keepdims=True)
+        prob_n = output_n / np.where(n_sum > 0, n_sum, 1.0)
+        n2_sum = output_2n.sum(axis=1, keepdims=True)
+        prob_2n = output_2n / np.where(n2_sum > 0, n2_sum, 1.0)
+
+        valid_a = np.where((output_n > 0).all(axis=1))[0]
+        if valid_a.size == 0:
+            chosen_a = n_a - 1
+        else:
+            map_nodes = np.argmax(prob_2n, axis=1)
+            a1 = prob_n[np.arange(n_a), map_nodes]
+            a2 = prob_2n[np.arange(n_a), map_nodes]
+            converged = np.abs(a1 - a2) <= 0.05
+            cv = np.where(converged[valid_a])[0]
+            chosen_a = int(valid_a[-1]) if cv.size == 0 else int(valid_a[cv[-1]])
+
+        log_lik = np.log(output_n[chosen_a] + 1e-300)  # [n_cand]
+        row = np.full(n_nodes, -np.inf, dtype=np.float64)
+        row[cand] = log_lik
+        finite = np.isfinite(row)
+        if finite.any():
+            row_exp = np.zeros(n_nodes, dtype=np.float64)
+            row_exp[finite] = np.exp(row[finite] - row[finite].max())
+            tot = row_exp.sum()
+            if tot > 0:
+                probs[obs] = (row_exp / tot).astype(np.float32)
+                continue
+        u = possible_flat[obs].astype(np.float64)
+        s = u.sum()
+        probs[obs] = (u / s if s > 0 else np.ones(n_nodes) / n_nodes).astype(np.float32)
+
+    return probs
+
+
 def mc_mean_field(
     mc_S: np.ndarray,
     mc_I: np.ndarray,
@@ -262,6 +377,8 @@ def mc_mean_field(
     possible: np.ndarray,
     eps: float = 1e-6,
     batch_size: int = 4096,
+    n_mc: int | None = None,
+    rng: np.random.Generator | None = None,
 ) -> np.ndarray:
     """Artifact-based Monte Carlo mean-field source baseline.
 
@@ -273,6 +390,14 @@ def mc_mean_field(
     """
     n_nodes, n_truth, _ = truth_S.shape
     n_samples = n_nodes * n_truth
+
+    if n_mc is not None and int(n_mc) < mc_S.shape[1]:
+        if rng is None:
+            rng = np.random.default_rng()
+        select = rng.choice(mc_S.shape[1], int(n_mc), replace=False)
+        mc_S = mc_S[:, select, :]
+        mc_I = mc_I[:, select, :]
+        mc_R = mc_R[:, select, :]
 
     p_S = np.clip(mc_S.mean(axis=1, dtype=np.float64), eps, 1.0)
     p_I = np.clip(mc_I.mean(axis=1, dtype=np.float64), eps, 1.0)

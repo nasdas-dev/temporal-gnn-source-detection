@@ -33,6 +33,7 @@ from eval.benchmark import (
     mc_mean_field as _mc_mean_field,
     mcs_mean_field as _mcs_mean_field,
     soft_margin as _soft_margin,
+    soft_margin_artifact as _soft_margin_artifact,
 )
 from setup import setup_methods_run, load_tsir_data
 
@@ -204,6 +205,63 @@ def _truth_indices(eval_cfg: dict, n_eval_runs: int, n_runs: int) -> np.ndarray:
             "artifact with more ground-truth runs."
         )
     return np.arange(truth_start, truth_stop)
+
+
+def _truth_indices_for_rep(
+    eval_cfg: dict,
+    rep: int,
+    n_truth: int,
+    n_runs: int,
+    reps: int,
+) -> np.ndarray:
+    """Return the held-out truth-run indices for one baseline repetition."""
+    truth_start = int(eval_cfg.get("truth_start", 0))
+    if truth_start < 0:
+        raise ValueError(f"eval.truth_start must be non-negative, got {truth_start}")
+    truth_stop = truth_start + reps * n_truth
+    if truth_stop > n_runs:
+        raise ValueError(
+            f"eval.truth_start + eval.reps * n_truth = {truth_start} + "
+            f"{reps} * {n_truth} = {truth_stop} exceeds n_runs={n_runs}. "
+            "Reduce eval.n_truth/eval.reps, lower eval.truth_start, or "
+            "regenerate the artifact with more ground-truth runs."
+        )
+    start = truth_start + rep * n_truth
+    return np.arange(start, start + n_truth)
+
+
+def _sample_std(vals: list[float]) -> float:
+    """Return sample std for cross-repetition baseline summaries."""
+    return float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+
+
+def _aggregate_rep_metrics(rep_metrics: list[dict[str, float]]) -> dict[str, float]:
+    """Aggregate one baseline's per-repetition metrics into mean/std keys."""
+    metric_lists: dict[str, list[float]] = {}
+    for metrics in rep_metrics:
+        for key, value in metrics.items():
+            if key == "model":
+                continue
+            # eval/n_valid is kept so baselines also expose eval/n_valid_mean.
+            metric_lists.setdefault(key, []).append(float(value))
+
+    out: dict[str, float] = {}
+    for key, vals in sorted(metric_lists.items()):
+        out[f"{key}_mean"] = float(np.mean(vals))
+        out[f"{key}_std"] = _sample_std(vals)
+        # Backwards-compatible alias used by older dashboards and tables.
+        out[key] = out[f"{key}_mean"]
+    return out
+
+
+def _concat_arrays(arrays_by_rep: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
+    """Concatenate per-repetition eval arrays for existing visualisation scripts."""
+    if not arrays_by_rep:
+        return {}
+    return {
+        key: np.concatenate([arrays[key] for arrays in arrays_by_rep], axis=0)
+        for key in arrays_by_rep[0]
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +441,7 @@ def _fast_baseline_probs(
             probs[start:end] = _scores_matrix_to_probs(scores, poss_chunk)
         return probs
 
-    if baseline in {"closeness", "betweenness"}:
+    if baseline == "closeness":
         static_scores = _static_centrality_scores(
             baseline, H_static, n_nodes, baseline_params, int(baseline_params.get("seed", 0))
         )
@@ -394,25 +452,12 @@ def _fast_baseline_probs(
             probs[start:end] = _scores_matrix_to_probs(scores, poss_chunk)
         return probs
 
-    if baseline == "jordan_center":
-        dist_matrix = _static_shortest_path_distances(H_static, n_nodes)
-        cache: dict[bytes, np.ndarray] = {}
-        max_cache_size = int(baseline_params.get("cache_size", 4096))
-        for start in range(0, n_total, chunk_size):
-            end = min(start + chunk_size, n_total)
-            poss_chunk = poss_flat[start:end]
-            scores = np.zeros((end - start, n_nodes), dtype=np.float32)
-            for local_idx, mask in enumerate(poss_chunk.astype(bool, copy=False)):
-                key = np.packbits(mask).tobytes()
-                row_scores = cache.get(key)
-                if row_scores is None:
-                    row_scores = _jordan_center_score(mask, dist_matrix, n_nodes)
-                    if len(cache) < max_cache_size:
-                        cache[key] = row_scores
-                scores[local_idx] = row_scores
-            probs[start:end] = _scores_matrix_to_probs(scores, poss_chunk)
-        return probs
-
+    # betweenness and jordan_center are intentionally NOT handled here: Sterchi
+    # et al. define them on the per-outbreak *infected subgraph*, not the full
+    # static graph. Returning None routes them to the slower per-observation
+    # subgraph path in compute_baseline_probs (G_sub), which is the defensible,
+    # paper-faithful definition. (degree/closeness are non-Sterchi extras kept on
+    # the fast full-graph path.)
     return None
 
 
@@ -489,6 +534,29 @@ def compute_baseline_probs(
             possible=possible,
             eps=float(baseline_params.get("eps", 1e-6)),
             batch_size=int(baseline_params.get("batch_size", 4096)),
+            n_mc=(
+                int(baseline_params["n_mc"])
+                if baseline_params.get("n_mc") is not None else None
+            ),
+            rng=rng,
+        )
+
+    if baseline == "soft_margin":
+        # SME on the SAME stored MC outbreaks used to train the GNN (Sterchi
+        # et al.), not re-simulated per candidate. Faithful substrate + feasible
+        # at n_mc=500. (The legacy re-simulation `_soft_margin` is retained for
+        # the `mcs_*` family but no longer used for this baseline.)
+        if mc_S is None:
+            raise ValueError("soft_margin baseline requires the stored mc_S pool")
+        return _soft_margin_artifact(
+            mc_S=mc_S,
+            truth_S=truth_S,
+            possible=possible,
+            n_mc=(
+                int(baseline_params["n_mc"])
+                if baseline_params.get("n_mc") is not None else None
+            ),
+            rng=rng,
         )
 
     fast_probs = _fast_baseline_probs(
@@ -526,21 +594,8 @@ def compute_baseline_probs(
             probs[flat_idx, chosen] = 1.0
             continue
 
-        if baseline == "soft_margin":
-            kwargs = {
-                k: v for k, v in baseline_params.items()
-                if k in {"beta", "mu", "n_steps", "n_mc", "a_sq_candidates"}
-            }
-            probs[flat_idx] = _soft_margin(
-                H_static=H_static,
-                truth_S=S_snap,
-                truth_I=I_snap,
-                truth_R=R_snap,
-                possible=poss,
-                rng=rng,
-                **kwargs,
-            )
-            continue
+        # NB: "soft_margin" is handled up front (artifact SME on the stored MC
+        # pool) and never reaches this per-observation loop.
 
         if baseline == "mcs_mean_field":
             kwargs = {
@@ -652,7 +707,7 @@ def main() -> None:
     print(f"  n_nodes  : {n_nodes}")
     print(f"  n_runs   : {data.n_runs}  (ground-truth)")
 
-    select_truth = _truth_indices(eval_cfg, n_eval_runs=n_eval_runs, n_runs=data.n_runs)
+    select_truth_all = _truth_indices(eval_cfg, n_eval_runs=n_eval_runs, n_runs=data.n_runs)
 
     # Build static projection of H for topology-based baselines
     H_static = nx.Graph()
@@ -661,16 +716,12 @@ def main() -> None:
         H_static.add_edge(int(u), int(v))
     graph_metric_context = precompute_graph_metric_context(H_static, n_nodes)
 
-    # Select the same held-out truth window used by model evaluation.
-    truth_S = data.truth_S[:, select_truth, :]   # [n_nodes, n_eval_runs, n_nodes]
-    truth_I = data.truth_I[:, select_truth, :]
-    truth_R = data.truth_R[:, select_truth, :]
-    possible = data.possible[:, select_truth, :]
-    lik_possible = data.lik_possible[:, select_truth, :].reshape(-1, n_nodes)
-
-    truth_S_flat = truth_S.reshape(-1, n_nodes)
-    sel = (1 - truth_S_flat).sum(axis=1) >= eval_cfg["min_outbreak"]
-    print(f"  Valid outbreaks: {sel.sum()} / {len(sel)}\n")
+    valid_total = 0
+    for rep in range(eval_reps):
+        rep_truth = _truth_indices_for_rep(eval_cfg, rep, n_truth, data.n_runs, eval_reps)
+        rep_truth_S_flat = data.truth_S[:, rep_truth, :].reshape(-1, n_nodes)
+        valid_total += int(((1 - rep_truth_S_flat).sum(axis=1) >= eval_cfg["min_outbreak"]).sum())
+    print(f"  Valid outbreaks: {valid_total} / {n_nodes * n_eval_runs}\n")
     baseline_params = _baseline_param_map(cfg_dict, data.config)
 
     # -----------------------------------------------------------------------
@@ -683,8 +734,6 @@ def main() -> None:
         print("=" * 60)
         print(f"Baseline: {baseline}")
         print("=" * 60)
-        rng = np.random.default_rng(seed + baseline_idx)
-        np.random.seed(seed + baseline_idx)
         params = dict(baseline_params.get(baseline, {}))
         params.setdefault("seed", seed + baseline_idx)
         if params:
@@ -692,56 +741,109 @@ def main() -> None:
         if baseline in BASELINE_METHOD_NOTES:
             print(f"  Method: {BASELINE_METHOD_NOTES[baseline]}")
 
-        probs = compute_baseline_probs(
-            baseline        = baseline,
-            H_static        = H_static,
-            truth_S         = truth_S,
-            truth_I         = truth_I,
-            truth_R         = truth_R,
-            possible        = possible,
-            n_nodes         = n_nodes,
-            n_truth         = n_eval_runs,
-            baseline_params = params,
-            rng             = rng,
-            mc_S            = data.mc_S,
-            mc_I            = data.mc_I,
-            mc_R            = data.mc_R,
-        )   # [n_nodes * n_truth, n_nodes]
-
-        metrics = compute_all_metrics(
-            probs        = probs,
-            lik_possible = lik_possible,
-            truth_S_flat = truth_S_flat,
-            eval_cfg     = eval_cfg,
-            n_nodes      = n_nodes,
-            n_runs       = n_eval_runs,
-            graph_metric_context = graph_metric_context,
-        )
-        metrics["model"] = baseline
-
+        rep_metrics: list[dict[str, float]] = []
+        arrays_by_rep: list[dict[str, np.ndarray]] = []
         top_k_vals = eval_cfg["top_k"]
-        offsets    = eval_cfg["inverse_rank_offset"]
-        n_valid    = int(metrics["eval/n_valid"])
-        print(f"  Valid outbreaks: {n_valid} / {n_nodes * n_eval_runs}")
-        print(f"  MRR           : {metrics['eval/mrr']:.4f}")
-        for k in top_k_vals:
-            print(f"  top-{k:<2}         : {100 * metrics[f'eval/top_{k}']:.1f}%")
-        print(f"  Norm. Brier   : {metrics['eval/norm_brier']:.4f}")
-        print(f"  Norm. Entropy : {metrics['eval/norm_entropy']:.4f}")
+        baseline_seed = int(params.get("seed", seed + baseline_idx))
+        mc_selects: list[np.ndarray] | None = None
+        if baseline == "mc_mean_field" and params.get("n_mc") is not None:
+            n_mc = int(params["n_mc"])
+            if n_mc < data.mc_runs:
+                mc_rng = np.random.RandomState(baseline_seed)
+                mc_selects = [
+                    np.asarray(mc_rng.choice(data.mc_runs, n_mc, replace=False), dtype=np.int64)
+                    for _ in range(eval_reps)
+                ]
 
-        # Save per-sample arrays for viz scripts
-        arrays = per_sample_arrays(
-            probs        = probs,
-            lik_possible = lik_possible,
-            truth_S_flat = truth_S_flat,
-            eval_cfg     = eval_cfg,
-            n_nodes      = n_nodes,
-            n_runs       = n_eval_runs,
-        )
-        np.savez_compressed(
-            f"{run_dir}/eval_arrays_{baseline}.npz",
-            **arrays,
-        )
+        for rep in range(eval_reps):
+            print(f"  Repetition {rep + 1}/{eval_reps}")
+            rep_seed = baseline_seed + rep
+            rng = np.random.default_rng(rep_seed)
+            np.random.seed(rep_seed)
+            rep_eval_cfg = {**eval_cfg, "seed": rep_seed}
+            select_truth = _truth_indices_for_rep(
+                eval_cfg, rep=rep, n_truth=n_truth, n_runs=data.n_runs, reps=eval_reps
+            )
+
+            truth_S = data.truth_S[:, select_truth, :]
+            truth_I = data.truth_I[:, select_truth, :]
+            truth_R = data.truth_R[:, select_truth, :]
+            possible = data.possible[:, select_truth, :]
+            lik_possible = data.lik_possible[:, select_truth, :].reshape(-1, n_nodes)
+            truth_S_flat = truth_S.reshape(-1, n_nodes)
+            mc_S = data.mc_S
+            mc_I = data.mc_I
+            mc_R = data.mc_R
+            rep_params = params
+            if mc_selects is not None:
+                mc_S = data.mc_S[:, mc_selects[rep], :]
+                mc_I = data.mc_I[:, mc_selects[rep], :]
+                mc_R = data.mc_R[:, mc_selects[rep], :]
+                rep_params = {**params, "n_mc": None}
+
+            probs = compute_baseline_probs(
+                baseline        = baseline,
+                H_static        = H_static,
+                truth_S         = truth_S,
+                truth_I         = truth_I,
+                truth_R         = truth_R,
+                possible        = possible,
+                n_nodes         = n_nodes,
+                n_truth         = n_truth,
+                baseline_params = rep_params,
+                rng             = rng,
+                mc_S            = mc_S,
+                mc_I            = mc_I,
+                mc_R            = mc_R,
+            )
+
+            metrics = compute_all_metrics(
+                probs        = probs,
+                lik_possible = lik_possible,
+                truth_S_flat = truth_S_flat,
+                eval_cfg     = rep_eval_cfg,
+                n_nodes      = n_nodes,
+                n_runs       = n_truth,
+                graph_metric_context = graph_metric_context,
+            )
+            rep_metrics.append(metrics)
+
+            arrays_by_rep.append(
+                per_sample_arrays(
+                    probs        = probs,
+                    lik_possible = lik_possible,
+                    truth_S_flat = truth_S_flat,
+                    eval_cfg     = rep_eval_cfg,
+                    n_nodes      = n_nodes,
+                    n_runs       = n_truth,
+                )
+            )
+
+            n_valid = int(metrics["eval/n_valid"])
+            print(f"    Valid outbreaks: {n_valid} / {n_nodes * n_truth}")
+            print(f"    MRR           : {metrics['eval/mrr']:.4f}")
+            for k in top_k_vals:
+                print(f"    top-{k:<2}         : {100 * metrics[f'eval/top_{k}']:.1f}%")
+            print(f"    Norm. Brier   : {metrics['eval/norm_brier']:.4f}")
+            print(f"    Norm. Entropy : {metrics['eval/norm_entropy']:.4f}")
+
+            wandb.log({
+                **{f"{k}_rep{rep}": v for k, v in metrics.items()},
+                "baseline": baseline,
+                "rep": rep,
+            })
+
+        summary = {
+            "model": baseline,
+            **_aggregate_rep_metrics(rep_metrics),
+        }
+
+        arrays = _concat_arrays(arrays_by_rep)
+        if arrays:
+            np.savez_compressed(
+                f"{run_dir}/eval_arrays_{baseline}.npz",
+                **arrays,
+            )
         _write_json(
             f"{run_dir}/metrics_{baseline}.json",
             {
@@ -749,21 +851,16 @@ def main() -> None:
                 "data": args.data,
                 "method": BASELINE_METHOD_NOTES.get(baseline, ""),
                 "params": params,
-                "metrics": {k: v for k, v in metrics.items() if k != "model"},
+                "metrics": {k: v for k, v in summary.items() if k != "model"},
+                "per_rep": rep_metrics,
             },
         )
 
-        # Log this baseline as its own W&B step (keyed by baseline name)
-        wandb.log({
-            **{k: v for k, v in metrics.items() if k != "model"},
-            "baseline": baseline,
-        })
-
-        summary_rows.append(metrics)
+        summary_rows.append(summary)
 
         # Log per-baseline summary metrics so viz_karate_paper.py can fetch them
-        for metric_key, val in metrics.items():
-            if metric_key not in ("model", "eval/n_valid"):
+        for metric_key, val in summary.items():
+            if metric_key != "model":
                 wandb.summary[f"{baseline}/{metric_key}"] = val
 
     for baseline_idx, baseline in enumerate(baselines):
@@ -794,11 +891,11 @@ def main() -> None:
     print("=" * 60)
     col_keys = (
         ["model"]
-        + [f"eval/mrr"]
-        + [f"eval/top_{k}" for k in top_k_vals]
-        + [f"eval/rank_score_off{o}" for o in offsets]
-        + ["eval/norm_brier", "eval/norm_entropy"]
-        + [f"eval/cred_cov_{int(round(p*100))}" for p in credible_ps]
+        + [f"eval/mrr_mean"]
+        + [f"eval/top_{k}_mean" for k in top_k_vals]
+        + [f"eval/rank_score_off{o}_mean" for o in offsets]
+        + ["eval/norm_brier_mean", "eval/norm_entropy_mean"]
+        + [f"eval/cred_cov_{int(round(p*100))}_mean" for p in credible_ps]
     )
     header = (
         ["baseline", "MRR"]
@@ -831,12 +928,12 @@ def main() -> None:
     wandb.summary["eval/n_truth_per_rep"] = n_truth
     wandb.summary["eval/reps"] = eval_reps
     wandb.summary["eval/truth_start"] = int(eval_cfg.get("truth_start", 0))
-    wandb.summary["eval/truth_stop"] = int(select_truth[-1]) + 1 if len(select_truth) else int(eval_cfg.get("truth_start", 0))
+    wandb.summary["eval/truth_stop"] = int(select_truth_all[-1]) + 1 if len(select_truth_all) else int(eval_cfg.get("truth_start", 0))
     wandb.summary["baseline/method_notes"] = {
         b: BASELINE_METHOD_NOTES.get(b, "") for b in baselines
     }
-    wandb.summary["n_valid_outbreaks"] = int(sel.sum())
-    wandb.summary["n_total"] = len(sel)
+    wandb.summary["n_valid_outbreaks"] = int(valid_total)
+    wandb.summary["n_total"] = int(n_nodes * n_eval_runs)
     wandb.summary["baseline/failed"] = failed_baselines
     wandb.summary["run/status"] = "success" if not failed_baselines else "partial"
 
@@ -847,7 +944,7 @@ def main() -> None:
             "data": args.data,
             "failed_baselines": failed_baselines,
             "truth_start": int(eval_cfg.get("truth_start", 0)),
-            "truth_stop": int(select_truth[-1]) + 1 if len(select_truth) else int(eval_cfg.get("truth_start", 0)),
+            "truth_stop": int(select_truth_all[-1]) + 1 if len(select_truth_all) else int(eval_cfg.get("truth_start", 0)),
             "baseline_method_notes": {
                 b: BASELINE_METHOD_NOTES.get(b, "") for b in baselines
             },

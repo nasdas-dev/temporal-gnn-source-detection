@@ -282,6 +282,27 @@ def _compact_fit_info(info: dict) -> dict:
     }
 
 
+def _sample_std(vals: list[float]) -> float:
+    """Return the sample standard deviation used for cross-repetition summaries."""
+    return float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+
+
+# Two-sided t critical values t_{0.975, n-1} for small repetition counts, used
+# for 95% confidence intervals across reps (Sterchi et al. report 95% CIs over 3
+# runs). Falls back to the normal approximation (1.96) for larger n.
+_T95 = {2: 12.706, 3: 4.303, 4: 3.182, 5: 2.776, 6: 2.571,
+        7: 2.447, 8: 2.365, 9: 2.306, 10: 2.262}
+
+
+def _ci95_halfwidth(vals: list[float]) -> float:
+    """95% confidence-interval half-width of the mean across repetitions."""
+    n = len(vals)
+    if n < 2:
+        return 0.0
+    t_crit = _T95.get(n, 1.96)
+    return t_crit * _sample_std(vals) / (n ** 0.5)
+
+
 def _truth_indices_for_rep(
     eval_cfg: dict,
     rep: int,
@@ -289,10 +310,31 @@ def _truth_indices_for_rep(
     n_runs: int,
     reps: int,
 ) -> np.ndarray:
-    """Return the held-out truth-run indices for one repetition."""
+    """Return the held-out truth-run indices for one repetition.
+
+    Two protocols are supported via ``eval.shared_eval_window``:
+
+    - ``True`` (Sterchi-exact): every repetition is evaluated on the *same*
+      held-out test window ``[truth_start, truth_start + n_truth)``. Only the
+      training seed and weight initialisation differ across reps, so the
+      cross-rep spread isolates training/initialisation noise — which is exactly
+      what the reported 95% CIs then mean. Needs only ``n_truth`` truth runs.
+    - ``False`` (default, legacy): each rep gets a disjoint window
+      ``[truth_start + rep*n_truth, …)``, which uses more data but conflates
+      training noise with test-set sampling noise. Needs ``reps * n_truth`` runs.
+    """
     truth_start = int(eval_cfg.get("truth_start", 0))
     if truth_start < 0:
         raise ValueError(f"eval.truth_start must be non-negative, got {truth_start}")
+    if bool(eval_cfg.get("shared_eval_window", False)):
+        truth_stop = truth_start + n_truth
+        if truth_stop > n_runs:
+            raise ValueError(
+                f"eval.truth_start + n_truth = {truth_start} + {n_truth} = "
+                f"{truth_stop} exceeds n_runs={n_runs}. Lower n_truth/truth_start "
+                "or regenerate the artifact with more ground-truth runs."
+            )
+        return np.arange(truth_start, truth_start + n_truth)
     truth_stop = truth_start + reps * n_truth
     if truth_stop > n_runs:
         raise ValueError(
@@ -548,8 +590,7 @@ def main() -> None:
                 n_params = int(rep_state.get("n_params", n_params))
                 wandb.log({f"{k}_rep{rep}": v for k, v in restored_metrics.items()})
                 for metric_key, val in restored_metrics.items():
-                    if metric_key != "eval/n_valid":
-                        rep_metric_lists.setdefault(metric_key, []).append(float(val))
+                    rep_metric_lists.setdefault(metric_key, []).append(float(val))
                 continue
 
         # --- Build fresh model ---
@@ -702,10 +743,11 @@ def main() -> None:
 
         wandb.log({f"{k}_rep{rep}": v for k, v in rep_metrics.items()})
 
-        # Accumulate for cross-rep summary
+        # Accumulate for cross-rep summary. eval/n_valid is included so the
+        # summary carries eval/n_valid_mean (consumed by the runners' valid-
+        # outbreak plot and the H2 cost table).
         for metric_key, val in rep_metrics.items():
-            if metric_key != "eval/n_valid":
-                rep_metric_lists.setdefault(metric_key, []).append(val)
+            rep_metric_lists.setdefault(metric_key, []).append(val)
 
         # Save raw model outputs + lightweight eval arrays for viz scripts
         if save_probs:
@@ -764,18 +806,20 @@ def main() -> None:
     # 6. Summary (averaged over reps)
     # ---------------------------------------------------------------
     print("\n" + "=" * 60)
-    print("Summary (mean ± std over reps)")
+    print(f"Summary (mean ± 95% CI over {len(next(iter(rep_metric_lists.values()), []))} reps)")
     print("=" * 60)
     for metric_key, vals in sorted(rep_metric_lists.items()):
         mean = float(np.mean(vals))
-        std  = float(np.std(vals))
+        std  = _sample_std(vals)
+        ci95 = _ci95_halfwidth(vals)
         wandb.summary[f"{metric_key}_mean"] = mean
         wandb.summary[f"{metric_key}_std"]  = std
+        wandb.summary[f"{metric_key}_ci95"] = ci95
         # Human-friendly output: percentages for top_k, 4dp for scalars
         if "top_" in metric_key:
-            print(f"  {metric_key}: {100 * mean:.1f}% ± {100 * std:.1f}%")
+            print(f"  {metric_key}: {100 * mean:.1f}% ± {100 * ci95:.1f}% (95% CI)")
         else:
-            print(f"  {metric_key}: {mean:.4f} ± {std:.4f}")
+            print(f"  {metric_key}: {mean:.4f} ± {ci95:.4f} (95% CI)")
 
     wandb.summary["model/n_params"] = n_params
     wandb.summary["model/name"]     = model_name
@@ -808,7 +852,10 @@ def main() -> None:
             f"{metric_key}_mean": float(np.mean(vals))
             for metric_key, vals in sorted(rep_metric_lists.items())
         } | {
-            f"{metric_key}_std": float(np.std(vals))
+            f"{metric_key}_std": _sample_std(vals)
+            for metric_key, vals in sorted(rep_metric_lists.items())
+        } | {
+            f"{metric_key}_ci95": _ci95_halfwidth(vals)
             for metric_key, vals in sorted(rep_metric_lists.items())
         } | {
             key: value for key, value in cost_stats.items()

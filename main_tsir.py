@@ -191,6 +191,31 @@ def _write_beta_cache(path: Path, payload: dict) -> None:
         yaml.safe_dump(_jsonable(merged), f, sort_keys=False)
 
 
+def _close(a, b, rel: float = 1e-6, abs_: float = 1e-9) -> bool:
+    """Return True if two scalars are equal within tolerance (None-safe)."""
+    if a is None or b is None:
+        return False
+    a, b = float(a), float(b)
+    return abs(a - b) <= max(rel * max(abs(a), abs(b)), abs_)
+
+
+def _write_label_cache(
+    cache_path: Path, section: str, label: str, entry: dict, base: dict
+) -> None:
+    """Merge ``entry`` into ``cache_path[section][label]`` without dropping
+    sibling labels already present in the cache file."""
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = _read_yaml(cache_path)
+    if not isinstance(existing, dict):
+        existing = {}
+    merged = {**existing, **base}
+    section_map = dict(existing.get(section) or {})
+    section_map[str(label)] = entry
+    merged[section] = section_map
+    with open(cache_path, "w") as f:
+        yaml.safe_dump(_jsonable(merged), f, sort_keys=False)
+
+
 def _calibrate_beta_if_requested(cfg, H, local_folder: str, reduction_report: dict) -> dict:
     """Optionally calibrate beta on the reduced graph before final TSIR runs."""
     if not _calibration_enabled(cfg):
@@ -218,7 +243,13 @@ def _calibrate_beta_if_requested(cfg, H, local_folder: str, reduction_report: di
 
     cache = _read_yaml(cache_path)
     cached = (((cache.get("betas") or {}).get(str(r0_label)) or {}) if isinstance(cache, dict) else {})
-    if cached.get("target_r0") == target_r0 and cached.get("beta") is not None:
+    # A cached beta is only valid for the same target R0 *and* the same mu:
+    # beta calibrates R0 = beta/mu * structure, so changing mu invalidates it.
+    if (
+        cached.get("target_r0") == target_r0
+        and cached.get("beta") is not None
+        and _close(cached.get("mu"), cfg.sir.mu)
+    ):
         cfg.sir.beta = float(cached["beta"])
         wandb.summary["calibration/cache_hit"] = True
         wandb.summary["calibration/target_r0"] = target_r0
@@ -291,6 +322,143 @@ def _calibrate_beta_if_requested(cfg, H, local_folder: str, reduction_report: di
     return payload["betas"][str(r0_label)]
 
 
+def _calibrate_end_t_if_requested(
+    cfg, H, local_folder: str, reduction_report: dict
+) -> dict:
+    """Calibrate the observation time ``end_t`` to a target infected fraction.
+
+    Runs *after* beta/R0 calibration, so it uses the R0-calibrated beta. The
+    mean outbreak fraction at ``end_t`` is monotone non-decreasing in ``end_t``,
+    so a bisection over the integer observation time converges to the smallest
+    ``end_t`` whose mean outbreak size reaches ``sir.calibration.target_infected``
+    (default Sterchi et al. setting ≈ 0.40 of nodes infected at the snapshot).
+
+    If the full contact window (``end_t = t_max``) still does not reach the
+    target — e.g. R0≈2 on a fragmented network saturates below 40% — ``end_t``
+    is pinned to ``t_max`` and the shortfall is logged rather than silently
+    overshooting the available simulation horizon.
+    """
+    if not _calibration_enabled(cfg):
+        return {}
+    calibration = cfg.sir.calibration
+    target = _cfg_get(calibration, "target_infected", None)
+    if target is None:
+        return {}
+    target = float(target)
+
+    n_nodes = H.number_of_nodes()
+    t_max = int(cfg.nwk.t_max)
+    n_probe = int(_cfg_get(calibration, "target_infected_n_probe", 64))
+    max_iter = int(_cfg_get(calibration, "target_infected_max_iter", 12))
+    tolerance = float(_cfg_get(calibration, "target_infected_tolerance", 0.02))
+    seed = int(_cfg_get(calibration, "seed", 20260609))
+    out_dir = Path(_cfg_get(calibration, "output_dir", "results/calibration"))
+    reduction_id = reduction_report.get("reduction_id", f"{cfg.nwk.name}_full")
+    cache_path = out_dir / str(reduction_id) / "end_t.yml"
+    r0_label = _cfg_get(
+        getattr(cfg, "experiment", None),
+        "r0_label",
+        _cfg_get(getattr(cfg, "experiment", None), "label", "r0"),
+    )
+
+    # Cache hit only when beta, mu, target and t_max all match.
+    cache = _read_yaml(cache_path)
+    cached = (((cache.get("end_t") or {}).get(str(r0_label)) or {}) if isinstance(cache, dict) else {})
+    if (
+        _close(cached.get("target_infected"), target)
+        and _close(cached.get("beta"), cfg.sir.beta)
+        and _close(cached.get("mu"), cfg.sir.mu)
+        and cached.get("t_max") == t_max
+        and cached.get("end_t") is not None
+    ):
+        cfg.sir.end_t = int(cached["end_t"])
+        wandb.summary["calibration/end_t_cache_hit"] = True
+        wandb.summary["calibration/end_t"] = int(cached["end_t"])
+        wandb.summary["calibration/end_t_outbreak"] = cached.get("outbreak_fraction")
+        wandb.summary["calibration/end_t_target"] = target
+        return dict(cached)
+
+    H_cread = make_c_readable_from_networkx(H, t_max=t_max, directed=cfg.nwk.directed)
+    probe_dir = Path(local_folder) / "calibration_end_t"
+    probe_dir.mkdir(parents=True, exist_ok=True)
+
+    def outbreak_fraction(end_t: int, it: int) -> tuple[float, int]:
+        end_t = max(1, min(int(end_t), t_max))
+        _, avg_os, _, _ = sir_probe_run(
+            H_cread,
+            beta=cfg.sir.beta,
+            mu=cfg.sir.mu,
+            start_t=cfg.sir.start_t,
+            end_t=end_t,
+            n=n_probe,
+            seed=seed + it,
+            path=str(probe_dir / f"probe_{it}_{{}}.bin"),
+            log=str(probe_dir / f"probe_{it}.txt"),
+        )
+        return float(avg_os) / max(n_nodes, 1), end_t
+
+    print("\n" + "=" * 60)
+    print(f"Calibrating end_t for target infected fraction ≈ {target:.0%}")
+    print("=" * 60)
+
+    f_max, _ = outbreak_fraction(t_max, 0)
+    print(f"  full window (end_t={t_max}): outbreak={f_max:.3f}")
+    if f_max < target:
+        cfg.sir.end_t = t_max
+        best = {
+            "end_t": t_max,
+            "outbreak_fraction": float(f_max),
+            "reached": False,
+        }
+        print(
+            f"  WARNING: target {target:.0%} unreachable — final outbreak only "
+            f"{f_max:.1%}. Pinning end_t={t_max}."
+        )
+    else:
+        low, high = 1, t_max
+        best = {"end_t": t_max, "outbreak_fraction": float(f_max), "err": abs(f_max - target)}
+        for it in range(1, max_iter + 1):
+            mid = (low + high) // 2
+            f_mid, mid = outbreak_fraction(mid, it)
+            err = abs(f_mid - target)
+            print(f"  iter {it:02d}: end_t={mid}, outbreak={f_mid:.3f}, |err|={err:.3f}")
+            if err < best.get("err", float("inf")):
+                best = {"end_t": int(mid), "outbreak_fraction": float(f_mid), "err": float(err)}
+            if err <= tolerance or (high - low) <= 1:
+                break
+            if f_mid < target:
+                low = mid
+            else:
+                high = mid
+        best["reached"] = True
+        cfg.sir.end_t = int(best["end_t"])
+
+    entry = {
+        "end_t": int(cfg.sir.end_t),
+        "outbreak_fraction": float(best["outbreak_fraction"]),
+        "target_infected": target,
+        "reached": bool(best.get("reached", True)),
+        "beta": float(cfg.sir.beta),
+        "mu": float(cfg.sir.mu),
+        "t_max": t_max,
+        "n_probe": n_probe,
+        "method": "tsir_bisection_on_end_t",
+    }
+    _write_label_cache(
+        cache_path,
+        section="end_t",
+        label=str(r0_label),
+        entry=entry,
+        base={"reduction_id": reduction_id, "network": cfg.nwk.name},
+    )
+    wandb.summary["calibration/end_t_cache_hit"] = False
+    wandb.summary["calibration/end_t"] = int(cfg.sir.end_t)
+    wandb.summary["calibration/end_t_outbreak"] = float(best["outbreak_fraction"])
+    wandb.summary["calibration/end_t_target"] = target
+    print(f"  selected end_t={cfg.sir.end_t} (outbreak={best['outbreak_fraction']:.3f})")
+    return entry
+
+
 def _outbreak_report(truth_S: np.ndarray, n_nodes: int, n_runs: int, min_outbreak: int = 2) -> dict:
     sizes = (1 - truth_S.reshape(n_nodes, n_runs, n_nodes)).sum(axis=2).reshape(-1)
     hist, edges = np.histogram(sizes, bins=min(20, max(1, n_nodes)))
@@ -331,6 +499,11 @@ def main() -> None:
     sample_meta = H.graph.get("sample", {})
     reduction_report = H.graph.get("reduction_report", {})
     calibration_meta = _calibrate_beta_if_requested(cfg, H, local_folder, reduction_report)
+    # Calibrate the observation time so ~target_infected of nodes are infected
+    # at the snapshot (Sterchi-style), using the just-calibrated beta.
+    end_t_meta = _calibrate_end_t_if_requested(cfg, H, local_folder, reduction_report)
+    if end_t_meta:
+        calibration_meta = {**(calibration_meta or {}), "end_t": end_t_meta}
     if reduction_report:
         reduction_report["calibration"] = calibration_meta
         _summary_reduction(reduction_report)
