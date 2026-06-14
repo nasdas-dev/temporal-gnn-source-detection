@@ -141,7 +141,13 @@ def restore_rng_state(state: dict[str, Any] | None) -> None:
     if "torch" in state:
         torch.set_rng_state(state["torch"].cpu())
     if torch.cuda.is_available() and state.get("cuda"):
-        torch.cuda.set_rng_state_all(state["cuda"])
+        # latest.pt is loaded with map_location=cuda, which moves the saved RNG
+        # ByteTensors onto the GPU; set_rng_state_all requires CPU ByteTensors
+        # (same reason the torch CPU state above is forced to .cpu()).
+        cuda_states = [
+            s.cpu() if torch.is_tensor(s) else s for s in state["cuda"]
+        ]
+        torch.cuda.set_rng_state_all(cuda_states)
 
 
 def checkpoint_timestamp() -> str:
