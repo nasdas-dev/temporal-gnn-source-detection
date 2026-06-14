@@ -716,7 +716,7 @@ def main() -> None:
             truth_S    = data.truth_S[:, select_truth, :],
             truth_I    = data.truth_I[:, select_truth, :],
             truth_R    = data.truth_R[:, select_truth, :],
-            batch_size = 256,
+            batch_size = 32,
         )   # [n_nodes * n_truth, n_nodes]
 
         # --- Compute all metrics ---
