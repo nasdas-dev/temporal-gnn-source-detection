@@ -83,7 +83,7 @@ from run_all_experiments import (
     MIN_OUTBREAK,
     MUS,
     R0_VALUES,
-    STERCHI_TRAIN,
+    FIXED_TRAIN,
     TARGET_INFECTED,
     build_eval_config,
     extract_run_id,
@@ -163,9 +163,9 @@ PRESETS = {
     "fast": Preset(n_runs=120, mc_runs=80, n_mc=80, reps=1, n_truth=40),
     # Multi-seed publication preset mirroring run_all_experiments' tuner preset:
     # the final model is trained/evaluated 3 times (reps=3) with a shared held-out
-    # test window, so each Δt point carries a Sterchi-style 95% CI over
-    # training/init noise. n_runs leaves room for a disjoint HPO-validation window
-    # plus the 3*250 held-out final-test window (final_stop=850 <= 1200).
+    # test window, so each Δt point carries a 95% CI over training/init noise.
+    # n_runs leaves room for a disjoint HPO-validation window plus the 3*250
+    # held-out final-test window (final_stop=850 <= 1200).
     "tuner": Preset(n_runs=1200, mc_runs=500, n_mc=500, reps=3, n_truth=250),
 }
 
@@ -238,7 +238,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--hpo-patience", type=int, default=12, help="Patience cap inside HPO trials only")
     p.add_argument("--max-train-epochs", type=int, default=500,
                    help="Cap final train.epochs; set 0 to keep template values. "
-                        "Default 500 matches Sterchi (rely on early-stopping to converge).")
+                        "Default 500 relies on early-stopping to converge.")
     p.add_argument("--max-train-patience", type=int, default=20,
                    help="Cap final train.patience; set 0 to keep template values")
     p.add_argument("--hpo-sampler", choices=["tpe", "random"], default="tpe")
@@ -377,27 +377,27 @@ def build_model_config(
         "credible_p": [0.80, 0.90],
         "inverse_rank_offset": [0],
         "n_truth": preset.n_truth,
-        # Sterchi-exact: all reps scored on the same held-out window so the 95%
-        # CIs reflect training/init noise (mirrors run_all_experiments).
+        # All reps scored on the same held-out window so the 95% CIs reflect
+        # training/init noise (mirrors run_all_experiments).
         "shared_eval_window": True,
     }
     cfg["train"] = {
         **cfg.get("train", {}),
-        # Frozen, Sterchi-aligned training hyperparameters — identical to H1, so
-        # Optuna can only change architecture and the Δt curves are not confounded
-        # by per-cell optimiser drift. Train to 500 epochs with early-stopping.
-        "lr": STERCHI_TRAIN["lr"],
-        "weight_decay": STERCHI_TRAIN["weight_decay"],
-        "test_size": STERCHI_TRAIN["test_size"],
-        "epochs": STERCHI_TRAIN["epochs"],
-        "patience": STERCHI_TRAIN["patience"],
+        # Frozen training hyperparameters — identical to H1, so Optuna can only
+        # change architecture and the Δt curves are not confounded by per-cell
+        # optimiser drift. Train to 500 epochs with early-stopping.
+        "lr": FIXED_TRAIN["lr"],
+        "weight_decay": FIXED_TRAIN["weight_decay"],
+        "test_size": FIXED_TRAIN["test_size"],
+        "epochs": FIXED_TRAIN["epochs"],
+        "patience": FIXED_TRAIN["patience"],
         "n_mc": preset.n_mc,
         "reps": preset.reps,
         "loss_guard": LOSS_GUARD,
         "grad_clip_norm": GRAD_CLIP_NORM,
     }
     if MODEL_BASE[model_key] in ("static_gnn", "static_mlp"):
-        cfg["train"]["batch_size"] = STERCHI_TRAIN["batch_size"]
+        cfg["train"]["batch_size"] = FIXED_TRAIN["batch_size"]
     cfg.setdefault("output", {})["save_probs"] = save_probs
 
     if model_key in TEMPORAL_MODELS:
@@ -447,8 +447,8 @@ def build_model_config(
     }
     if base == "dbgnn":
         cfg["experiment"]["dbgnn_delta"] = int(cfg["dbgnn"]["delta"])
-        # True when 1/Δt scaling would want delta < 1 bin: the real-time causal
-        # horizon is no longer held constant at this Δt (see build comment).
+        # True when 1/Δt scaling would want delta < 1 bin: at this Δt the
+        # real-time causal horizon is not held constant (see build comment).
         cfg["experiment"]["dbgnn_delta_floored"] = bool(dbgnn_delta_floored)
     if preset.n_runs < preset.reps * preset.n_truth:
         raise ValueError(
@@ -600,10 +600,10 @@ def build_tsir_config(
         "mc_runs": preset.mc_runs,
     }
     if not bool(getattr(args, "use_full_betas", False)):
-        # end_t is calibrated to the Sterchi-style ≈40%-infected snapshot. The
-        # SIR simulation is identical across Δt (Δt only changes the model's
-        # temporal binning), so one calibrated end_t per network/R0 is shared
-        # across the resolution sweep via the cache.
+        # end_t is calibrated to the ≈40%-infected snapshot. The SIR simulation
+        # is identical across Δt (Δt only changes the model's temporal binning),
+        # so one calibrated end_t per network/R0 is shared across the resolution
+        # sweep via the cache.
         sir_cfg["calibration"] = {
             "enabled": True,
             "target_r0": sc["r0"],
@@ -786,7 +786,7 @@ def stage_hpo(args, run_dir, status_path, network, r0_label, model_key, artifact
     # Freshness guard: only reuse a best_config the study (re)produced
     # successfully this invocation. Otherwise a --resume/--force rerun whose new
     # study fails would silently train the Optuna variants from a stale config
-    # left by a previous run. On failure we skip the Optuna variants (the
+    # left behind earlier. On failure the Optuna variants are skipped (the
     # untuned Δt sweep still runs); the prior-success case is handled by the
     # should_skip early return above.
     if status != "success":

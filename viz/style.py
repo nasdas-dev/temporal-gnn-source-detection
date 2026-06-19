@@ -60,7 +60,6 @@ MODEL_ORDER: list[str] = [
     "static_gnn",
     "dbgnn_k2",
     "dbgnn_k3",
-    "dag_gnn",
     "static_mlp",
     "mc_mean_field",
     "jordan_center",
@@ -81,7 +80,6 @@ MODEL_LABELS: dict[str, str] = {
     "dbgnn":         "DBGNN",
     "dbgnn_k2":      "DBGNN k=2",
     "dbgnn_k3":      "DBGNN k=3",
-    "dag_gnn":       "DAG-GNN",
     "static_mlp":    "MLP Baseline",
     "mc_mean_field": "MC Mean-Field",
     "jordan_center": "Jordan Center",
@@ -102,7 +100,6 @@ MODEL_COLORS: dict[str, str] = {
     "dbgnn":         "#55A868",   # green
     "dbgnn_k2":      "#55A868",   # green
     "dbgnn_k3":      "#2F8F5B",   # darker green
-    "dag_gnn":       "#C44E52",   # red
     "static_mlp":    "#CCB974",   # ochre
     "mc_mean_field": "#3B3B3B",   # dark grey
     "jordan_center": "#555555",
@@ -123,7 +120,6 @@ MODEL_MARKERS: dict[str, str] = {
     "dbgnn":         "D",
     "dbgnn_k2":      "D",
     "dbgnn_k3":      "X",
-    "dag_gnn":       "v",
     "static_mlp":    "p",
     "mc_mean_field": "8",
     "jordan_center": "x",

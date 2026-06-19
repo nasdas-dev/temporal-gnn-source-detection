@@ -115,8 +115,6 @@ def _builder_kwargs(model_name: str, model_cfg: dict) -> dict:
         return {"use_edge_weights": model_cfg.get("use_edge_weights", False)}
     if model_name == "temporal_gnn":
         return {"group_by_time": model_cfg.get("group_by_time", 1)}
-    if model_name == "dag_gnn":
-        return {"delta_t": model_cfg.get("delta_t", None)}
     if model_name == "dbgnn":
         return {
             "order": model_cfg.get("order", 2),
@@ -288,8 +286,8 @@ def _sample_std(vals: list[float]) -> float:
 
 
 # Two-sided t critical values t_{0.975, n-1} for small repetition counts, used
-# for 95% confidence intervals across reps (Sterchi et al. report 95% CIs over 3
-# runs). Falls back to the normal approximation (1.96) for larger n.
+# for 95% confidence intervals across reps. Falls back to the normal
+# approximation (1.96) for larger n.
 _T95 = {2: 12.706, 3: 4.303, 4: 3.182, 5: 2.776, 6: 2.571,
         7: 2.447, 8: 2.365, 9: 2.306, 10: 2.262}
 
@@ -314,12 +312,12 @@ def _truth_indices_for_rep(
 
     Two protocols are supported via ``eval.shared_eval_window``:
 
-    - ``True`` (Sterchi-exact): every repetition is evaluated on the *same*
-      held-out test window ``[truth_start, truth_start + n_truth)``. Only the
-      training seed and weight initialisation differ across reps, so the
-      cross-rep spread isolates training/initialisation noise — which is exactly
-      what the reported 95% CIs then mean. Needs only ``n_truth`` truth runs.
-    - ``False`` (default, legacy): each rep gets a disjoint window
+    - ``True``: every repetition is evaluated on the *same* held-out test window
+      ``[truth_start, truth_start + n_truth)``. Only the training seed and weight
+      initialisation differ across reps, so the cross-rep spread isolates
+      training/initialisation noise — which is exactly what the reported 95% CIs
+      then mean. Needs only ``n_truth`` truth runs.
+    - ``False`` (default): each rep gets a disjoint window
       ``[truth_start + rep*n_truth, …)``, which uses more data but conflates
       training noise with test-set sampling noise. Needs ``reps * n_truth`` runs.
     """

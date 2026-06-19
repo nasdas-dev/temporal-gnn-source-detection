@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-# --- CONFIGURATION (Based on your tsir.yml) ---
-DATA_DIR = "/Users/dariush/Developer/Masterarbeit/source-detection-main/data/yo3mrtdb"  # Path to your binary files
+# --- CONFIGURATION (Based on tsir.yml) ---
+DATA_DIR = "/Users/dariush/Developer/Masterarbeit/source-detection-main/data/yo3mrtdb"  # Path to the binary files
 GPICKLE_PATH = f"{DATA_DIR}/network.gpickle"
 N_NODES = 15
 MC_RUNS = 2000000
@@ -14,7 +14,7 @@ def load_mc_data(state_type):
     file_path = f"{DATA_DIR}/monte_carlo_{state_type}.bin"
     # C code uses int8_t (1 byte)
     data = np.fromfile(file_path, dtype=np.int8)
-    # Reshape as defined in your Python wrapper
+    # Reshape as defined in the Python wrapper
     return data.reshape(N_NODES, MC_RUNS, N_NODES)
 
 

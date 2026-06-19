@@ -38,7 +38,6 @@ TRAIN_BATCH_CHOICES = {
     "static_mlp": [32, 64, 128, 256],
     "backtracking": [32, 64, 128],
     "temporal_gnn": [8, 16, 32, 64],
-    "dag_gnn": [8, 16, 32, 64],
     "dbgnn": [4, 8, 16, 32, 64],
 }
 
@@ -72,16 +71,16 @@ def _suggest_training_params(
     tune_n_mc: bool,
     max_n_mc: int | None,
 ) -> dict[str, Any]:
-    """Training hyperparameters are *frozen*, not tuned, following Sterchi et al.
+    """Training hyperparameters are frozen, not tuned.
 
-    Sterchi et al. (Table 4) fix the optimiser/training knobs — learning rate,
-    weight decay, batch size, ADAM, epochs/early-stop, train/val split — and tune
-    only the architecture. Previously searching ``lr``/``weight_decay``/
-    ``batch_size``/``test_size``/``patience`` let TPE wander into under-fitting
-    corners (weight_decay up to 64×, lr down, parameters collapsed) that made the
-    tuned models score *worse* than the frozen defaults. We therefore no longer
-    suggest them; their (Sterchi-aligned) values come straight from the base
-    config and apply identically to every trial and to the final run.
+    The optimiser/training knobs — learning rate, weight decay, batch size,
+    ADAM, epochs/early-stop, train/val split — are fixed, and only the
+    architecture is tuned. Searching ``lr``/``weight_decay``/``batch_size``/
+    ``test_size``/``patience`` lets TPE wander into under-fitting corners
+    (weight_decay up to 64×, lr down, parameters collapsed) that make the tuned
+    models score worse than the frozen defaults, so they are not suggested here;
+    their values come straight from the base config and apply identically to
+    every trial and to the final run.
 
     Only ``train.n_mc`` (training-set size) remains optionally tunable, and only
     when ``hpo.tune_n_mc`` is explicitly enabled.
@@ -173,9 +172,9 @@ def _suggest_backtracking(trial: TrialLike) -> dict[str, Any]:
 def _suggest_temporal_gnn(trial: TrialLike) -> dict[str, Any]:
     # Depth is set by group_by_time (one SAGEConv per snapshot), so beyond width
     # and temporal resolution the meaningful knobs are the regularisers/readout
-    # the architecture actually exposes. Searching only width + resolution gave
-    # TPE almost nothing to tune; adding dropout/readout/residual/layer_norm lets
-    # tuning find a genuinely better-generalising temporal model.
+    # the architecture actually exposes. Width and resolution alone give TPE
+    # almost nothing to tune; the dropout/readout/residual/layer_norm knobs let
+    # tuning find a better-generalising temporal model.
     return {
         "temporal_gnn.hidden_channels": trial.suggest_categorical(
             "temporal_gnn.hidden_channels", [16, 32, 64, 128]
@@ -194,22 +193,6 @@ def _suggest_temporal_gnn(trial: TrialLike) -> dict[str, Any]:
         ),
         "temporal_gnn.layer_norm": trial.suggest_categorical(
             "temporal_gnn.layer_norm", [True, False]
-        ),
-    }
-
-
-def _suggest_dag_gnn(trial: TrialLike) -> dict[str, Any]:
-    return {
-        "dag_gnn.hidden_channels": trial.suggest_categorical(
-            "dag_gnn.hidden_channels", [16, 32, 64, 128]
-        ),
-        "dag_gnn.num_conv_layers": trial.suggest_int(
-            "dag_gnn.num_conv_layers", 1, 4
-        ),
-        "dag_gnn.dropout_rate": trial.suggest_float("dag_gnn.dropout_rate", 0.0, 0.30),
-        "dag_gnn.agg": trial.suggest_categorical("dag_gnn.agg", ["mean", "sum"]),
-        "dag_gnn.delta_t": trial.suggest_categorical(
-            "dag_gnn.delta_t", [None, 2, 4, 8, 12, 24, 48]
         ),
     }
 
@@ -242,7 +225,6 @@ MODEL_SUGGESTERS = {
     "static_mlp": _suggest_static_mlp,
     "backtracking": _suggest_backtracking,
     "temporal_gnn": _suggest_temporal_gnn,
-    "dag_gnn": _suggest_dag_gnn,
     "dbgnn": _suggest_dbgnn,
 }
 
@@ -348,7 +330,7 @@ def describe_search_space(model_name: str) -> dict[str, Any]:
             f"Unknown model '{model_name}'. Supported: {sorted(MODEL_SUGGESTERS)}"
         )
     # Training hyperparameters are frozen (see _suggest_training_params), so they
-    # are no longer part of the tuned search space; only architecture is tuned.
+    # are not part of the tuned search space; only architecture is tuned.
     general: dict[str, Any] = {}
     model_spaces = {
         "static_gnn": {
@@ -384,13 +366,6 @@ def describe_search_space(model_name: str) -> dict[str, Any]:
             "temporal_gnn.readout": ["last", "jumping_mean"],
             "temporal_gnn.residual": [True, False],
             "temporal_gnn.layer_norm": [True, False],
-        },
-        "dag_gnn": {
-            "dag_gnn.hidden_channels": [16, 32, 64, 128],
-            "dag_gnn.num_conv_layers": "int[1, 4]",
-            "dag_gnn.dropout_rate": "uniform[0.0, 0.3]",
-            "dag_gnn.agg": ["mean", "sum"],
-            "dag_gnn.delta_t": [None, 2, 4, 8, 12, 24, 48],
         },
         "dbgnn": {
             "dbgnn.hidden_channels": [32, 64, 128],

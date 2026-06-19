@@ -452,12 +452,11 @@ def _fast_baseline_probs(
             probs[start:end] = _scores_matrix_to_probs(scores, poss_chunk)
         return probs
 
-    # betweenness and jordan_center are intentionally NOT handled here: Sterchi
-    # et al. define them on the per-outbreak *infected subgraph*, not the full
-    # static graph. Returning None routes them to the slower per-observation
-    # subgraph path in compute_baseline_probs (G_sub), which is the defensible,
-    # paper-faithful definition. (degree/closeness are non-Sterchi extras kept on
-    # the fast full-graph path.)
+    # betweenness and jordan_center are intentionally NOT handled here: they are
+    # defined on the per-outbreak *infected subgraph*, not the full static graph.
+    # Returning None routes them to the slower per-observation subgraph path in
+    # compute_baseline_probs (G_sub), which is the defensible definition.
+    # (degree/closeness are extras kept on the fast full-graph path.)
     return None
 
 
@@ -542,10 +541,10 @@ def compute_baseline_probs(
         )
 
     if baseline == "soft_margin":
-        # SME on the SAME stored MC outbreaks used to train the GNN (Sterchi
-        # et al.), not re-simulated per candidate. Faithful substrate + feasible
-        # at n_mc=500. (The legacy re-simulation `_soft_margin` is retained for
-        # the `mcs_*` family but no longer used for this baseline.)
+        # SME on the SAME stored MC outbreaks used to train the GNN, not
+        # re-simulated per candidate. Shared substrate, feasible at n_mc=500.
+        # (The re-simulation `_soft_margin` is retained for the `mcs_*` family but
+        # not used for this baseline.)
         if mc_S is None:
             raise ValueError("soft_margin baseline requires the stored mc_S pool")
         return _soft_margin_artifact(

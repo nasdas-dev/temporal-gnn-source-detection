@@ -2,7 +2,7 @@ nwk:
   name: france_office
   directed: false
 
-# Continuous-time SIR (paper's C binary, Sterchi et al. 2025)
+# Continuous-time SIR (paper's C binary)
 # france_office: 92 nodes, static-projection mean degree ≈ 16.41
 # β = 2*ν/mean_deg ≈ 0.12 → R₀ ≈ 2.0
 # T: calibrated to target ~40% infected — adjust if avg_outbreak differs

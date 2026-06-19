@@ -28,20 +28,6 @@ gnn/static_source_detection_gnn/sir/sir
 **/*.o
 **/*.so
 
-# LaTeX build artifacts
-thesis/*.aux
-thesis/*.log
-thesis/*.out
-thesis/*.toc
-thesis/*.lof
-thesis/*.lot
-thesis/*.synctex*
-thesis/test.*
-thesis/technical_guide.aux
-thesis/technical_guide.log
-thesis/technical_guide.out
-thesis/technical_guide.toc
-
 # Windows Zone.Identifier files
 *Zone.Identifier
 
@@ -50,9 +36,6 @@ thesis/technical_guide.toc
 .vscode/
 *.swp
 *.swo
-
-# Memory (local only)
-memory/
 
 # Generated figures and experiment results
 figures/

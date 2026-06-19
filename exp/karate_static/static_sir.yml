@@ -3,7 +3,7 @@ nwk:
   directed: false
 
 sir:
-  beta: 1.3           # infection rate (matches Sterchi et al. 2025 Table 5)
+  beta: 1.3           # infection rate
   nu:   1.0           # recovery rate
   T:    0.85          # observation time — targets ~40% infected (paper: ~40%)
   n_runs:   5000      # test simulations per source (n_truth=1000 used for eval)

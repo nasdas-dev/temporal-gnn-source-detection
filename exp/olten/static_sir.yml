@@ -2,7 +2,7 @@ nwk:
   name: olten
   directed: false
 
-# Continuous-time SIR (paper's C binary, Sterchi et al. 2025)
+# Continuous-time SIR (paper's C binary)
 # olten: 749 nodes, static-projection mean degree ~= 9.23
 # beta = 2*nu/mean_degree ~= 0.22 for R0 ~= 2.0
 sir:

@@ -34,15 +34,14 @@ def test_search_spaces_cover_model_specific_parameters():
         "static_mlp": "static_mlp.num_hidden_layers",
         "backtracking": "backtracking.num_layers",
         "temporal_gnn": "temporal_gnn.group_by_time",
-        "dag_gnn": "dag_gnn.delta_t",
         "dbgnn": "dbgnn.time_bin_size",
     }
     for model, key in expected.items():
         space = describe_search_space(model)
         assert key in space
-        # Training hyperparameters are FROZEN (Sterchi et al.): only architecture
-        # is tuned. Lock this in so a regression that re-adds optimiser knobs to
-        # the search space is caught here.
+        # Training hyperparameters are FROZEN: only architecture is tuned.
+        # Lock this in so a regression that re-adds optimiser knobs to the
+        # search space is caught here.
         for frozen in ("train.lr", "train.weight_decay", "train.batch_size",
                        "train.test_size", "train.epochs", "train.patience"):
             assert frozen not in space, f"{frozen} must not be tuned for {model}"

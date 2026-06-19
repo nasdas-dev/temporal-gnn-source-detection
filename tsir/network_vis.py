@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-# --- CONFIGURATION (Matching your Python Wrapper) ---
+# --- CONFIGURATION (Matching the Python Wrapper) ---
 DATA_DIR = "/Users/dariush/Developer/Masterarbeit/source-detection-main/data/yo3mrtdb"
 N_NODES = 15
-MC_RUNS = 2000000  # This should match cfg.sir.mc_runs in your config
+MC_RUNS = 2000000  # This should match cfg.sir.mc_runs in the config
 
 
 def load_mc_binary(filename):
@@ -17,7 +17,7 @@ def load_mc_binary(filename):
     # Per C code: fwrite(buf, sizeof(int8_t), g.n, fI);
     data = np.fromfile(path, dtype=np.int8)
 
-    # Reshape based on your Python wrapper logic: (n_nodes, mc_runs, n_nodes)
+    # Reshape based on the Python wrapper logic: (n_nodes, mc_runs, n_nodes)
     try:
         return data.reshape(N_NODES, -1, N_NODES)
     except ValueError:

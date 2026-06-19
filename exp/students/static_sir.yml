@@ -2,7 +2,7 @@ nwk:
   name: students
   directed: false
 
-# Continuous-time SIR (paper's C binary, Sterchi et al. 2025)
+# Continuous-time SIR (paper's C binary)
 # students (Copenhagen): 666 nodes, static-projection mean degree ≈ 36.98
 # β = 2*ν/mean_deg ≈ 0.054 → R₀ ≈ 2.0
 # T: calibrated to target ~40% infected — adjust if avg_outbreak differs

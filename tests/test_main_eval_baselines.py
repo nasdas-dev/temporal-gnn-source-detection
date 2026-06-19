@@ -105,8 +105,8 @@ def test_static_centrality_baseline_masks_to_feasible_candidates():
 
 
 def test_jordan_center_uses_infected_subgraph():
-    # Sterchi-faithful: jordan_center is computed on the per-outbreak *infected
-    # subgraph*, not the full static graph (see compute_baseline_probs G_sub path).
+    # jordan_center is computed on the per-outbreak *infected subgraph*, not the
+    # full static graph (see compute_baseline_probs G_sub path).
     H = nx.path_graph(3)
     possible = np.array([[[1, 1, 1], [1, 0, 1]]] * 3, dtype=np.int8)
     truth_S, truth_I, truth_R = _sir_from_possible(possible)

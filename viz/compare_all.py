@@ -2,7 +2,7 @@
 Combined comparison figures for one dataset: all models + all baselines on the
 same axes.
 
-Reads a manifest file written by run_all_experiments.sh (one entry per line):
+Reads a manifest file written by run_all_experiments.py (one entry per line):
 
     model=<key>   run_id=<id>   pipeline=<static|temporal>
     eval_run      run_id=<id>   pipeline=<static|temporal>
@@ -239,7 +239,7 @@ def plot_rank_vs_outbreak(
         ax.fill_between(cents[valid], p25[valid], p75[valid],
                         alpha=0.12, color=style["color"])
         ls = "-" if m.key in {"backtracking", "temporal_gnn", "static_gnn",
-                               "dbgnn", "dbgnn_k2", "dbgnn_k3", "dag_gnn"} else "--"
+                               "dbgnn", "dbgnn_k2", "dbgnn_k3"} else "--"
         ax.plot(cents[valid], means[valid],
                 color=style["color"], lw=2.2, ls=ls,
                 marker=style["marker"], ms=4, zorder=5,
@@ -283,7 +283,7 @@ def plot_topk_relative(
                         (fracs - ses)[valid], (fracs + ses)[valid],
                         alpha=0.12, color=style["color"])
         ls = "-" if m.key in {"backtracking", "temporal_gnn", "static_gnn",
-                               "dbgnn", "dbgnn_k2", "dbgnn_k3", "dag_gnn"} else "--"
+                               "dbgnn", "dbgnn_k2", "dbgnn_k3"} else "--"
         ax.plot(cents[valid], fracs[valid],
                 color=style["color"], lw=2.2, ls=ls,
                 marker=style["marker"], ms=4, zorder=5,
@@ -326,7 +326,7 @@ def plot_topk_absolute(
         valid = counts > 0
 
         ls = "-" if m.key in {"backtracking", "temporal_gnn", "static_gnn",
-                               "dbgnn", "dbgnn_k2", "dbgnn_k3", "dag_gnn"} else "--"
+                               "dbgnn", "dbgnn_k2", "dbgnn_k3"} else "--"
         ax.plot(cents[valid], np.array(counts)[valid],
                 color=style["color"], lw=2.2, ls=ls,
                 marker=style["marker"], ms=4, zorder=5,
@@ -418,7 +418,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--manifest",    required=True,
-                   help="Path to manifest file written by run_all_experiments.sh")
+                   help="Path to manifest file written by run_all_experiments.py")
     p.add_argument("--output-dir",  default="figures/comparison",
                    help="Directory for comparison figures (default: figures/comparison)")
     p.add_argument("--dataset",     default="",

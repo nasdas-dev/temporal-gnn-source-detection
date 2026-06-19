@@ -1,9 +1,10 @@
 model: static_gnn
 
-# escort is REDUCED to ~251 nodes (safe_1h) before simulation/training, so it is
-# a small-graph regime like olten (~194 nodes) — NOT the full 14 783-node graph.
-# Capacity and batch/budget therefore mirror olten; the previous 14k-node
-# settings (hidden=16, conv=2, n_mc=5, batch=4) starved the model (~1.2k params).
+# escort is reduced to ~251 nodes (safe_1h) before simulation/training, so it is
+# a small-graph regime like olten (~194 nodes), not the full 14 783-node graph.
+# Capacity and batch/budget therefore mirror olten; full-graph settings
+# (hidden=16, conv=2, n_mc=5, batch=4) would under-parameterise the model (~1.2k
+# params) at this size.
 eval:
   min_outbreak: 2
   top_k: [1, 3, 5, 10]

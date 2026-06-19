@@ -248,7 +248,7 @@ class TestComputeAllMetrics:
         assert result_strict["eval/top_5"] == pytest.approx(result_none["eval/top_5"])
 
     def test_candidate_rank_scope_applies_feasible_mask(self):
-        """Default Sterchi-style ranking should rank within feasible candidates."""
+        """Default ranking should rank within feasible candidates."""
         n_nodes, n_runs = 15, 30
         rng = np.random.default_rng(8)
         n_samples = n_nodes * n_runs

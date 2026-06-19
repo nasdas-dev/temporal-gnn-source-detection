@@ -1,11 +1,11 @@
 model: temporal_gnn
 
-# escort is REDUCED to ~251 nodes and a ~365-step window before training (small
-# regime like olten), NOT the full 14 783-node / 1232-day graph. Capacity/budget
-# mirror olten. group_by_time is set by the runner (TEMPORAL_GROUP_BY_TIME=16 for
-# escort -> ~23 snapshots, matching biasca/olten); the value here is the
-# standalone fallback. The old group_by_time=100 gave only ~3-4 snapshots and
-# crippled the temporal model.
+# escort is reduced to ~251 nodes and a ~365-step window before training (small
+# regime like olten), not the full 14 783-node / 1232-day graph. Capacity and
+# budget mirror olten. group_by_time is set by the runner
+# (TEMPORAL_GROUP_BY_TIME=16 for escort -> ~23 snapshots, matching biasca/olten);
+# the value here is the standalone fallback. group_by_time=100 would yield only
+# ~3-4 snapshots, too few for the temporal model.
 eval:
   min_outbreak: 2
   top_k: [1, 3, 5, 10]

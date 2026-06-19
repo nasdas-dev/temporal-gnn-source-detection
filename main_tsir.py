@@ -331,7 +331,7 @@ def _calibrate_end_t_if_requested(
     mean outbreak fraction at ``end_t`` is monotone non-decreasing in ``end_t``,
     so a bisection over the integer observation time converges to the smallest
     ``end_t`` whose mean outbreak size reaches ``sir.calibration.target_infected``
-    (default Sterchi et al. setting ≈ 0.40 of nodes infected at the snapshot).
+    (default ≈ 0.40 of nodes infected at the snapshot).
 
     If the full contact window (``end_t = t_max``) still does not reach the
     target — e.g. R0≈2 on a fragmented network saturates below 40% — ``end_t``
@@ -500,7 +500,7 @@ def main() -> None:
     reduction_report = H.graph.get("reduction_report", {})
     calibration_meta = _calibrate_beta_if_requested(cfg, H, local_folder, reduction_report)
     # Calibrate the observation time so ~target_infected of nodes are infected
-    # at the snapshot (Sterchi-style), using the just-calibrated beta.
+    # at the snapshot, using the just-calibrated beta.
     end_t_meta = _calibrate_end_t_if_requested(cfg, H, local_folder, reduction_report)
     if end_t_meta:
         calibration_meta = {**(calibration_meta or {}), "end_t": end_t_meta}

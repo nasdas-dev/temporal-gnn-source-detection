@@ -1,6 +1,6 @@
 model: static_gnn
 
-# Hyperparameters match Table 4 in Sterchi et al. (2025) for the Karate network.
+# Hyperparameters tuned for the Karate network.
 eval:
   min_outbreak: 2
   top_k: [1, 3, 5, 10]

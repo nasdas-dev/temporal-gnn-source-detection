@@ -306,19 +306,6 @@ def dbgnn_forward(
                  static_edge_index, static_edge_weight)
 
 
-def dag_gnn_forward(
-    model: torch.nn.Module,
-    x_batch: torch.Tensor,   # [B, N, 3]
-    graph_data: dict,
-    device: torch.device,
-) -> torch.Tensor:           # [B, N]
-    x              = x_batch.to(device)
-    dag_edge_index = graph_data["dag_edge_index"].to(device)
-    event_to_node  = graph_data["event_to_node"].to(device)
-    event_src_node = graph_data["event_src_node"].to(device)
-    return model(x, dag_edge_index, event_to_node, event_src_node)
-
-
 # ---------------------------------------------------------------------------
 # Trainer
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ nwk:
   directed: false
   start_t: 1000    # drop first 1000 timesteps (noisy early contacts)
 
-# Continuous-time SIR (paper's C binary, Sterchi et al. 2025)
+# Continuous-time SIR (paper's C binary)
 # escort (Brazil): 14783 nodes, static-projection mean degree ≈ 4.58
 # β = 2*ν/mean_deg ≈ 0.44 → R₀ ≈ 2.0
 # MEMORY WARNING: n_nodes²×n_runs×3 bytes per array set.

@@ -22,7 +22,6 @@ from .graph_builder import (
     build_temporal_activation,
     build_temporal_snapshots,
     build_de_bruijn_graph,
-    build_dag_event_graph,
 )
 from training.trainer import (
     static_gnn_forward,
@@ -30,7 +29,6 @@ from training.trainer import (
     backtracking_forward,
     temporal_gnn_forward,
     dbgnn_forward,
-    dag_gnn_forward,
 )
 
 
@@ -45,7 +43,6 @@ _LAZY_EXPORTS = {
     "BacktrackingNetwork": ("gnn.backtracking_network", "BacktrackingNetwork"),
     "TemporalGNN": ("gnn.temporal_gnn", "TemporalGNN"),
     "DBGNN": ("gnn.dbgnn", "DBGNN"),
-    "DAGGNN": ("gnn.dag_gnn", "DAGGNN"),
 }
 
 
@@ -151,17 +148,6 @@ def _build_dbgnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.Mo
     )
 
 
-def _build_dag_gnn(model_cfg: dict, n_nodes: int, graph_data: dict) -> torch.nn.Module:
-    from .dag_gnn import DAGGNN
-
-    return DAGGNN(
-        hidden_channels = model_cfg["hidden_channels"],
-        num_conv_layers = model_cfg["num_conv_layers"],
-        dropout_rate    = model_cfg.get("dropout_rate", 0.2),
-        agg             = model_cfg.get("agg", "mean"),
-    )
-
-
 def _build_no_graph(H, **kwargs) -> dict:
     """Return empty graph data for graph-free trainable baselines."""
     return {}
@@ -208,20 +194,12 @@ MODEL_REGISTRY["dbgnn"] = ModelSpec(
     build_fn   = _build_dbgnn,
 )
 
-MODEL_REGISTRY["dag_gnn"] = ModelSpec(
-    cls        = _lazy_cls("DAGGNN"),
-    forward_fn = dag_gnn_forward,
-    builder_fn = build_dag_event_graph,
-    build_fn   = _build_dag_gnn,
-)
-
 __all__ = [
     "StaticGNN",
     "StaticMLP",
     "BacktrackingNetwork",
     "TemporalGNN",
     "DBGNN",
-    "DAGGNN",
     "MODEL_REGISTRY",
     "ModelSpec",
     "get_model_spec",

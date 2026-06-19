@@ -12,7 +12,6 @@ build_static_graph          → StaticGNN
 build_temporal_activation   → BacktrackingNetwork (Ru et al.)
 build_temporal_snapshots    → TemporalGNN (time-slice SAGEConv)
 build_de_bruijn_graph       → DBGNN (Qarkaxhija et al.)
-build_dag_event_graph       → DAGGNN (Rey et al.)
 """
 
 from __future__ import annotations
@@ -487,14 +486,13 @@ def build_de_bruijn_graph(
 
     # A De Bruijn graph with no causal walk completions (no edges) carries no
     # higher-order information beyond the self-loops that would be added below.
-    # This is exactly the fully time-collapsed Δt in the H2 sweep: a single time
-    # bin admits no strictly-increasing causal walk. There, order k>=3 already
-    # yields zero nodes, while k=2 yields the single-contact nodes with no edges.
-    # We drop the higher-order branch in BOTH cases so the model falls back to the
-    # first-order static branch IDENTICALLY for every order — the collapse
-    # endpoint reduces to the same pure static GCN regardless of k, instead of
-    # letting k=2 keep self-loop-only nodes blended into the readout. This makes
-    # the H2 k2-vs-k3 collapse points order-invariant by construction.
+    # A single time bin admits no strictly-increasing causal walk: order k>=3
+    # then yields zero nodes, while k=2 yields single-contact nodes with no
+    # edges. The higher-order branch is dropped in both cases so the model falls
+    # back to the first-order static branch identically for every order — the
+    # collapse endpoint reduces to the same pure static GCN regardless of k,
+    # instead of letting k=2 keep self-loop-only nodes blended into the readout.
+    # This makes the k2-vs-k3 collapse points order-invariant by construction.
     if raw_n_db_nodes > 0 and edge_triples:
         # DB node -> original-node mapping
         db_node_to_original = torch.tensor(
@@ -566,100 +564,3 @@ def build_de_bruijn_graph(
     }
 
 
-# ---------------------------------------------------------------------------
-# Temporal event graph / DAG  (DAGGNN)
-# ---------------------------------------------------------------------------
-
-def build_dag_event_graph(
-    H: nx.Graph,
-    delta_t: int | None = None,
-) -> dict:
-    """Build the temporal event graph (TEG) as a DAG for DAGGNN.
-
-    Each contact event (u, v, t) becomes a node in the TEG. A directed edge
-    (e1 → e2) is added when event e1=(u,v,t1) causally enables e2=(v,w,t2):
-    they share node v and t2 > t1.  The result is a DAG.
-
-    Parameters
-    ----------
-    H:
-        Temporal NetworkX graph with ``'times'`` edge attribute.
-    delta_t:
-        Maximum time gap for a causal link.  ``None`` means no limit.
-
-    Returns
-    -------
-    dict with keys:
-        ``n_nodes``         int
-        ``n_events``        int  — number of contact events (TEG nodes)
-        ``dag_edge_index``  LongTensor [2, E_dag]  — forward causal edges
-        ``event_to_node``   LongTensor [n_events]  — arriving node per event
-        ``event_src_node``  LongTensor [n_events]  — departing node per event
-        ``event_times``     LongTensor [n_events]  — time of each event
-    """
-    n_nodes = H.number_of_nodes()
-
-    # Collect all directed contact events (both directions for undirected edges)
-    events: list[tuple[int, int, int]] = []
-    for u, v, data in H.edges(data=True):
-        for t in data.get("times", []):
-            events.append((int(u), int(v), int(t)))
-            if u != v:
-                events.append((int(v), int(u), int(t)))
-
-    if not events:
-        return {
-            "n_nodes":        n_nodes,
-            "n_events":       0,
-            "dag_edge_index": torch.zeros(2, 0, dtype=torch.long),
-            "event_to_node":  torch.zeros(0, dtype=torch.long),
-            "event_src_node": torch.zeros(0, dtype=torch.long),
-            "event_times":    torch.zeros(0, dtype=torch.long),
-        }
-
-    # Sort by time
-    events.sort(key=lambda e: e[2])
-    n_events = len(events)
-
-    event_src_arr = np.array([e[0] for e in events], dtype=np.int64)
-    event_dst_arr = np.array([e[1] for e in events], dtype=np.int64)
-    event_t_arr   = np.array([e[2] for e in events], dtype=np.int64)
-
-    # Build causal edges efficiently:
-    # For each event i=(u,v,t1), find all events j=(v,w,t2) where t2>t1
-    # (and t2-t1 <= delta_t if specified).
-    # Group events by their SOURCE node for fast lookup.
-    from collections import defaultdict
-    node_to_events: dict[int, list[int]] = defaultdict(list)
-    for i, (u, v, t) in enumerate(events):
-        node_to_events[u].append(i)  # events that START at node u
-
-    causal_src: list[int] = []
-    causal_dst: list[int] = []
-
-    for i, (u, v, t1) in enumerate(events):
-        # Find events starting at node v (arriving node of event i)
-        for j in node_to_events[v]:
-            t2 = events[j][2]
-            if t2 <= t1:
-                continue
-            if delta_t is not None and (t2 - t1) > delta_t:
-                continue
-            causal_src.append(i)
-            causal_dst.append(j)
-
-    if causal_src:
-        dag_edge_index = torch.tensor(
-            [causal_src, causal_dst], dtype=torch.long
-        )  # [2, E_dag]
-    else:
-        dag_edge_index = torch.zeros(2, 0, dtype=torch.long)
-
-    return {
-        "n_nodes":        n_nodes,
-        "n_events":       n_events,
-        "dag_edge_index": dag_edge_index,
-        "event_to_node":  torch.from_numpy(event_dst_arr),
-        "event_src_node": torch.from_numpy(event_src_arr),
-        "event_times":    torch.from_numpy(event_t_arr),
-    }

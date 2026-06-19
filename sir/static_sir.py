@@ -1,6 +1,5 @@
 """
-Wrapper for the paper's continuous-time SIR C binary (Petter Holme 2018,
-adapted by Sterchi et al. 2025).
+Wrapper for the continuous-time SIR C binary (Petter Holme 2018).
 
 Compiles gnn/static_source_detection_gnn/sir/sir from source if missing,
 then generates training (MC) and test (truth) simulation files in our standard

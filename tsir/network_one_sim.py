@@ -7,7 +7,7 @@ import os
 # --- CONFIGURATION (Based on tsir.yml) ---
 N_NODES = 15
 MC_RUNS = 2000000
-DATA_DIR = "/Users/dariush/Developer/Masterarbeit/source-detection-main/data/yo3mrtdb"  # Path to your binary files
+DATA_DIR = "/Users/dariush/Developer/Masterarbeit/source-detection-main/data/yo3mrtdb"  # Path to the binary files
 GPICKLE_PATH = f"{DATA_DIR}/network.gpickle"
 
 

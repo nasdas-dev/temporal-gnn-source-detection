@@ -16,14 +16,14 @@ Metric suite
 - Normalised entropy      via ``eval/norm_entropy``
 - Credible set coverage   via ``eval/cred_cov_{p_int}`` for each p
 
-By default, every metric follows the Sterchi et al. benchmark convention:
-each method is scored on the infected subgraph, i.e. its probability vector is
-restricted to feasible (non-susceptible) candidates and renormalised before
-both ranking and calibration metrics are computed. This makes models that mask
-susceptible nodes internally (e.g. BacktrackingNetwork, DBGNN) and those that
-do not (StaticGNN, TemporalGNN) directly comparable. Set ``eval.rank_scope``
-(or the backwards-compatible alias ``eval.ranking_scope``) to ``all_nodes`` to
-score over every node without applying ``lik_possible``.
+By default, every metric is scored on the infected subgraph, i.e. each
+method's probability vector is restricted to feasible (non-susceptible)
+candidates and renormalised before both ranking and calibration metrics are
+computed. This makes models that mask susceptible nodes internally (e.g.
+BacktrackingNetwork, DBGNN) and those that do not (StaticGNN, TemporalGNN)
+directly comparable. Set ``eval.rank_scope`` (or the backwards-compatible alias
+``eval.ranking_scope``) to ``all_nodes`` to score over every node without
+applying ``lik_possible``.
 """
 
 from __future__ import annotations
@@ -78,7 +78,6 @@ def _rank_scope(eval_cfg: dict) -> str:
     raw = str(eval_cfg.get("rank_scope", eval_cfg.get("ranking_scope", "candidate")))
     scope = raw.lower().replace("-", "_")
     aliases = {
-        "sterchi": "candidate",
         "feasible": "candidate",
         "possible": "candidate",
         "infected": "candidate",
@@ -92,7 +91,7 @@ def _rank_scope(eval_cfg: dict) -> str:
     scope = aliases.get(scope, scope)
     if scope not in {"candidate", "all_nodes"}:
         raise ValueError(
-            "eval.rank_scope must be one of 'candidate'/'sterchi' or "
+            "eval.rank_scope must be one of 'candidate' or "
             f"'all_nodes', got {raw!r}"
         )
     return scope
@@ -109,10 +108,10 @@ def _restrict_and_renormalize(
     """Project each probability row onto the feasible candidate set.
 
     Non-candidate (susceptible) nodes are zeroed and every row is renormalised
-    to sum to one, so that all methods are scored on the infected subgraph
-    exactly as in Sterchi et al. Rows with no probability mass on candidates
-    fall back to a uniform distribution over their candidates; rows with no
-    candidates at all (degenerate) fall back to uniform over all nodes.
+    to sum to one, so that all methods are scored on the infected subgraph.
+    Rows with no probability mass on candidates fall back to a uniform
+    distribution over their candidates; rows with no candidates at all
+    (degenerate) fall back to uniform over all nodes.
     """
     probs_eval = probs.astype(np.float64, copy=True)
     probs_eval[~candidate_mask] = 0.0
@@ -141,7 +140,7 @@ def _prepare_eval_distribution(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return ``(probs_eval, rank_values)`` for the configured rank scope.
 
-    With the default Sterchi-style ``candidate`` scope, ``probs_eval`` is the
+    With the default ``candidate`` scope, ``probs_eval`` is the
     probability vector restricted to the infected subgraph and renormalised;
     it is used for *every* metric so masking models and non-masking models are
     compared on identical footing. ``rank_values`` carries ``-inf`` on
@@ -196,7 +195,7 @@ def per_sample_arrays(
     probs : np.ndarray, shape (n_samples, n_nodes)
         Predicted probability distribution (non-negative, sums to 1).
     lik_possible : np.ndarray, shape (n_samples, n_nodes)
-        Feasible-source log mask. With the default Sterchi-style rank scope,
+        Feasible-source log mask. With the default rank scope,
         nodes with ``+inf`` in this array are excluded from rank-based metrics.
         Set ``eval.rank_scope: all_nodes`` to ignore it for ranking.
     truth_S_flat : np.ndarray, shape (n_samples, n_nodes), int8
@@ -229,7 +228,7 @@ def per_sample_arrays(
 
     rng = _rng_from_eval_cfg(eval_cfg)
 
-    # Sterchi-style evaluation: every method is scored on the infected subgraph.
+    # Every method is scored on the infected subgraph.
     # ``rank_values`` ranks the true source among feasible candidates only.
     _, rank_values = _prepare_eval_distribution(probs, lik_possible, eval_cfg)
     ranks = compute_ranks(rank_values, n_nodes=n_nodes, n_runs=n_runs, rng=rng)
@@ -265,7 +264,7 @@ def compute_all_metrics(
         non-negative and sum to 1 over axis 1.
     lik_possible : np.ndarray, shape (n_samples, n_nodes)
         Feasible-source log mask. By default it restricts every metric to the
-        infected subgraph (Sterchi-style candidate evaluation): probabilities
+        infected subgraph (candidate evaluation): probabilities
         are renormalised over feasible candidates before scoring.
         Set ``eval.rank_scope: all_nodes`` for strict all-node evaluation.
     truth_S_flat : np.ndarray, shape (n_samples, n_nodes), int8

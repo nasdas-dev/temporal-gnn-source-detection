@@ -160,8 +160,6 @@ def _builder_kwargs(model_name: str, model_cfg: dict) -> dict:
         return {"use_edge_weights": model_cfg.get("use_edge_weights", False)}
     if model_name == "temporal_gnn":
         return {"group_by_time": model_cfg.get("group_by_time", 1)}
-    if model_name == "dag_gnn":
-        return {"delta_t": model_cfg.get("delta_t", None)}
     if model_name == "dbgnn":
         return {
             "order": model_cfg.get("order", 2),
@@ -529,12 +527,12 @@ def run_trial(
                 val_losses,
             )
 
-        # Smoothed validation NLL — the Sterchi-style model-selection signal:
-        # "performance is measured as the average of the last five validation
-        # losses". It is computed on the large held-out validation split of the
-        # MC training data, so it is far less noisy than the truth-window MRR on
-        # a small window (which previously caused TPE to select under-fitting
-        # configs). Selection uses this when hpo.metric = "eval/val_nll".
+        # Smoothed validation NLL — a model-selection signal computed as the
+        # average of the last few validation losses. It is taken on the large
+        # held-out validation split of the MC training data, so it is far less
+        # noisy than the truth-window MRR on a small window (which can cause TPE
+        # to select under-fitting configs). Selection uses this when
+        # hpo.metric = "eval/val_nll".
         val_window = int((trial_cfg.get("hpo") or {}).get("val_loss_window", 5))
         if val_losses:
             k = max(1, min(val_window, len(val_losses)))

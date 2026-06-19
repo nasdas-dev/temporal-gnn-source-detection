@@ -105,7 +105,7 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 MODEL_ORDER = [
-    "backtracking", "temporal_gnn", "static_gnn", "dbgnn_k2", "dbgnn_k3", "dbgnn", "dag_gnn",
+    "backtracking", "temporal_gnn", "static_gnn", "dbgnn_k2", "dbgnn_k3", "dbgnn",
     "static_mlp", "mc_mean_field",
     "jordan_center", "betweenness", "closeness", "degree",
     "soft_margin", "mcs_mean_field", "uniform", "random",
@@ -118,7 +118,6 @@ MODEL_LABELS = {
     "dbgnn":         "DBGNN",
     "dbgnn_k2":      "DBGNN k=2",
     "dbgnn_k3":      "DBGNN k=3",
-    "dag_gnn":       "DAG-GNN",
     "static_mlp":    "MLP Baseline",
     "mc_mean_field": "MC Mean-Field",
     "jordan_center": "Jordan Center",
@@ -155,7 +154,7 @@ METRIC_LABELS = {
     "valid_frac":       "Valid",
 }
 
-GNN_MODELS = {"backtracking", "temporal_gnn", "static_gnn", "dbgnn", "dbgnn_k2", "dbgnn_k3", "dag_gnn"}
+GNN_MODELS = {"backtracking", "temporal_gnn", "static_gnn", "dbgnn", "dbgnn_k2", "dbgnn_k3"}
 
 
 def _bold_best(values: list[str], raw: list[list[float | None]],

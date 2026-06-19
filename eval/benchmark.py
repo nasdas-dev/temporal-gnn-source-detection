@@ -262,8 +262,8 @@ def soft_margin_artifact(
 ) -> np.ndarray:
     """Soft-margin estimator (Antulov-Fantulin / SME) on the STORED MC pool.
 
-    This is the paper-faithful SME for the Sterchi et al. benchmark: it scores
-    each observed snapshot against the artifact's Monte-Carlo simulations
+    This scores each observed snapshot against the artifact's Monte-Carlo
+    simulations
     ``mc_S`` — the *same* outbreaks used to train the GNN — instead of re-running
     a static SIR simulator per candidate (which is both off-substrate and
     infeasible at ``n_mc=500``). For each candidate source ``v`` it forms the
@@ -460,7 +460,7 @@ def mcs_mean_field(
     n_mc: int = 100,
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """Monte Carlo simulation mean-field baseline (Sterchi et al.).
+    """Monte Carlo simulation mean-field baseline.
 
     For each candidate source node, ``n_mc`` SIR simulations are run on
     ``H_static`` to estimate the marginal probability that each node ends up

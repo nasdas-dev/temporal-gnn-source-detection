@@ -1,10 +1,10 @@
 """
 Stage 1 (static GNN) — continuous-time SIR simulation pipeline.
 
-Uses the paper's continuous-time SIR C binary (Sterchi et al. 2025 / Petter
-Holme 2018) to generate training and test simulations on the *static projection*
-of any network.  Results are logged as a versioned W&B artifact that is fully
-compatible with downstream main_train.py and main_eval.py.
+Uses the continuous-time SIR C binary (Petter Holme 2018) to generate training
+and test simulations on the *static projection* of any network.  Results are
+logged as a versioned W&B artifact that is fully compatible with downstream
+main_train.py and main_eval.py.
 
 Use this instead of main_tsir.py whenever you train a static_gnn model.
 

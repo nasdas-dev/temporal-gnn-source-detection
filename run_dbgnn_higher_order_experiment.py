@@ -259,9 +259,9 @@ def attach_hpo_budget(cfg: dict[str, Any], args: argparse.Namespace, preset: Pre
     hpo_cfg["trial_epochs"] = _positive_cap(getattr(args, "hpo_epochs", None))
     hpo_cfg["trial_patience"] = _positive_cap(getattr(args, "hpo_patience", None))
     hpo_cfg["trial_n_mc"] = effective_hpo_n_mc(args, preset)
-    # Select on smoothed validation NLL (Sterchi-style), not the noisy truth-MRR
-    # — kept identical to run_all_experiments.attach_hpo_budget. This is the copy
-    # the H2 coarse-graining runner imports, so it must carry the same fix.
+    # Select on smoothed validation NLL, not the noisy truth-MRR — kept identical
+    # to run_all_experiments.attach_hpo_budget. This is the copy the H2
+    # coarse-graining runner imports, so it must carry the same behaviour.
     hpo_cfg["metric"] = "eval/val_nll"
     hpo_cfg["direction"] = "minimize"
     hpo_cfg["val_loss_window"] = 5

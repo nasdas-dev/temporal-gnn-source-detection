@@ -12,7 +12,7 @@ includes latex_inputs.json for downstream LaTeX/report generation.
 
 Default run:
     python run_all_experiments.py
-        # uses the day-scale paired Optuna protocol: paper_24h, 5 HPO trials,
+        # day-scale paired Optuna protocol: paper_24h, 5 HPO trials,
         # network-scope HPO reuse across R0s, short HPO trial budgets,
         # capped final training
 
@@ -22,7 +22,7 @@ Useful controls:
     python run_all_experiments.py --hpo-scope scenario --preset max_quality --hpo-trials 30 \
         --max-train-epochs 0 --max-train-patience 0
     python run_all_experiments.py --no-hpo --preset fast
-        # disables the default paired <method> and <method>_optuna final evaluations
+        # disables the paired <method> and <method>_optuna final evaluations
     python run_all_experiments.py --resume --run-name 20260512_010000
 """
 
@@ -60,14 +60,15 @@ from setup.reduction import NetworkStats, read_full_network_stats
 
 WANDB_PROJECT = "source-detection"
 
-# pig_data scrapped: degenerate outbreak regime (epidemics stay trivially tiny),
-# excluded from the test suite. See the regime audit / outbreak-degeneracy notes.
+# pig_data is excluded: its outbreak regime is degenerate (epidemics stay
+# trivially tiny), so it carries no useful signal for the benchmark.
 NETWORKS = ["lyon_ward", "malawi", "france_office", "students", "biasca", "olten", "escort"]
 MODELS = ["static_gnn", "temporal_gnn", "backtracking", "dbgnn_k2", "dbgnn_k3"]
-# Base models excluded from Optuna HPO. DBGNN (k2/k3) is excluded: its trials are
-# by far the most expensive and crash-prone (k=3 De Bruijn graph explodes), and
-# tuning never made it competitive — so it is evaluated untuned only, with no
-# `_optuna` variant. It still runs as a normal final on the same held-out window.
+# Base models excluded from Optuna HPO. DBGNN (k2/k3) is excluded because its
+# trials are the most expensive and crash-prone (the k=3 De Bruijn graph
+# explodes) and tuning does not make it competitive, so it is evaluated untuned
+# only, with no `_optuna` variant. It still runs as a final on the same held-out
+# window as every other method.
 HPO_EXCLUDED_BASE_MODELS = {"dbgnn"}
 
 
@@ -80,20 +81,20 @@ MODEL_ALIASES = {
 }
 TRAINABLE_BASELINES = ["static_mlp"]
 HEURISTIC_BASELINES_FAST = ["uniform", "random", "degree", "closeness", "betweenness", "jordan_center"]
-# Sterchi et al.'s full baseline set: Random, Jordan, Betweenness, SME, MCMF.
-# soft_margin (SME) now runs on the stored MC pool (artifact SME), so it is
-# affordable at n_mc=500 and belongs in the default comparison.
+# Full benchmark baseline set: Random, Jordan, Betweenness, SME, MCMF.
+# soft_margin (SME) runs on the stored MC pool (artifact SME), so it is
+# affordable at n_mc=500 and is part of the default comparison.
 HEURISTIC_BASELINES_PAPER = HEURISTIC_BASELINES_FAST + ["mc_mean_field", "soft_margin"]
 HEURISTIC_BASELINES_EXPENSIVE = ["mcs_mean_field"]
 HEURISTIC_BASELINES = HEURISTIC_BASELINES_PAPER
 # Per-observation baselines: betweenness/jordan_center are computed on the
-# *infected subgraph* of every outbreak (Sterchi-faithful, but ~100x slower than
-# a static prior) and soft_margin (SME) compares every observation to the stored
-# MC pool. On the large reduced networks (≈300 nodes × n_truth observations)
-# these can take hours per network. ``--no-expensive-baselines`` drops them while
-# keeping the cheap, fully-vectorised baselines (incl. the MCMF probabilistic
-# baseline). The cheap subset alone is a complete, fast comparison; add the
-# expensive set back for the definitive Sterchi-parity table.
+# *infected subgraph* of every outbreak (~100x slower than a static prior) and
+# soft_margin (SME) compares every observation to the stored MC pool. On the
+# large reduced networks (≈300 nodes × n_truth observations) these can take hours
+# per network. ``--no-expensive-baselines`` drops them while keeping the cheap,
+# fully-vectorised baselines (including the MCMF probabilistic baseline). The
+# cheap subset alone is a complete, fast comparison; the expensive set is
+# required for the full benchmark table.
 EXPENSIVE_BASELINES = {"betweenness", "jordan_center", "soft_margin"}
 HEURISTIC_BASELINES_CHEAP = [b for b in HEURISTIC_BASELINES_PAPER if b not in EXPENSIVE_BASELINES]
 BASELINE_ALIASES = {
@@ -121,36 +122,36 @@ BETAS = {
     "malawi":       {"r0_08": 0.025, "r0_10": 0.041, "r0_11": 0.050, "r0_15": 0.105, "r0_20": 0.244, "r0_25": 0.542},
     "france_office":{"r0_08": 0.058, "r0_10": 0.070, "r0_11": 0.076, "r0_15": 0.107, "r0_20": 0.159, "r0_25": 0.233},
     "students":     {"r0_08": 0.034, "r0_10": 0.045, "r0_11": 0.051, "r0_15": 0.078, "r0_20": 0.124, "r0_25": 0.187},
-    # biasca/olten/escort r0_20 betas re-measured by the local mu-sweep
-    # (tmp/mu_sweep*.py, n_probe=600) at the corrective per-net mu below; the
-    # runtime calibrator re-bisects beta, these are the verified fallback/seed.
+    # biasca/olten/escort r0_20 betas are measured by a mu-sweep at the per-net mu
+    # below; the runtime calibrator re-bisects beta, so these act as the
+    # fallback/seed values.
     "biasca":       {"r0_08": 0.016, "r0_10": 0.031, "r0_11": 0.041, "r0_15": 0.113, "r0_20": 0.630, "r0_25": 0.480},
     "olten":        {"r0_08": 0.025, "r0_10": 0.039, "r0_11": 0.047, "r0_15": 0.096, "r0_20": 0.690, "r0_25": 0.343},
     "escort":       {"r0_08": 0.016, "r0_10": 0.020, "r0_11": 0.022, "r0_15": 0.030, "r0_20": 0.750, "r0_25": 0.050},
     "pig_data":     {"r0_08": 0.032, "r0_10": 0.040, "r0_11": 0.044, "r0_15": 0.060, "r0_20": 0.080, "r0_25": 0.100},
 }
 
-# Recovery rate. Standardised at STANDARD_MU on the clean networks (Sterchi et
-# al. fix mu WLOG; the C simulator requires mu < 1, so a single small value
-# rather than 1). The temporally-sparse networks biasca/olten/escort CANNOT
-# reach R0=2 at mu=0.01 even at the beta=1 ceiling (local mu-sweep: they top out
-# at R0 1.42 / 1.31 / 0.98) because beta is capped at a per-contact probability
-# while contact availability is the binding constraint. R0 is the cross-network
-# invariant, so mu becomes the free knob there: lowered per-net to the value that
-# reaches R0=2 with beta headroom below the ceiling (tmp/mu_sweep*.py). beta is
-# re-calibrated at run time (the beta cache is mu-aware).
+# Recovery rate. Standardised at STANDARD_MU on the clean networks (mu is fixed
+# without loss of generality; the C simulator requires mu < 1, so a single small
+# value rather than 1). The temporally-sparse networks biasca/olten/escort cannot
+# reach R0=2 at mu=0.01 even at the beta=1 ceiling (they top out at R0 1.42 /
+# 1.31 / 0.98) because beta is capped at a per-contact probability while contact
+# availability is the binding constraint. R0 is the cross-network invariant, so
+# mu is the free knob there: it is lowered per-net to the value that reaches R0=2
+# with beta headroom below the ceiling. beta is re-calibrated at run time (the
+# beta cache is mu-aware).
 STANDARD_MU = 0.01
 MU_OVERRIDES = {
-    "biasca": 0.003,   # beta~=0.63 -> R0 2.0 (sweep), full-window outbreak ~21%
-    "olten": 0.003,    # beta~=0.69 -> R0 2.0 (sweep), full-window outbreak ~20%
-    "escort": 0.001,   # beta~=0.75 -> R0 2.0 (sweep), full-window outbreak ~29%
+    "biasca": 0.003,   # beta~=0.63 -> R0 2.0, full-window outbreak ~21%
+    "olten": 0.003,    # beta~=0.69 -> R0 2.0, full-window outbreak ~20%
+    "escort": 0.001,   # beta~=0.75 -> R0 2.0, full-window outbreak ~29%
 }
 MUS = {network: MU_OVERRIDES.get(network, STANDARD_MU) for network in NETWORKS}
 
 # Target fraction of nodes infected at the observed snapshot. end_t is
-# calibrated per network/R0 to hit this (Sterchi et al. use ≈ 0.40). The sparse
-# nets cannot reach 40% at R0=2 (their full-window final size is only ~20-29%),
-# so the snapshot target is lowered there to a feasible mid-epidemic fraction.
+# calibrated per network/R0 to hit this (≈ 0.40). The sparse nets cannot reach
+# 40% at R0=2 (their full-window final size is only ~20-29%), so the snapshot
+# target is lowered there to a feasible mid-epidemic fraction.
 TARGET_INFECTED = 0.40
 TARGET_INFECTED_OVERRIDES = {
     "biasca": 0.15,
@@ -166,8 +167,7 @@ TEMPORAL_GROUP_BY_TIME = {
     "biasca": 32,
     "olten": 32,
     # escort reduces to a ~365-step window; 16 -> ~23 snapshots, matching the
-    # temporal resolution of biasca/olten (743 steps / 32). Previously escort was
-    # absent here and silently fell back to the default 12.
+    # temporal resolution of biasca/olten (743 steps / 32).
     "escort": 16,
 }
 
@@ -187,9 +187,9 @@ PRESETS = {
     "max_quality": Preset(n_runs=1000, mc_runs=500, n_mc=500, reps=1, n_truth=1000),
     "fast": Preset(n_runs=120, mc_runs=80, n_mc=80, reps=1, n_truth=40),
     # Multi-seed protocol for the in-depth Optuna tuner experiment
-    # (run_tuner_experiment.py). reps=3 mirrors Sterchi et al.: the final model
-    # is trained and evaluated three times and averaged. n_runs leaves room for
-    # a disjoint HPO-validation window + the 3*250 held-out final-test window.
+    # (run_tuner_experiment.py). reps=3: the final model is trained and evaluated
+    # three times and averaged. n_runs leaves room for a disjoint HPO-validation
+    # window + the 3*250 held-out final-test window.
     "tuner": Preset(n_runs=1200, mc_runs=500, n_mc=500, reps=3, n_truth=250),
 }
 
@@ -207,19 +207,17 @@ LOSS_GUARD = {
 # well-behaved GNNs (their grad norms rarely exceed this).
 GRAD_CLIP_NORM = 1.0
 
-# Frozen, Sterchi-aligned training hyperparameters (Table 4): the optimiser
-# setup is fixed and only the architecture is tuned. batch_size applies to the
-# static models; temporal models keep memory-appropriate batches (see
-# build_model_config).
-STERCHI_TRAIN = {
+# Frozen training hyperparameters: the optimiser setup is fixed and only the
+# architecture is tuned. batch_size applies to the static models; temporal
+# models keep memory-appropriate batches (see build_model_config).
+FIXED_TRAIN = {
     "lr": 0.001,
     "weight_decay": 0.0005,
     "batch_size": 128,
     "test_size": 0.30,
     # Train up to 500 epochs and let early-stopping (patience 20) decide when to
-    # stop, exactly as Sterchi et al. — never a hard cap that bites before
-    # convergence. Early stopping means real epoch counts stay modest
-    # (Sterchi's networks stopped at 23–68 epochs), so this is GPU-affordable.
+    # stop, rather than a hard cap that bites before convergence. With early
+    # stopping the real epoch counts stay modest, so this is GPU-affordable.
     "epochs": 500,
     "patience": 20,
 }
@@ -243,7 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "cheap (inference + metrics only, no extra training).")
     p.add_argument("--target-infected", type=float, default=TARGET_INFECTED,
                    help="Target fraction of nodes infected at the observed snapshot. "
-                        "end_t is calibrated per network/R0 to hit this (Sterchi ≈ 0.40).")
+                        "end_t is calibrated per network/R0 to hit this (≈ 0.40).")
     p.add_argument("--target-infected-n-probe", type=int, default=64,
                    help="Number of probe outbreaks per end_t bisection step when "
                         "calibrating the infected-snapshot fraction.")
@@ -291,7 +289,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Early-stopping patience cap used inside HPO trials only")
     p.add_argument("--max-train-epochs", type=int, default=500,
                    help="Cap final train.epochs for generated configs; set 0 to keep template values. "
-                        "Default 500 matches Sterchi (rely on early-stopping, not the cap, to converge).")
+                        "Default 500 relies on early-stopping, not the cap, to converge.")
     p.add_argument("--max-train-patience", type=int, default=20,
                    help="Cap final train.patience for generated configs; set 0 to keep template values")
     p.add_argument("--hpo-sampler", choices=["tpe", "random"], default="tpe")
@@ -383,17 +381,17 @@ def attach_hpo_budget(cfg: dict[str, Any], args: argparse.Namespace, preset: Pre
     hpo_cfg["trial_epochs"] = _positive_cap(getattr(args, "hpo_epochs", None))
     hpo_cfg["trial_patience"] = _positive_cap(getattr(args, "hpo_patience", None))
     hpo_cfg["trial_n_mc"] = effective_hpo_n_mc(args, preset)
-    # Select models on the SAME metric we report and rank by: held-out MRR.
-    # Selecting on validation NLL instead (the previous setting) degraded the
-    # strong models — a config can win val-NLL (sharper/over-confident) yet rank
-    # worse on MRR, and the enqueue-default protection then only guards NLL, not
-    # the reported metric. Optimising MRR directly means the protected default
-    # trial guarantees tuned >= default on the validation window's MRR, and TPE
-    # pushes toward what the thesis actually measures. Validation NLL is still
-    # logged for monitoring/pruning but no longer drives selection. Pair this
-    # with a trial n_mc close to the final n_mc (see effective_hpo_n_mc / the
-    # runner command) so the trial regime matches the final and HPO stops
-    # selecting under-capacity architectures that only fit the tiny trial set.
+    # Select models on the same metric that is reported and ranked by: held-out
+    # MRR. Selecting on validation NLL instead degrades the strong models — a
+    # config can win val-NLL (sharper/over-confident) yet rank worse on MRR, and
+    # the enqueue-default protection then only guards NLL, not the reported
+    # metric. Optimising MRR directly means the protected default trial guarantees
+    # tuned >= default on the validation window's MRR, and TPE pushes toward what
+    # is actually measured. Validation NLL is still logged for monitoring/pruning
+    # but does not drive selection. Pair this with a trial n_mc close to the final
+    # n_mc (see effective_hpo_n_mc / the runner command) so the trial regime
+    # matches the final and HPO stops selecting under-capacity architectures that
+    # only fit the tiny trial set.
     hpo_cfg["metric"] = "eval/mrr"
     hpo_cfg["direction"] = "maximize"
     hpo_cfg["val_loss_window"] = 5
@@ -406,7 +404,7 @@ def final_eval_window(args: argparse.Namespace, preset: Preset) -> tuple[int, in
     (``hpo.truth_start = 0``, ``hpo.reps = 1`` — ``attach_hpo_budget`` never
     overrides these), so the heuristic/probabilistic baselines can be scored on
     the *identical* window as the GNN finals instead of the default ``[0,
-    n_truth)``. Sterchi's benchmark requires every method on one data substrate;
+    n_truth)``. The benchmark requires every method on one data substrate;
     without this the GNN window (shifted past the HPO-validation runs) and the
     baseline window only partially overlap.
 
@@ -636,7 +634,7 @@ def build_tsir_config(
     if args is not None and not bool(getattr(args, "use_full_betas", False)):
         # end_t is initialised to the full contact window (t_max above) and acts
         # as the upper bound for the target-infected calibration, which shrinks
-        # it to the Sterchi-style ≈40%-infected snapshot.
+        # it to the ≈40%-infected snapshot.
         target_infected = TARGET_INFECTED_OVERRIDES.get(
             network, float(getattr(args, "target_infected", TARGET_INFECTED))
         )
@@ -647,10 +645,10 @@ def build_tsir_config(
             "target_infected_n_probe": int(getattr(args, "target_infected_n_probe", 64)),
             "target_infected_tolerance": 0.02,
             "output_dir": "results/calibration",
-            # n_probe is the SIR-run count per beta-bisection step. The historical
-            # default of 1 makes the R0 estimate far too noisy for a definitive
-            # run (the local sweep needed ~600 for a stable estimate); use a
-            # stable count so the corrective calibration is reproducible.
+            # n_probe is the SIR-run count per beta-bisection step. A value of 1
+            # makes the R0 estimate far too noisy for a definitive run (a stable
+            # estimate needs a few hundred), so a larger count keeps the
+            # calibration reproducible.
             "n_probe": int(getattr(args, "calibration_n_probe", 200)),
             "max_iter": 8,
             "tolerance": 0.05,
@@ -697,34 +695,34 @@ def build_model_config(
         "credible_p": [0.80, 0.90],
         "inverse_rank_offset": [0],
         "n_truth": preset.n_truth,
-        # Sterchi-exact: all reps are scored on the SAME held-out test window, so
-        # the reported 95% CIs reflect training/initialisation noise (not test-set
-        # sampling). Only needs n_truth runs, so n_truth can be large and cheap.
+        # All reps are scored on the SAME held-out test window, so the reported
+        # 95% CIs reflect training/initialisation noise (not test-set sampling).
+        # Only needs n_truth runs, so n_truth can be large and cheap.
         "shared_eval_window": True,
     }
     cfg["train"] = {
         **cfg.get("train", {}),
-        # Sterchi-aligned, FROZEN training hyperparameters. These are no longer
-        # tuned by Optuna (see hpo/search_space.py); pinning them here makes the
-        # untuned headline config and every HPO trial share the same optimiser
-        # setup, so tuning can only change architecture. lr/weight_decay/test_size
-        # were the knobs whose search degraded the strong models last run.
-        "lr": STERCHI_TRAIN["lr"],
-        "weight_decay": STERCHI_TRAIN["weight_decay"],
-        "test_size": STERCHI_TRAIN["test_size"],
-        "epochs": STERCHI_TRAIN["epochs"],
-        "patience": STERCHI_TRAIN["patience"],
+        # Frozen training hyperparameters. These are not tuned by Optuna (see
+        # hpo/search_space.py); pinning them here makes the untuned headline config
+        # and every HPO trial share the same optimiser setup, so tuning can only
+        # change architecture. lr/weight_decay/test_size were the knobs whose
+        # search degraded the strong models.
+        "lr": FIXED_TRAIN["lr"],
+        "weight_decay": FIXED_TRAIN["weight_decay"],
+        "test_size": FIXED_TRAIN["test_size"],
+        "epochs": FIXED_TRAIN["epochs"],
+        "patience": FIXED_TRAIN["patience"],
         "n_mc": preset.n_mc,
         "reps": preset.reps,
         "loss_guard": LOSS_GUARD,
         "grad_clip_norm": GRAD_CLIP_NORM,
     }
-    # Batch size is frozen at Sterchi's 128 for the static models (small graphs);
-    # the temporal models (backtracking/temporal_gnn/dbgnn) keep their
+    # Batch size is frozen at 128 for the static models (small graphs); the
+    # temporal models (backtracking/temporal_gnn/dbgnn) keep their
     # memory-appropriate template/cap values since 128 would OOM on full-network
     # samples. It is removed from the HPO search either way.
     if base_model in ("static_gnn", "static_mlp"):
-        cfg["train"]["batch_size"] = STERCHI_TRAIN["batch_size"]
+        cfg["train"]["batch_size"] = FIXED_TRAIN["batch_size"]
     cfg.setdefault("output", {})["save_probs"] = save_probs
     if base_model == "temporal_gnn":
         temporal_cfg = cfg.setdefault("temporal_gnn", {})
@@ -804,7 +802,7 @@ def build_eval_config(
             },
             "soft_margin": {
                 # Artifact SME: use the same number of stored simulations the GNN
-                # trains on (Sterchi: SME/MCMF share the GNN's outbreak substrate).
+                # trains on, so SME/MCMF share the GNN's outbreak substrate.
                 "n_mc": min(preset.n_mc, preset.mc_runs),
             },
             "mcs_mean_field": {
@@ -1115,10 +1113,10 @@ def stage_hpo(
     if args.dry_run:
         return best_cfg
     # Fail-soft + freshness: a non-timeout HPO crash on one scenario must not
-    # abort the whole suite (it is recoverable via --resume), and we must never
-    # silently reuse a stale best_config.yml from a previous run. Only return a
-    # config the study (re)produced successfully this invocation; otherwise skip
-    # this model's Optuna variant — the untuned final still runs.
+    # abort the whole suite (it is recoverable via --resume), and a stale
+    # best_config.yml from a previous run must never be silently reused. Only
+    # return a config the study (re)produced successfully this invocation;
+    # otherwise skip this model's Optuna variant — the untuned final still runs.
     if status != "success":
         print(
             f"  WARNING: Optuna HPO {status} for {network}/{r0_label}/{model}; "
@@ -1145,8 +1143,8 @@ def write_untuned_paired_config(
             if key in best_cfg.get("eval", {}):
                 cfg["eval"][key] = best_cfg["eval"][key]
     elif bool(getattr(args, "with_hpo", False)):
-        # HPO produced no config for this model (failed/skipped) but we are still
-        # in the paired protocol: place the untuned final on the same shifted
+        # HPO produced no config for this model (failed/skipped) but the paired
+        # protocol is still active: place the untuned final on the same shifted
         # held-out window the baselines use, so every method stays on one
         # substrate even in the degraded case.
         ts, nt = final_eval_window(args, PRESETS[args.preset])
@@ -1813,7 +1811,7 @@ def main(
     args = parse_args(argv, default_overrides)
     global HEURISTIC_BASELINES, BASELINES
     # Bind the experiment name into every bundle refresh in this run. Shadows the
-    # module-level helper for the body of main() and its nested closures only.
+    # module-level helper within main() and its nested closures only.
     refresh_result_bundle = partial(
         _refresh_result_bundle, experiment_name=args.experiment_name
     )
@@ -1980,7 +1978,7 @@ def main(
                     # resolve_hpo_config returns None for HPO-excluded models
                     # (e.g. DBGNN): no study runs, and the untuned paired config
                     # below lands on the same shifted held-out window as every
-                    # other method, so DBGNN stays comparable.
+                    # other method, keeping DBGNN comparable.
                     best_cfg = resolve_hpo_config(network, r0_label, model, art)
                     untuned_cfg = write_untuned_paired_config(args, run_dir, network, r0_label, model, best_cfg)
                     stage_train(args, run_dir, status_path, network, r0_label, model, art, untuned_cfg)

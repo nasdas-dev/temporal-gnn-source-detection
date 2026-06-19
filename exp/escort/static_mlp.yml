@@ -1,10 +1,10 @@
 model: static_mlp
 
-# escort is REDUCED to ~251 nodes before training (small-graph regime, like
-# olten), NOT the full 14 783-node graph. Capacity/budget mirror olten; the old
-# 14k-node settings (hidden=16, 2 layers, n_mc=5, batch=4, skip off) starved it.
-# StaticMLP is permutation-equivariant (node-wise), so skip (raw-feature concat)
-# is safe and matches the other networks.
+# escort is reduced to ~251 nodes before training (small-graph regime like
+# olten), not the full 14 783-node graph. Capacity and budget mirror olten;
+# full-graph settings (hidden=16, 2 layers, n_mc=5, batch=4, skip off) under-fit
+# at this size. StaticMLP is permutation-equivariant (node-wise), so skip
+# (raw-feature concat) is safe and matches the other networks.
 eval:
   min_outbreak: 2
   top_k: [1, 3, 5, 10]

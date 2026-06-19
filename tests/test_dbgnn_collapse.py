@@ -3,9 +3,10 @@
 When the De Bruijn graph is empty (``n_db == 0``) — which is guaranteed at the
 fully time-collapsed Δt in the H2 coarse-graining sweep, since a single time bin
 admits no strictly-increasing causal walk — the model must fall back to the
-first-order static branch and behave like a static GCN. The earlier bug forced
-``bipartite_agg`` to zeros, making the output bias-only (uniform over candidate
-nodes), which masqueraded as "convergence to StaticGNN" for the wrong reason.
+first-order static branch and behave like a static GCN. A regression here would
+force ``bipartite_agg`` to zeros, making the output bias-only (uniform over
+candidate nodes), which masquerades as "convergence to StaticGNN" for the wrong
+reason.
 """
 
 from __future__ import annotations

@@ -1,9 +1,8 @@
 model: backtracking
 
-# escort is REDUCED to ~251 nodes before training (small regime like olten), NOT
-# the full 14 783-node graph. Capacity/budget mirror olten; num_layers=6 matches
-# the other small networks (the old shallow num_layers=4 / n_mc=5 was for the
-# full graph and is no longer warranted).
+# escort is reduced to ~251 nodes before training (small-graph regime like
+# olten), not the full 14 783-node graph. Capacity and budget mirror olten;
+# num_layers=6 matches the other small networks.
 eval:
   min_outbreak: 2       # standardised threshold for model evaluation
   top_k: [1, 3, 5, 10]
