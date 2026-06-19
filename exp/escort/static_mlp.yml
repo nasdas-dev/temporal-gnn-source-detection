@@ -1,19 +1,23 @@
 model: static_mlp
 
-# escort: 14783 nodes — keep capacity small and disable raw-input skip
+# escort is REDUCED to ~251 nodes before training (small-graph regime, like
+# olten), NOT the full 14 783-node graph. Capacity/budget mirror olten; the old
+# 14k-node settings (hidden=16, 2 layers, n_mc=5, batch=4, skip off) starved it.
+# StaticMLP is permutation-equivariant (node-wise), so skip (raw-feature concat)
+# is safe and matches the other networks.
 eval:
   min_outbreak: 2
   top_k: [1, 3, 5, 10]
   credible_p: [0.80, 0.90]
   inverse_rank_offset: [0]
-  n_truth: 1
+  n_truth: 333
 
 train:
-  n_mc: 5
-  reps: 2
+  n_mc: 500
+  reps: 3
   test_size: 0.30
-  batch_size: 4
-  epochs: 200
+  batch_size: 128
+  epochs: 500
   patience: 5
   lr: 0.001
   weight_decay: 0.0005
@@ -21,10 +25,10 @@ train:
 
 static_mlp:
   num_preprocess_layers: 1
-  embed_dim_preprocess: 16
+  embed_dim_preprocess: 64
   num_postprocess_layers: 0
-  num_hidden_layers: 2
-  hidden_channels: 16
+  num_hidden_layers: 4
+  hidden_channels: 64
   dropout_rate: 0.1
   batch_norm: true
-  skip: false
+  skip: true

@@ -1,23 +1,27 @@
 model: backtracking
 
+# escort is REDUCED to ~251 nodes before training (small regime like olten), NOT
+# the full 14 783-node graph. Capacity/budget mirror olten; num_layers=6 matches
+# the other small networks (the old shallow num_layers=4 / n_mc=5 was for the
+# full graph and is no longer warranted).
 eval:
   min_outbreak: 2       # standardised threshold for model evaluation
   top_k: [1, 3, 5, 10]
   credible_p: [0.80, 0.90]
   inverse_rank_offset: [0]
-  n_truth: 1
+  n_truth: 333
 
 train:
-  n_mc: 5               # MC samples per source used for GNN training (matches mc_runs)
-  reps: 2               # fewer reps: each rep loads the full ~3 GB mc dataset
+  n_mc: 500
+  reps: 3
   test_size: 0.20
-  batch_size: 16        # large graphs (14 783 nodes) → small batches
-  epochs: 200
-  patience: 20
+  batch_size: 32
+  epochs: 300
+  patience: 30
   lr: 0.001
   weight_decay: 0.0001
   seed: 42
 
 backtracking:
   hidden_dim: 32
-  num_layers: 4         # shallower than smaller networks to limit oversmoothing
+  num_layers: 6

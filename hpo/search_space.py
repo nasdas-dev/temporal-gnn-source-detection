@@ -171,12 +171,29 @@ def _suggest_backtracking(trial: TrialLike) -> dict[str, Any]:
 
 
 def _suggest_temporal_gnn(trial: TrialLike) -> dict[str, Any]:
+    # Depth is set by group_by_time (one SAGEConv per snapshot), so beyond width
+    # and temporal resolution the meaningful knobs are the regularisers/readout
+    # the architecture actually exposes. Searching only width + resolution gave
+    # TPE almost nothing to tune; adding dropout/readout/residual/layer_norm lets
+    # tuning find a genuinely better-generalising temporal model.
     return {
         "temporal_gnn.hidden_channels": trial.suggest_categorical(
             "temporal_gnn.hidden_channels", [16, 32, 64, 128]
         ),
         "temporal_gnn.group_by_time": trial.suggest_categorical(
             "temporal_gnn.group_by_time", [1, 2, 4, 6, 8, 12, 24, 48]
+        ),
+        "temporal_gnn.dropout_rate": trial.suggest_float(
+            "temporal_gnn.dropout_rate", 0.0, 0.30
+        ),
+        "temporal_gnn.readout": trial.suggest_categorical(
+            "temporal_gnn.readout", ["last", "jumping_mean"]
+        ),
+        "temporal_gnn.residual": trial.suggest_categorical(
+            "temporal_gnn.residual", [True, False]
+        ),
+        "temporal_gnn.layer_norm": trial.suggest_categorical(
+            "temporal_gnn.layer_norm", [True, False]
         ),
     }
 
@@ -363,6 +380,10 @@ def describe_search_space(model_name: str) -> dict[str, Any]:
         "temporal_gnn": {
             "temporal_gnn.hidden_channels": [16, 32, 64, 128],
             "temporal_gnn.group_by_time": [1, 2, 4, 6, 8, 12, 24, 48],
+            "temporal_gnn.dropout_rate": "uniform[0.0, 0.3]",
+            "temporal_gnn.readout": ["last", "jumping_mean"],
+            "temporal_gnn.residual": [True, False],
+            "temporal_gnn.layer_norm": [True, False],
         },
         "dag_gnn": {
             "dag_gnn.hidden_channels": [16, 32, 64, 128],

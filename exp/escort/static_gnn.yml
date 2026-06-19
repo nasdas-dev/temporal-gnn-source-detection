@@ -1,19 +1,22 @@
 model: static_gnn
 
-# escort: 14783 nodes — use minimal batch size and capacity
+# escort is REDUCED to ~251 nodes (safe_1h) before simulation/training, so it is
+# a small-graph regime like olten (~194 nodes) — NOT the full 14 783-node graph.
+# Capacity and batch/budget therefore mirror olten; the previous 14k-node
+# settings (hidden=16, conv=2, n_mc=5, batch=4) starved the model (~1.2k params).
 eval:
   min_outbreak: 2
   top_k: [1, 3, 5, 10]
   credible_p: [0.80, 0.90]
   inverse_rank_offset: [0]
-  n_truth: 1
+  n_truth: 333
 
 train:
-  n_mc: 5               # matches mc_runs in tsir.yml
-  reps: 2
+  n_mc: 500
+  reps: 3
   test_size: 0.30
-  batch_size: 4         # large graphs require small batches
-  epochs: 200
+  batch_size: 128
+  epochs: 500
   patience: 5
   lr: 0.001
   weight_decay: 0.0005
@@ -21,11 +24,11 @@ train:
 
 static_gnn:
   num_preprocess_layers: 1
-  embed_dim_preprocess: 16
+  embed_dim_preprocess: 64
   num_postprocess_layers: 0
-  num_conv_layers: 2
+  num_conv_layers: 4
   aggr: sum
-  hidden_channels: 16
+  hidden_channels: 64
   dropout_rate: 0.1
   batch_norm: true
   skip: true

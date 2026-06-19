@@ -60,8 +60,20 @@ from setup.reduction import NetworkStats, read_full_network_stats
 
 WANDB_PROJECT = "source-detection"
 
-NETWORKS = ["lyon_ward", "malawi", "france_office", "students", "biasca", "olten", "escort", "pig_data"]
+# pig_data scrapped: degenerate outbreak regime (epidemics stay trivially tiny),
+# excluded from the test suite. See the regime audit / outbreak-degeneracy notes.
+NETWORKS = ["lyon_ward", "malawi", "france_office", "students", "biasca", "olten", "escort"]
 MODELS = ["static_gnn", "temporal_gnn", "backtracking", "dbgnn_k2", "dbgnn_k3"]
+# Base models excluded from Optuna HPO. DBGNN (k2/k3) is excluded: its trials are
+# by far the most expensive and crash-prone (k=3 De Bruijn graph explodes), and
+# tuning never made it competitive — so it is evaluated untuned only, with no
+# `_optuna` variant. It still runs as a normal final on the same held-out window.
+HPO_EXCLUDED_BASE_MODELS = {"dbgnn"}
+
+
+def hpo_enabled_for(model: str, args: "argparse.Namespace") -> bool:
+    """Whether ``model`` should get an Optuna study + paired ``_optuna`` final."""
+    return bool(getattr(args, "with_hpo", False)) and base_model_key(model) not in HPO_EXCLUDED_BASE_MODELS
 MODEL_ALIASES = {
     "dbgnn": ["dbgnn_k2", "dbgnn_k3"],
     "all": MODELS,
@@ -109,24 +121,42 @@ BETAS = {
     "malawi":       {"r0_08": 0.025, "r0_10": 0.041, "r0_11": 0.050, "r0_15": 0.105, "r0_20": 0.244, "r0_25": 0.542},
     "france_office":{"r0_08": 0.058, "r0_10": 0.070, "r0_11": 0.076, "r0_15": 0.107, "r0_20": 0.159, "r0_25": 0.233},
     "students":     {"r0_08": 0.034, "r0_10": 0.045, "r0_11": 0.051, "r0_15": 0.078, "r0_20": 0.124, "r0_25": 0.187},
-    "biasca":       {"r0_08": 0.016, "r0_10": 0.031, "r0_11": 0.041, "r0_15": 0.113, "r0_20": 0.274, "r0_25": 0.480},
-    "olten":        {"r0_08": 0.025, "r0_10": 0.039, "r0_11": 0.047, "r0_15": 0.096, "r0_20": 0.195, "r0_25": 0.343},
-    "escort":       {"r0_08": 0.016, "r0_10": 0.020, "r0_11": 0.022, "r0_15": 0.030, "r0_20": 0.040, "r0_25": 0.050},
+    # biasca/olten/escort r0_20 betas re-measured by the local mu-sweep
+    # (tmp/mu_sweep*.py, n_probe=600) at the corrective per-net mu below; the
+    # runtime calibrator re-bisects beta, these are the verified fallback/seed.
+    "biasca":       {"r0_08": 0.016, "r0_10": 0.031, "r0_11": 0.041, "r0_15": 0.113, "r0_20": 0.630, "r0_25": 0.480},
+    "olten":        {"r0_08": 0.025, "r0_10": 0.039, "r0_11": 0.047, "r0_15": 0.096, "r0_20": 0.690, "r0_25": 0.343},
+    "escort":       {"r0_08": 0.016, "r0_10": 0.020, "r0_11": 0.022, "r0_15": 0.030, "r0_20": 0.750, "r0_25": 0.050},
     "pig_data":     {"r0_08": 0.032, "r0_10": 0.040, "r0_11": 0.044, "r0_15": 0.060, "r0_20": 0.080, "r0_25": 0.100},
 }
 
-# Recovery rate. Standardised across the whole test suite so every network
-# shares the same SIR dynamical regime (Sterchi et al. fix mu WLOG; the C
-# simulator requires mu < 1, so we use a single small value rather than 1).
-# Networks whose mu changes here have their beta re-calibrated automatically at
-# run time (the beta cache is mu-aware), and end_t is calibrated to the 40%
-# infected-snapshot target — so all three knobs stay self-consistent.
+# Recovery rate. Standardised at STANDARD_MU on the clean networks (Sterchi et
+# al. fix mu WLOG; the C simulator requires mu < 1, so a single small value
+# rather than 1). The temporally-sparse networks biasca/olten/escort CANNOT
+# reach R0=2 at mu=0.01 even at the beta=1 ceiling (local mu-sweep: they top out
+# at R0 1.42 / 1.31 / 0.98) because beta is capped at a per-contact probability
+# while contact availability is the binding constraint. R0 is the cross-network
+# invariant, so mu becomes the free knob there: lowered per-net to the value that
+# reaches R0=2 with beta headroom below the ceiling (tmp/mu_sweep*.py). beta is
+# re-calibrated at run time (the beta cache is mu-aware).
 STANDARD_MU = 0.01
-MUS = {network: STANDARD_MU for network in NETWORKS}
+MU_OVERRIDES = {
+    "biasca": 0.003,   # beta~=0.63 -> R0 2.0 (sweep), full-window outbreak ~21%
+    "olten": 0.003,    # beta~=0.69 -> R0 2.0 (sweep), full-window outbreak ~20%
+    "escort": 0.001,   # beta~=0.75 -> R0 2.0 (sweep), full-window outbreak ~29%
+}
+MUS = {network: MU_OVERRIDES.get(network, STANDARD_MU) for network in NETWORKS}
 
 # Target fraction of nodes infected at the observed snapshot. end_t is
-# calibrated per network/R0 to hit this (Sterchi et al. use ≈ 0.40).
+# calibrated per network/R0 to hit this (Sterchi et al. use ≈ 0.40). The sparse
+# nets cannot reach 40% at R0=2 (their full-window final size is only ~20-29%),
+# so the snapshot target is lowered there to a feasible mid-epidemic fraction.
 TARGET_INFECTED = 0.40
+TARGET_INFECTED_OVERRIDES = {
+    "biasca": 0.15,
+    "olten": 0.15,
+    "escort": 0.20,
+}
 
 TEMPORAL_GROUP_BY_TIME = {
     "lyon_ward": 6,
@@ -135,6 +165,10 @@ TEMPORAL_GROUP_BY_TIME = {
     "students": 50,
     "biasca": 32,
     "olten": 32,
+    # escort reduces to a ~365-step window; 16 -> ~23 snapshots, matching the
+    # temporal resolution of biasca/olten (743 steps / 32). Previously escort was
+    # absent here and silently fell back to the default 12.
+    "escort": 16,
 }
 
 
@@ -349,13 +383,19 @@ def attach_hpo_budget(cfg: dict[str, Any], args: argparse.Namespace, preset: Pre
     hpo_cfg["trial_epochs"] = _positive_cap(getattr(args, "hpo_epochs", None))
     hpo_cfg["trial_patience"] = _positive_cap(getattr(args, "hpo_patience", None))
     hpo_cfg["trial_n_mc"] = effective_hpo_n_mc(args, preset)
-    # Select models on the smoothed validation NLL (mean of the last
-    # `val_loss_window` validation losses), as in Sterchi et al., instead of the
-    # noisy truth-window MRR. The validation split is large and i.i.d. with
-    # training, so this signal is stable even at a few trials; the truth-window
-    # metrics are still logged for monitoring but no longer drive selection.
-    hpo_cfg["metric"] = "eval/val_nll"
-    hpo_cfg["direction"] = "minimize"
+    # Select models on the SAME metric we report and rank by: held-out MRR.
+    # Selecting on validation NLL instead (the previous setting) degraded the
+    # strong models — a config can win val-NLL (sharper/over-confident) yet rank
+    # worse on MRR, and the enqueue-default protection then only guards NLL, not
+    # the reported metric. Optimising MRR directly means the protected default
+    # trial guarantees tuned >= default on the validation window's MRR, and TPE
+    # pushes toward what the thesis actually measures. Validation NLL is still
+    # logged for monitoring/pruning but no longer drives selection. Pair this
+    # with a trial n_mc close to the final n_mc (see effective_hpo_n_mc / the
+    # runner command) so the trial regime matches the final and HPO stops
+    # selecting under-capacity architectures that only fit the tiny trial set.
+    hpo_cfg["metric"] = "eval/mrr"
+    hpo_cfg["direction"] = "maximize"
     hpo_cfg["val_loss_window"] = 5
 
 
@@ -597,14 +637,21 @@ def build_tsir_config(
         # end_t is initialised to the full contact window (t_max above) and acts
         # as the upper bound for the target-infected calibration, which shrinks
         # it to the Sterchi-style ≈40%-infected snapshot.
+        target_infected = TARGET_INFECTED_OVERRIDES.get(
+            network, float(getattr(args, "target_infected", TARGET_INFECTED))
+        )
         sir_cfg["calibration"] = {
             "enabled": True,
             "target_r0": sc["r0"],
-            "target_infected": float(getattr(args, "target_infected", TARGET_INFECTED)),
+            "target_infected": target_infected,
             "target_infected_n_probe": int(getattr(args, "target_infected_n_probe", 64)),
             "target_infected_tolerance": 0.02,
             "output_dir": "results/calibration",
-            "n_probe": 1,
+            # n_probe is the SIR-run count per beta-bisection step. The historical
+            # default of 1 makes the R0 estimate far too noisy for a definitive
+            # run (the local sweep needed ~600 for a stable estimate); use a
+            # stable count so the corrective calibration is reproducible.
+            "n_probe": int(getattr(args, "calibration_n_probe", 200)),
             "max_iter": 8,
             "tolerance": 0.05,
             "seed": int(getattr(args, "reduction_seed", 42)),
@@ -1016,6 +1063,10 @@ def stage_hpo(
     art: str,
 ) -> Path | None:
     if not args.with_hpo:
+        return None
+    if base_model_key(model) in HPO_EXCLUDED_BASE_MODELS:
+        # No Optuna study for excluded models (e.g. DBGNN); the untuned final
+        # still runs via the paired-config path below.
         return None
     tuned_model = optuna_variant_key(model)
     if should_skip(status_path, args, network, r0_label, "hpo", tuned_model):
@@ -1925,11 +1976,28 @@ def main(
                     update_status(status_path, {"network": network, "r0_label": r0_label, "stage": "train", "model": model, "status": "skipped", "message": "unknown_model"})
                     continue
                 if args.with_hpo:
+                    do_hpo = hpo_enabled_for(model, args)
+                    # resolve_hpo_config returns None for HPO-excluded models
+                    # (e.g. DBGNN): no study runs, and the untuned paired config
+                    # below lands on the same shifted held-out window as every
+                    # other method, so DBGNN stays comparable.
                     best_cfg = resolve_hpo_config(network, r0_label, model, art)
                     untuned_cfg = write_untuned_paired_config(args, run_dir, network, r0_label, model, best_cfg)
                     stage_train(args, run_dir, status_path, network, r0_label, model, art, untuned_cfg)
                     refresh_result_bundle(run_dir, status_path)
-                    if best_cfg is not None or args.dry_run:
+                    if not do_hpo:
+                        # HPO-excluded model: single untuned final only, no
+                        # `_optuna` variant (nothing to pair against).
+                        update_status(status_path, {
+                            "network": network,
+                            "r0_label": r0_label,
+                            "stage": "train",
+                            "model": optuna_variant_key(model),
+                            "status": "skipped",
+                            "artifact": art,
+                            "message": "hpo_excluded",
+                        })
+                    elif best_cfg is not None or args.dry_run:
                         stage_train(
                             args,
                             run_dir,
