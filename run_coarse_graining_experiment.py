@@ -85,6 +85,7 @@ from run_all_experiments import (
     R0_VALUES,
     FIXED_TRAIN,
     TARGET_INFECTED,
+    TARGET_INFECTED_OVERRIDES,
     build_eval_config,
     extract_run_id,
     final_eval_window,
@@ -604,14 +605,19 @@ def build_tsir_config(
         # is identical across Δt (Δt only changes the model's temporal binning),
         # so one calibrated end_t per network/R0 is shared across the resolution
         # sweep via the cache.
+        target_infected = TARGET_INFECTED_OVERRIDES.get(
+            network, float(getattr(args, "target_infected", TARGET_INFECTED))
+        )
         sir_cfg["calibration"] = {
             "enabled": True,
             "target_r0": sc["r0"],
-            "target_infected": float(getattr(args, "target_infected", TARGET_INFECTED)),
+            "target_infected": target_infected,
             "target_infected_n_probe": int(getattr(args, "target_infected_n_probe", 64)),
             "target_infected_tolerance": 0.02,
             "output_dir": "results/calibration",
-            "n_probe": 1,
+            # SIR-run count per beta-bisection step; a stable count keeps the R0
+            # estimate reproducible (1 is far too noisy for a definitive run).
+            "n_probe": int(getattr(args, "calibration_n_probe", 200)),
             "max_iter": 8,
             "tolerance": 0.05,
             "seed": int(getattr(args, "seed", 42)),
@@ -747,6 +753,10 @@ def stage_hpo(args, run_dir, status_path, network, r0_label, model_key, artifact
     """Tune once at Δt=1 (Δt-invariant for static) per (network, model_key)."""
     if not args.with_hpo:
         return None
+    if MODEL_BASE[model_key] == "dbgnn":
+        # DBGNN is evaluated untuned only (no Optuna study); run_paired trains
+        # the untuned Δt sweep and skips the Optuna variants.
+        return None
     tuned_variant = optuna_variant_name(model_key, 1)
     study_name = f"{network}_{model_key}"
     best_cfg = run_dir / "hpo" / study_name / "best_config.yml"
@@ -846,10 +856,11 @@ def stage_train(args, run_dir, status_path, network, r0_label, model_key, delta_
 def run_paired(args, run_dir, status_path, network, r0_label, model_key, delta_t, artifact, best_cfg):
     """Train the untuned + Optuna-tuned variants for one (model, Δt) cell."""
     if args.with_hpo:
+        do_hpo = MODEL_BASE[model_key] != "dbgnn"
         untuned_cfg = write_untuned_paired_config(args, run_dir, network, r0_label, model_key, delta_t, best_cfg)
         stage_train(args, run_dir, status_path, network, r0_label, model_key, delta_t, artifact,
                     untuned_cfg, status_variant=variant_name(model_key, delta_t))
-        if best_cfg is not None or args.dry_run:
+        if do_hpo and (best_cfg is not None or args.dry_run):
             optuna_cfg = best_cfg if delta_t == 1 else write_reused_optuna_config(
                 args, run_dir, network, r0_label, model_key, delta_t, best_cfg)
             stage_train(args, run_dir, status_path, network, r0_label, model_key, delta_t, artifact,
